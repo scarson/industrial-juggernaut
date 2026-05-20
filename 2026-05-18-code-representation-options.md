@@ -152,6 +152,49 @@ Property-based testing is the natural fit. Properties to assert:
 
 ## Suggested Tech Stack
 
-If you want one concrete recommendation: **Rust + the `hexx` crate** (or equivalent) for hex math, immutable game state via owned values + `Clone`, `geo` or a small hand-rolled module for convex hull and segment intersection, `proptest` for property-based tests. Rust's type system catches the perimeter-staleness bug class at compile time, and the resulting binary is fast enough for serious MCTS-based AI.
+For a **native or desktop** build: **Rust + the `hexx` crate** (or equivalent) for hex math, immutable game state via owned values + `Clone`, `geo` or a small hand-rolled module for convex hull and segment intersection, `proptest` for property-based tests. Rust's type system catches the perimeter-staleness bug class at compile time, and the resulting binary is fast enough for serious MCTS-based AI.
 
-If you want fast iteration over correctness: **TypeScript + Immer** with the same architectural choices. Cheaper to prototype, slower for AI search.
+For **fast iteration over correctness** on any platform: **TypeScript + Immer** with the same architectural choices. Cheaper to prototype, slower for AI search.
+
+## Web Deployment — Cloudflare Workers + Durable Objects
+
+**Decision: this project will ship as an all-TypeScript stack on Cloudflare (client + Worker + Durable Object).** The reasoning is below.
+
+### Why the Rust recommendation softens on Cloudflare
+
+The original Rust pitch was about AI search performance and compile-time correctness. On Cloudflare Workers, two things change:
+
+1. **Workers' CPU limits punish heavy AI.** Free tier is 10 ms CPU/request; paid Workers Unbound caps at 30 s. Serious MCTS doesn't fit comfortably in either. The performance advantage of Rust matters less when you can't spend the cycles anyway.
+2. **Workers + Durable Objects are JS/TS-native.** DOs are how you do multiplayer state — one DO per game, WebSocket hibernation, transactional storage. You can call WASM from a DO, but the DO itself is JS. Going Rust-primary means writing a TS shell anyway.
+
+### Why Cloudflare fits this game well
+
+The natural architecture is **one Durable Object per game**:
+
+- WebSocket connections from each player attach to the DO.
+- DO holds the authoritative game state in memory + persists snapshots to its built-in transactional storage.
+- D1 (SQLite) for match history / accounts / matchmaking.
+- Workers KV or R2 for static assets (board art, etc.).
+- Pages for the SPA frontend.
+
+This is a turn-based game with tiny state (~96 hexes, ≤72 bases, ≤36 factories). Hibernating WebSockets in a DO is dirt cheap — a game can sit idle for hours at $0 cost between rounds. It's a near-ideal CF workload.
+
+### Three stacks that were considered
+
+| Stack | When it wins |
+|---|---|
+| **All TypeScript** (client + Worker + DO) — **CHOSEN** | Fastest iteration, one language, the whole game fits comfortably. |
+| Rust-WASM rules core + TS shell | You want one rules engine compiled twice — once for the browser (optimistic UI) and once for the Worker (authoritative validation). Guarantees client and server can never disagree about legality. Worth it if rules complexity grows. |
+| TS on CF + separate Rust AI service | AI search is a priority. Run heavy MCTS on a long-running VM (Fly.io, Hetzner, a Cloudflare Container) and call into it from the Worker. Don't try to do real AI search inside a Worker. |
+
+### Cloudflare-specific gotchas worth knowing
+
+- **WASM works in Workers** (`WebAssembly` global, wasm-pack output drops in cleanly), but the module is part of your Worker bundle and counts against the 1 MB free / 10 MB paid script size limit. Rust-WASM for hex math + perimeter geometry is well under that; a full AI evaluator might not be.
+- **No filesystem, no native sockets, no threads.** Standard WASM rules apply.
+- **Cold starts with WASM are fine** for small modules (single-digit ms), but they're not free — measure if it matters.
+- **Durable Objects are single-threaded per object** — a perfect match for one-game-at-a-time turn resolution. You won't fight concurrency bugs.
+- **CF Containers** (in beta as of recent rollouts) let you run actual long-running processes if you need them for AI. That's where Rust would earn its keep on this platform.
+
+### Migration path if needed
+
+Start with TypeScript end-to-end. Extract the rules core to a Rust crate only if (a) we find ourselves debugging client/server divergence in legality checks, or (b) we want serious AI and are willing to host it off-Workers. The TS rules module can be ported to Rust later without changing the DO architecture.
