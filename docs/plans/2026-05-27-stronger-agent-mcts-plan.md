@@ -69,10 +69,10 @@ notes and commit messages.
 | A6 — Trustworthiness gates (acceptance) | ⬜ Not started | — | — |
 
 ### Deviations
-- (none yet)
+- A2.1 pulled the A5.1 `agentFor` driver seam forward (A2 needs to run arbitrary agents through the real driver; duplicating the loop would risk divergence). Committed 5 files incl. `src/driver/record.ts` (the `RunOptions.agentFor?` type field lives there) — additive, acceptance test stays green. A5.1 will find the seam already present.
 
 ### Discoveries
-- (none yet)
+- **A2.1 — turn-3 mass-elimination is RULES-bound, not agent-bound.** Heuristic-greedy self-play (200 games, 2–6P, seed 1n): `{last-standing: 152 (all empty-coalition), iron: 48}`, turns histogram `{1:111, 2:49, 3:40}`, 0 cap hits. The improved perimeter-aware heuristic did NOT lengthen games — they still collapse by turn 3 via simultaneous `brokenPerimeterAt18Factories` elimination of all <4-base players, driven by the SHARED placed-factory count (one player's factory-spam advances the death clock for everyone). 24% reach real iron victories. → proceed with A2.2 factory-clock tuning (see A2.2 for the 5-option decision).
 
 ---
 
