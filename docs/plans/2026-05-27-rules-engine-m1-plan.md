@@ -67,8 +67,8 @@ notes and commit messages.
 | 3 — Board | ✅ Shipped | `87f56f4`,`1ad4633`,`98dc3fc` | shape, iron-CSP (200-seed property test), generate/load |
 | 4 — Territory / control | ✅ Shipped | `4051191`,`bbb08df` | control() both regimes (board-bounded), mkState helper |
 | 5 — Rules engine | ✅ Shipped | `93c0271`,`92855dc`,`86277b2`,`7cb4e7d`,`029782e`,`6249299`,`543b34b`,`50f62a4` | build, combat, apply(build/attack), stranded, status/victory, legalActions, turn |
-| 6 — Greedy-weighted agent | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
-| 7 — Driver + acceptance | ⬜ Not started | — | — |
+| 6 — Greedy-weighted agent | ✅ Shipped | `360550a`,`a9795ee` | move scoring, archetype agent (softmax, greedy multi-placement, defensive reserve) |
+| 7 — Driver + acceptance | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
 
 ### Deviations
 - Task 0.1: also committed `package-lock.json` (the task's literal `git add` list omitted it). Reproducible installs need the lockfile; included it rather than leave it untracked.
@@ -767,7 +767,7 @@ describe("resolveCombat", () => {
 
 ## Phase 6 — Greedy-Weighted Agent
 
-**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
+**Execution Status:** ✅ SHIPPED on 2026-05-27 (commits `360550a` scoring, `a9795ee` archetype agent; 212 tests green)
 
 ### Task 6.1: Move scoring + static prunes
 
@@ -797,7 +797,7 @@ describe("resolveCombat", () => {
 
 ## Phase 7 — Driver + Acceptance
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
 
 ### Task 7.1: Game driver + result records
 
