@@ -28,6 +28,7 @@ export interface HeuristicWeights {
   tempo: number;
   perimeter: number;
   frontier: number;
+  survival: number;
 }
 
 /**
@@ -46,9 +47,56 @@ export interface HeuristicWeights {
  *  - `frontier: 0.5` — a per-exposed-border-hex penalty; small so a single
  *    contested hex doesn't dominate, but enough that compact positions are
  *    preferred over sprawling exposed ones.
+ *  - `survival: 12` — the ANTI-SELF-DESTRUCT term. A myopic per-move agent that
+ *    only sees factory/perimeter REWARD will compose factory builds that push its
+ *    controlled-factory count to/over `brokenPerimeterDeathAtFactories` while
+ *    still holding <4 bases, tripping the `brokenPerimeterAt18Factories`
+ *    elimination. This per-extra-factory ramp penalty (in the no-perimeter regime
+ *    only) outweighs `fact`'s per-factory reward inside the danger band, so the
+ *    agent stops adding factories and pivots to base-building before the clock
+ *    fires. See `survivalPenalty` for the exact shape; calibrated empirically via
+ *    `measureDistribution` 2P self-play (drives self-destructs to ~0 while keeping
+ *    factories valuable once a 4-base perimeter is established).
  */
 export function defaultHeuristicWeights(): HeuristicWeights {
-  return { iron: 10, fact: 1, area: 1, tempo: 0.5, perimeter: 4, frontier: 0.5 };
+  return { iron: 10, fact: 1, area: 1, tempo: 0.5, perimeter: 4, frontier: 0.5, survival: 12 };
+}
+
+/**
+ * Width (in factories) of the danger band below the factory-death threshold over
+ * which the survival penalty ramps up. With `RAMP_WIDTH = 2` the penalty is 0
+ * when a <4-base player controls `threshold-2` or fewer factories, then ramps for
+ * the last two factories before the threshold and goes severe at/over it.
+ */
+const RAMP_WIDTH = 2;
+
+/**
+ * Penalty for a player sitting near/at the per-player factory-death condition.
+ *
+ * The death rule (`applyEliminations`, `brokenPerimeterAt18Factories`) eliminates
+ * a player with `< PERIMETER_BASE_COUNT` bases once it controls `>= threshold`
+ * factories. So the penalty applies ONLY in the no-perimeter regime
+ * (`baseCount < PERIMETER_BASE_COUNT`); with an established 4-base perimeter the
+ * death rule cannot fire and factories are pure value (penalty 0).
+ *
+ * Shape, given `f = controlled factories`, `threshold = brokenPerimeterDeathAtFactories`:
+ *  - `f >= threshold`: the player is AT the literal elimination condition — the
+ *    very next `applyEliminations` removes it. Return the eliminated sentinel
+ *    (`-ELIMINATED_SCORE` so the caller subtracts it), so the position scores
+ *    ~as-bad-as-eliminated and the agent never chooses to enter it.
+ *  - `threshold - RAMP_WIDTH <= f < threshold`: a linear ramp,
+ *    `weight * (f - (threshold - RAMP_WIDTH))`, i.e. 0 at `threshold-RAMP_WIDTH`,
+ *    rising to `weight*(RAMP_WIDTH-1)` at `threshold-1`. With `weight > fact` this
+ *    band's marginal penalty exceeds `fact`'s marginal reward, so each extra
+ *    factory inside the band is net-negative and the agent pivots to bases.
+ *  - `f < threshold - RAMP_WIDTH`: no penalty (0) — factories are safely below the clock.
+ */
+function survivalPenalty(baseCount: number, factoryCount: number, threshold: number, weight: number): number {
+  if (baseCount >= PERIMETER_BASE_COUNT) return 0;
+  if (factoryCount >= threshold) return -ELIMINATED_SCORE;
+  const bandStart = threshold - RAMP_WIDTH;
+  if (factoryCount <= bandStart) return 0;
+  return weight * (factoryCount - bandStart);
 }
 
 /** The player's base hexes (for hull/area features). */
@@ -117,6 +165,16 @@ function scorePlayer(state: GameState, player: PlayerId, w: HeuristicWeights): n
   if (hasValidPerimeter) {
     score += w.perimeter;
   }
+
+  // survival: penalize the imminent industry-without-territory death (a <4-base
+  // player at/approaching the per-player factory-death threshold). Keyed on base
+  // COUNT (not a valid-hull perimeter) to match the elimination rule's own gate.
+  score -= survivalPenalty(
+    baseHexes.length,
+    ctl.factories.length,
+    state.config.brokenPerimeterDeathAtFactories,
+    w.survival,
+  );
 
   // frontier exposure: count my controlled hexes adjacent to any (live) opponent's
   // controlled hex. Build the union of opponents' controlled hexes once, then test
