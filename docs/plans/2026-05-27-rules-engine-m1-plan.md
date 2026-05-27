@@ -65,7 +65,7 @@ notes and commit messages.
 | 1 — RNG | ✅ Shipped | `7e1872b` | PCG32, reference-verified |
 | 2 — Geometry | ✅ Shipped | `01a6013`,`c4dba16`,`70291d6`,`244cdcd` | cube, hexline, hull (R1/R3), sightline (R2) |
 | 3 — Board | ✅ Shipped | `87f56f4`,`1ad4633`,`98dc3fc` | shape, iron-CSP (200-seed property test), generate/load |
-| 4 — Territory / control | ⬜ Not started | — | — |
+| 4 — Territory / control | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
 | 5 — Rules engine | ⬜ Not started | — | — |
 | 6 — Greedy-weighted agent | ⬜ Not started | — | — |
 | 7 — Driver + acceptance | ⬜ Not started | — | — |
@@ -613,7 +613,7 @@ describe("board sources", () => {
 
 ## Phase 4 — Territory / Control
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
 
 `control(state, player)` for both regimes (R3 degenerate handling), plus `resourceCount`.
 
