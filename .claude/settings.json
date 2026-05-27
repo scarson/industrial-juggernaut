@@ -5,9 +5,16 @@
         "source": "github",
         "repo": "obra/superpowers-marketplace"
       }
+    },
+    "agent-skills": {
+      "source": {
+        "source": "github",
+        "repo": "scarson/agent-skills"
+      }
     }
   },
   "enabledPlugins": {
-    "superpowers@superpowers-marketplace": true
+    "superpowers@superpowers-marketplace": true,
+    "agent-skills@agent-skills": true
   }
 }
