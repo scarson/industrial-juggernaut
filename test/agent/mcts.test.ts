@@ -13,15 +13,20 @@ import {
   sampleChanceOutcome,
   defaultExpansionParams,
   simulateStep,
+  leafValue,
+  runMcts,
+  defaultMctsCoreParams,
   type Node,
   type Edge,
   type PathStep,
   type ExpansionParams,
+  type MctsCoreParams,
 } from "../../src/agent/mcts";
 import type { Action, GameState } from "../../src/engine/types";
 import { mkState } from "../helpers/state";
 import { applyAction } from "../../src/engine/apply";
-import { advanceRound } from "../../src/engine/turn";
+import { advanceRound, currentPlayer } from "../../src/engine/turn";
+import { status } from "../../src/engine/status";
 import { seed } from "../../src/rng/pcg";
 import { defaultConfig } from "../../src/engine/config";
 
@@ -538,5 +543,207 @@ describe("simulateStep — determinized turn order across a rollover", () => {
     expect(out.state.phase.turn).toBe(s.phase.turn);
     // The provided board-state turn order is preserved (no rollover draw).
     void advanceRound;
+  });
+});
+
+// ===========================================================================
+// A3.3 — leaf evaluation + the search loop.
+// ===========================================================================
+
+const coreParams = (over: Partial<MctsCoreParams> = {}): MctsCoreParams => ({
+  ...defaultMctsCoreParams(),
+  ...over,
+});
+
+// An ongoing 2-player fixture where p0 clearly outscores p1 (more iron + bases).
+const lopsidedOngoing = (): GameState =>
+  mkState({
+    board: 96,
+    basesP0: [
+      { x: 0, y: 0, z: 0 },
+      { x: 2, y: -2, z: 0 },
+      { x: 4, y: -4, z: 0 },
+    ],
+    basesP1: [{ x: 0, y: 4, z: -4 }],
+    iron: [
+      { x: 5, y: -5, z: 0 },
+      { x: 6, y: -6, z: 0 },
+    ],
+  });
+
+// A terminal (iron-victory) fixture for p0: a tiny victoryThreshold p0 already meets.
+const ironVictoryFor0 = (): GameState => {
+  const c = defaultConfig();
+  const config = { ...c, victoryThreshold: 1 };
+  return mkState({
+    board: 96,
+    basesP0: [{ x: 0, y: 0, z: 0 }],
+    basesP1: [{ x: 0, y: 4, z: -4 }],
+    iron: [{ x: 1, y: -1, z: 0 }],
+    config,
+  });
+};
+
+describe("leafValue — terminal mapping", () => {
+  it("a victory maps to 1 for each winner and 0 for everyone else", () => {
+    const state = ironVictoryFor0();
+    const st = status(state);
+    expect(st.kind).toBe("victory");
+    expect(st.kind === "victory" && st.players).toContain(0);
+
+    const v = leafValue(state, coreParams());
+    expect(v).toHaveLength(state.players.length);
+    // p0 won, p1 did not.
+    expect(v[0]).toBe(1);
+    expect(v[1]).toBe(0);
+  });
+
+  it("an empty-coalition victory maps to all zeros", () => {
+    // Both players eliminated -> status victory with empty players (degenerate).
+    const state = mkState({
+      board: 96,
+      basesP0: [{ x: 0, y: 0, z: 0 }],
+      basesP1: [{ x: 0, y: 4, z: -4 }],
+    });
+    const both: GameState = {
+      ...state,
+      players: state.players.map((p) => ({ ...p, eliminated: true })),
+    };
+    const st = status(both);
+    expect(st.kind === "victory" && st.players).toEqual([]);
+
+    const v = leafValue(both, coreParams());
+    expect(v).toEqual([0, 0]);
+  });
+});
+
+describe("leafValue — non-terminal (softmax over heuristic scores)", () => {
+  it("produces a pseudo-win-probability vector summing to 1 over live players", () => {
+    const state = lopsidedOngoing();
+    expect(status(state).kind).toBe("ongoing");
+
+    const v = leafValue(state, coreParams());
+    expect(v).toHaveLength(state.players.length);
+    const sum = v.reduce((a, b) => a + b, 0);
+    expect(sum).toBeCloseTo(1, 9);
+    for (const x of v) {
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(x).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("assigns the higher pseudo-probability to the higher-heuristic-score player", () => {
+    const state = lopsidedOngoing(); // p0 dominates p1
+    const v = leafValue(state, coreParams());
+    expect(v[0]!).toBeGreaterThan(v[1]!);
+  });
+
+  it("maps an eliminated player to ~0 probability (the -Infinity sentinel underflows)", () => {
+    const base = lopsidedOngoing();
+    const state: GameState = {
+      ...base,
+      players: base.players.map((p) => (p.id === 1 ? { ...p, eliminated: true } : p)),
+    };
+    expect(status(state).kind).toBe("victory"); // one coalition left -> last-standing
+    // Force the non-terminal branch by checking the softmax directly on a 3-player
+    // ongoing state with one eliminated player instead.
+    const three = mkState({
+      board: 96,
+      basesP0: [
+        { x: 0, y: 0, z: 0 },
+        { x: 2, y: -2, z: 0 },
+        { x: 4, y: -4, z: 0 },
+      ],
+      basesP1: [{ x: 0, y: 4, z: -4 }],
+      basesP2: [{ x: -4, y: 4, z: 0 }],
+      iron: [{ x: 5, y: -5, z: 0 }, { x: 6, y: -6, z: 0 }],
+    });
+    const withElim: GameState = {
+      ...three,
+      players: three.players.map((p) => (p.id === 2 ? { ...p, eliminated: true } : p)),
+    };
+    expect(status(withElim).kind).toBe("ongoing");
+    const v = leafValue(withElim, coreParams());
+    expect(v[2]!).toBeCloseTo(0, 6);
+    expect(v.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 9);
+  });
+});
+
+describe("defaultMctsCoreParams", () => {
+  it("extends the expansion params with iterations/maxDepth/cPuct/heuristicWeights", () => {
+    const p = defaultMctsCoreParams();
+    // Expansion fields present.
+    expect(p.C).toBe(defaultExpansionParams().C);
+    expect(p.alpha).toBe(defaultExpansionParams().alpha);
+    expect(p.candidateMode).toBe(defaultExpansionParams().candidateMode);
+    // Core-search fields present and sensible.
+    expect(p.iterations).toBeGreaterThan(0);
+    expect(p.maxDepth).toBeGreaterThan(0);
+    expect(p.cPuct).toBe(defaultCPuct);
+    expect(typeof p.heuristicWeights.iron).toBe("number");
+  });
+});
+
+describe("runMcts — search loop", () => {
+  it("is deterministic given a fixed search seed (identical root visit distribution twice)", () => {
+    const params = coreParams({ iterations: 200, maxDepth: 4 });
+    const r1 = runMcts(lopsidedOngoing(), 0, params, seed(2024n));
+    const r2 = runMcts(lopsidedOngoing(), 0, params, seed(2024n));
+
+    const dist = (r: { rootStats: { action: Action; visits: number }[] }) =>
+      r.rootStats.map((s) => [actionKey(s.action), s.visits] as const).sort();
+    expect(dist(r1)).toEqual(dist(r2));
+  });
+
+  it("the most-visited root action is applyAction-acceptable", () => {
+    const params = coreParams({ iterations: 200, maxDepth: 4 });
+    const state = lopsidedOngoing();
+    const { rootStats } = runMcts(state, 0, params, seed(7n));
+    expect(rootStats.length).toBeGreaterThan(0);
+    const best = rootStats.reduce((a, b) => (b.visits > a.visits ? b : a));
+    expect(() => applyAction(state, best.action)).not.toThrow();
+  });
+
+  it("concentrates visits on an obviously-winning move (forced auto-win attack -> last-standing)", () => {
+    // p0 (maxed-out, 3 radiating bases) can commit-3 auto-win (combatTable[3]=1)
+    // capturing p1's TARGET; the remaining p1 base (DEFENDER) controls no iron, so
+    // applyEliminations removes p1 -> last-standing victory for p0 (leafValue [1,0]).
+    // PASS / build leave the game ongoing (fractional softmax leaf value), so the
+    // attack is the uniquely-winning move and must attract the most visits.
+    const c = defaultConfig();
+    const config = {
+      ...c,
+      combatTable: { ...c.combatTable, 3: 1 },
+      victoryThreshold: 99, // never an iron victory; the win is by elimination
+      radius: 2, // local control so the captured base's loss strips p1's iron
+    };
+    const TARGET2 = { x: 2, y: -2, z: 0 };
+    const DEFENDER2 = { x: 2, y: -5, z: 3 };
+    const ATTACKERS3 = [
+      { x: 0, y: 0, z: 0 },
+      { x: -1, y: 1, z: 0 },
+      { x: 0, y: 1, z: -1 },
+    ];
+    const state = mkState({
+      board: 96,
+      basesP0: ATTACKERS3,
+      basesP1: [TARGET2, DEFENDER2],
+      iron: [
+        { x: -1, y: 0, z: 1 }, // p0's iron (survives elimination)
+        { x: 3, y: -3, z: 0 }, // p1's iron, controlled only via TARGET
+      ],
+      config,
+    });
+    state.players[0]!.basesInHand = 0; // maxed out -> win destroys TARGET, p0 stays radiating
+
+    // Sanity: root is ongoing and the acting player is p0.
+    expect(status(state).kind).toBe("ongoing");
+    expect(currentPlayer(state)).toBe(0);
+
+    const params = coreParams({ iterations: 400, maxDepth: 3 });
+    const { rootStats } = runMcts(state, 0, params, seed(13n));
+
+    const best = rootStats.reduce((a, b) => (b.visits > a.visits ? b : a));
+    expect(best.action.kind).toBe("attack");
   });
 });

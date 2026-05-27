@@ -2,9 +2,12 @@
 // ABOUTME: Pure functions threading an explicit search PRNG (no Math.random); uses the engine (applyAction/advanceRound/legalActions) and heuristic samplePolicy as the simulator + candidate generator.
 
 import { applyAction } from "../engine/apply";
-import { advanceRound } from "../engine/turn";
+import { applyEliminations, status } from "../engine/status";
+import { removeEncircledStrandedBases } from "../engine/stranded";
+import { stepRound } from "../engine/round";
+import { advanceRound, currentPlayer } from "../engine/turn";
 import { legalActions } from "../engine/legal";
-import { samplePolicy } from "./heuristic";
+import { evaluate, samplePolicy, type HeuristicWeights, defaultHeuristicWeights } from "./heuristic";
 import { key } from "../geometry/cube";
 import { nextFloat, type RngState } from "../rng/pcg";
 import type { Action, AttackDecl, Base, GameState, PlayerId } from "../engine/types";
@@ -503,4 +506,247 @@ export function simulateStep(
   // the search seed rather than the game's main stream.
   const advanced = advanceRound({ ...afterAction, rngState: searchRng });
   return { state: advanced, rng: advanced.rngState };
+}
+
+// ===========================================================================
+// A3.3 — leaf evaluation + the search loop.
+// ===========================================================================
+
+/**
+ * Leaf value as an N-vector of pseudo-win-probabilities, one component per player
+ * (spec §4.2 / §5).
+ *
+ * - TERMINAL (`status` is a victory): the ACTUAL outcome — `1` for each player in
+ *   the winning coalition, `0` for everyone else. An empty winning coalition
+ *   (degenerate mutual wipeout) maps to all-zero.
+ * - NON-TERMINAL (a `maxDepth` cutoff was reached on an ongoing state): a SOFTMAX
+ *   over the per-player heuristic scores from `evaluate(state, weights)`, producing
+ *   pseudo win-probabilities that sum to 1. The max score is subtracted before
+ *   exponentiating for numerical stability; the `-Infinity` eliminated-player
+ *   sentinel from `evaluate` maps to weight 0 (≈0 probability). If every weight
+ *   underflows (no live player), the result is a uniform distribution so the vector
+ *   still sums to 1.
+ *
+ * Pure — no PRNG; recomputes status/evaluate from the state (GEO-5).
+ */
+export function leafValue(state: GameState, params: MctsCoreParams): number[] {
+  const n = state.players.length;
+  const st = status(state);
+  if (st.kind === "victory") {
+    const winners = new Set<PlayerId>(st.players);
+    return state.players.map((p) => (winners.has(p.id) ? 1 : 0));
+  }
+
+  // Non-terminal: softmax over per-player heuristic scores.
+  const scores = evaluate(state, params.heuristicWeights);
+  let maxS = -Infinity;
+  for (const s of scores) if (s > maxS) maxS = s;
+
+  // All scores -Infinity (no live player) -> uniform fallback so the vector sums to 1.
+  if (!Number.isFinite(maxS)) {
+    return new Array<number>(n).fill(1 / n);
+  }
+
+  const exps = scores.map((s) => (Number.isFinite(s) ? Math.exp(s - maxS) : 0));
+  const total = exps.reduce((a, b) => a + b, 0);
+  if (!(total > 0) || !Number.isFinite(total)) {
+    return new Array<number>(n).fill(1 / n);
+  }
+  return exps.map((e) => e / total);
+}
+
+/**
+ * Core MCTS search parameters: the progressive-widening `ExpansionParams` plus the
+ * search-loop knobs. `iterations` is the per-move simulation budget; `maxDepth` the
+ * leaf-evaluation cutoff (in simulated rounds from the root); `cPuct` the PUCT
+ * exploration constant; `heuristicWeights` the `evaluate` weights used for
+ * non-terminal leaf values (a robustness-check dimension, spec §4.1/§4.4).
+ */
+export interface MctsCoreParams extends ExpansionParams {
+  iterations: number;
+  maxDepth: number;
+  cPuct: number;
+  heuristicWeights: HeuristicWeights;
+}
+
+/** Default core params: PW defaults + 1000 iterations, depth 8, default PUCT/weights. */
+export function defaultMctsCoreParams(): MctsCoreParams {
+  return {
+    ...defaultExpansionParams(),
+    iterations: 1000,
+    maxDepth: 8,
+    cPuct: defaultCPuct,
+    heuristicWeights: defaultHeuristicWeights(),
+  };
+}
+
+/** Root edge statistics returned to A4 (it picks the most-visited action). */
+export interface RootStat {
+  readonly action: Action;
+  readonly visits: number;
+  readonly valueVec: number[];
+}
+
+/**
+ * Advance the simulation one round from `state` after a NON-attack `action`: run the
+ * shared `stepRound` (apply -> eliminations -> stranded removal — the SAME body the
+ * live driver uses) then `advanceRound` with the turn-rollover draw determinized by
+ * the SEARCH rng (spliced in, threaded back out; see `simulateStep`). The
+ * status/advanceRound split mirrors the driver: `stepRound` does the intra-round
+ * reassessment, the caller advances the round.
+ */
+function advanceAfterAction(
+  state: GameState,
+  action: Action,
+  searchRng: RngState,
+): { state: GameState; rng: RngState } {
+  const stepped = stepRound(state, action).state;
+  const advanced = advanceRound({ ...stepped, rngState: searchRng });
+  return { state: advanced, rng: advanced.rngState };
+}
+
+/**
+ * Advance the simulation one round from a combat CHANCE OUTCOME state. The chance
+ * node's win/lose state is the attack's `applyAction` effect ALREADY applied
+ * (hand-built WITHOUT a combat PRNG draw — `attackOutcomes`), so here we run only
+ * the REST of the shared round body — `applyEliminations(actingPlayer)` then
+ * `removeEncircledStrandedBases` — and the determinized `advanceRound`. This keeps
+ * the post-attack round identical to what the driver would do (stepRound minus the
+ * already-applied applyAction), so MCTS simulates exactly the game the driver plays.
+ */
+function advanceAfterChanceOutcome(
+  outcomeState: GameState,
+  actingPlayer: PlayerId,
+  searchRng: RngState,
+): { state: GameState; rng: RngState } {
+  const eliminated = applyEliminations(outcomeState, actingPlayer).state;
+  const stranded = removeEncircledStrandedBases(eliminated).state;
+  const advanced = advanceRound({ ...stranded, rngState: searchRng });
+  return { state: advanced, rng: advanced.rngState };
+}
+
+/**
+ * Run `params.iterations` MCTS simulations from `state` (the acting player is
+ * `currentPlayer(state)` at each node — max^n), threading `searchRng`, and return
+ * the root edge statistics (visit counts + accumulated value per root action). A4
+ * wraps this and picks the most-visited root action.
+ *
+ * Each iteration is select -> expand -> evaluate -> backup:
+ *  - **Select/expand:** descend from the root. At each node first run `expandNode`
+ *    (progressive widening opens children as the node's visit count grows), then
+ *    `selectChild` (PUCT for the node's acting player). Follow the chosen edge:
+ *    non-attack edges advance the round via the shared `stepRound`+`advanceRound`
+ *    (`advanceAfterAction`); attack edges sample the combat chance node
+ *    (`sampleChanceOutcome`, drawing the search rng) and advance the outcome via
+ *    `advanceAfterChanceOutcome`. The child node is created lazily on first
+ *    traversal of a non-attack edge.
+ *  - **Evaluate:** stop and call `leafValue` when the descended state is terminal,
+ *    when the `maxDepth` round cutoff is hit, or when a node cannot be expanded
+ *    (no legal candidate — degenerate guard).
+ *  - **Backup:** add the leaf N-vector along the path via `backup` (max^n; chance
+ *    edges are NOT reweighted — the sample-per-simulation scheme converges to the
+ *    p-weighted expectation through visit averaging, per A3.2).
+ *
+ * Determinism: with a fixed `searchRng` seed every draw (expansion sampling,
+ * chance-outcome sampling, turn-rollover) is reproducible, so the root visit
+ * distribution is identical across runs. The game's main PRNG is never consumed.
+ */
+export function runMcts(
+  state: GameState,
+  player: PlayerId,
+  params: MctsCoreParams,
+  searchRng: RngState,
+): { rootStats: RootStat[] } {
+  void player; // the acting player is read per-node from the state (max^n).
+  const playerCount = state.players.length;
+  const root = makeNode([], playerCount);
+  let rng = searchRng;
+
+  // Progressive-widening saturation cache. `expandNode` burns up to `cap·4` policy
+  // samples trying to fill toward the PW cap; on a fixture where the policy keeps
+  // re-sampling already-opened actions, a node has effectively exhausted its
+  // distinct candidates. Without this guard, every later visit re-pays that full
+  // sampling budget as `node.N` (and thus the cap) grows — turning the search into
+  // O(iterations²) policy calls and stalling. Once an `expandNode` call adds no new
+  // edge to an already-populated node, mark it saturated and stop re-expanding it.
+  const saturated = new Set<Node>();
+  const pwCap = (n: number): number => Math.ceil(params.C * Math.pow(n, params.alpha));
+
+  for (let i = 0; i < params.iterations; i++) {
+    const path: PathStep[] = [];
+    let node = root;
+    let curState = state;
+    let depth = 0;
+    let leafVec: number[] | null = null;
+
+    for (;;) {
+      // Terminal or depth cutoff -> evaluate here.
+      if (status(curState).kind === "victory" || depth >= params.maxDepth) {
+        leafVec = leafValue(curState, params);
+        break;
+      }
+
+      const acting = currentPlayer(curState);
+
+      // Expand toward the PW cap (opens children as node.N grows). Threads the rng.
+      // A freshly-visited node has N=0, where the PW cap ceil(C·N^α)=0 would open no
+      // children; bootstrap it by computing the cap at N>=1 for this first expansion
+      // (backup grows node.N thereafter and later expansions use the real count).
+      // Skip the (expensive) expand entirely when the node is saturated or already
+      // at its PW cap — only sample new children when there is room AND fresh
+      // candidates may still appear.
+      const effectiveN = node.N === 0 && node.edges.length === 0 ? 1 : node.N;
+      const wantExpand = !saturated.has(node) && node.edges.length < pwCap(effectiveN);
+      if (wantExpand) {
+        const before = node.edges.length;
+        const bootstrapN = node.N;
+        node.N = effectiveN;
+        const expanded = expandNode(node, curState, acting, params, rng);
+        node.N = bootstrapN;
+        rng = expanded.rng;
+        // No growth despite room -> distinct candidates exhausted; stop re-expanding.
+        if (node.edges.length === before && before > 0) saturated.add(node);
+      }
+
+      if (node.edges.length === 0) {
+        // No expandable legal candidate (degenerate) -> evaluate as a leaf.
+        leafVec = leafValue(curState, params);
+        break;
+      }
+
+      const edge = selectChild(node, acting, params.cPuct);
+      path.push({ node, edge });
+
+      if (edge.chance !== undefined) {
+        // Combat chance node: sample an outcome (search rng), then advance the
+        // post-attack round (eliminations + stranded + determinized advanceRound).
+        const sample = sampleChanceOutcome(edge.chance, rng);
+        rng = sample.rng;
+        const advanced = advanceAfterChanceOutcome(sample.state, acting, rng);
+        rng = advanced.rng;
+        node = sample.node; // the chance node's win/lose subtree
+        curState = advanced.state;
+      } else {
+        // Non-attack edge: advance the round via the shared stepRound + advanceRound.
+        if (edge.child === undefined) {
+          edge.child = makeNode([], playerCount);
+        }
+        const advanced = advanceAfterAction(curState, edge.action, rng);
+        rng = advanced.rng;
+        node = edge.child;
+        curState = advanced.state;
+      }
+      depth += 1;
+    }
+
+    backup(path, leafVec);
+  }
+
+  return {
+    rootStats: root.edges.map((e) => ({
+      action: e.action,
+      visits: e.childN,
+      valueVec: e.valueVec.slice(),
+    })),
+  };
 }
