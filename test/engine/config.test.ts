@@ -11,7 +11,11 @@ describe("defaultConfig", () => {
     expect(c.factorySupply).toBe(36);
     expect(c.ironCount).toBe(14);
     expect(c.victoryThreshold).toBe(10);
-    expect(c.brokenPerimeterDeathAtFactories).toBe(18);
+    // Per-player controlled-factory death clock (authorized tuning 2026-05-27): a
+    // <4-base player dies once IT controls >= 8 factories. Departs from the rulebook's
+    // shared-pool-of-18 wording — the shared clock coupled all players' fates and
+    // produced turn-3 mass-elimination; see status.ts + docs/pitfalls.
+    expect(c.brokenPerimeterDeathAtFactories).toBe(8);
     expect(c.autoWinAt6).toBe(true);
     expect(c.killBounty).toBe("full");
     expect(c.allowPass).toBe(false);

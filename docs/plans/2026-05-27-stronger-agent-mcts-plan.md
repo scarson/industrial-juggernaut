@@ -57,22 +57,28 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** Not started.
+**Overall:** 🚧 In progress — A1, A2 shipped; A3 next.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
-| A1 — Improved heuristic | ⬜ Not started | — | — |
-| A2 — Factory-clock investigation + tuning | ⬜ Not started | — | — |
+| A1 — Improved heuristic | ✅ Shipped | `f5b838d`,`5b9ce56` | evaluate() + samplePolicy(); 235 tests green |
+| A2 — Factory-clock investigation + tuning | ✅ Shipped | `41c1056` (A2.2); `fe664f2`,`ba94212` (A2.1) | per-player factory clock, threshold 18→8; 240 tests green |
 | A3 — MCTS core | ⬜ Not started | — | — |
 | A4 — MCTS agent interface | ⬜ Not started | — | — |
 | A5 — Eval harness | ⬜ Not started | — | — |
 | A6 — Trustworthiness gates (acceptance) | ⬜ Not started | — | — |
 
 ### Deviations
-- (none yet)
+- A2.1 pulled the A5.1 `agentFor` driver seam forward (A2 needs to run arbitrary agents through the real driver; duplicating the loop would risk divergence). Committed 5 files incl. `src/driver/record.ts` (the `RunOptions.agentFor?` type field lives there) — additive, acceptance test stays green. A5.1 will find the seam already present.
 
 ### Discoveries
-- (none yet)
+- **A2.2 — per-player factory-death clock fixes the rules-bound degeneration.** Implemented the authorized Option-4 change: `brokenPerimeterAt18Factories` now fires on the player's OWN controlled-factory count (`control(state,p).factories.length >= config.brokenPerimeterDeathAtFactories`, gated on `<4` bases) instead of the shared placed-pool (`36 − factorySupply`). Default threshold recalibrated **18 → 8** (per-player scale). `EliminationCause` name preserved (the "18"/"shared" is now historical). See `src/engine/status.ts` `applyEliminations`, `src/engine/config.ts`, `docs/pitfalls/implementation-pitfalls.md` GEO-6.
+  - **Step-1 diagnostic (confirms root cause).** Cause breakdown over the A2.1 batch (200 games, 2–6P, seed 1n, default config): `{ brokenPerimeterAt18Factories: 590 }` — the SOLE elimination cause. Disabling the clock (`threshold=999`) lengthened games from turns `{1:111,2:49,3:40}` to `{1:48,301:152}` (152 cap-hit stalls), iron victories flat at 48 → the shared clock both *caused* the turn-3 wipeouts AND was the only thing terminating the other 152 games. Degeneration confirmed rules-bound.
+  - **Threshold sweep (200 games, 2–6P, heuristic-greedy, seed 1n).** Iron victories stay at 48 across all thresholds (iron rushes resolve before the clock matters); the clock governs how the OTHER 152 games end. empty-coalition wipeouts / cap-hits by threshold: `4→33/0`, `5→47/0`, `6→48/0`, **`8→17/0`**, `10→26/4`, `12→51/40`. Chose **8** — minimum empty-coalition wipeouts with zero turn-cap stalls.
+  - **Before → after (heuristic-greedy, same batch).** Before (shared, threshold 18): `{last-standing:152 (ALL empty-coalition), iron:48}`, turns `{1:111,2:49,3:40}`, 0 caps — degenerate turn-3 mass-elimination. After (per-player, threshold 8): `{last-standing:152, iron:48}`, **emptyWinner 152→17, realWinner 48→183**, turns `{1:48,2:117,3:35}`, 0 caps. Decoupling converted simultaneous empty-coalition wipeouts into sequential eliminations with REAL winners; 91.5% of games now end with a real winner, all 48 turn-1 games are decisive iron victories (not degeneracies), games extend past turn 1, nothing stalls.
+  - **1000-game greedy acceptance shift (`play-many.test.ts`).** Old finding was degenerate; new distribution `{iron:242, last-standing:757, none:1}`, emptyWinner 76, realWinner 924, capHits 1. The test's only assertion (`capHits < 50`) still holds with huge margin — no assertion change needed (the test never encoded the old degenerate distribution; it prints it via console.log).
+  - **Calibration for gate (1):** post-tuning real-contest data is the source for A6 gate (1)/(2) thresholds. iron victories ≈ 24% (48/200) heuristic-greedy; 4P/5P carry the iron contests (24/40, 21/40), 2P resolves last-standing, 6P rarely reaches iron.
+- **A2.1 — turn-3 mass-elimination is RULES-bound, not agent-bound.** Heuristic-greedy self-play (200 games, 2–6P, seed 1n): `{last-standing: 152 (all empty-coalition), iron: 48}`, turns histogram `{1:111, 2:49, 3:40}`, 0 cap hits. The improved perimeter-aware heuristic did NOT lengthen games — they still collapse by turn 3 via simultaneous `brokenPerimeterAt18Factories` elimination of all <4-base players, driven by the SHARED placed-factory count (one player's factory-spam advances the death clock for everyone). 24% reach real iron victories. → proceed with A2.2 factory-clock tuning (see A2.2 for the 5-option decision).
 
 ---
 
@@ -128,7 +134,7 @@ Then update this plan's Execution Status banner + table for the phase.
 
 ## Phase A1 — Improved Heuristic
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED on 2026-05-27 (commits `f5b838d` evaluate(), `5b9ce56` samplePolicy(); 235 tests green)
 
 The perimeter-aware evaluation + stochastic policy that every later phase depends on. This is the dominant lever for the 4th-base-myopia fix.
 
@@ -168,7 +174,7 @@ Available additionally: `src/engine/legal.ts` (`legalActions`), `src/engine/buil
 
 ## Phase A2 — Factory-Clock Investigation + Authorized Tuning
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED on 2026-05-27 (branch `claude/document-game-design-VpqqB`). A2.1 measured the rules-bound degeneration; A2.2 applied the authorized per-player factory-death clock (threshold 18→8) — 240 tests green, typecheck clean. Before/after distributions in Discoveries; rule note in `docs/pitfalls/implementation-pitfalls.md` GEO-6.
 
 Empirically determine whether the M1 turn-3 mass-elimination is agent-bound or rules-bound, and apply the **Sam-authorized (2026-05-27)** factory-clock tuning if needed. This gates trustworthiness gate (1).
 
@@ -185,8 +191,8 @@ Empirically determine whether the M1 turn-3 mass-elimination is agent-bound or r
 
 **Files:** Modify `src/engine/config.ts` (default) and/or `src/engine/status.ts` (`applyEliminations` shared-vs-per-player factory count). Test: extend `test/engine/status.test.ts` + re-run `test/eval/distribution.test.ts`.
 
-- [ ] Only if A2.1 step 4 found the degeneration is rules-bound. The authorized change options (pick the smallest that works, document why): (a) raise `brokenPerimeterDeathAtFactories`; (b) change the late-game death trigger to count the **player's own** placed factories rather than the **shared** pool total (the M1 build counts `36 - factorySupply`, i.e. ALL players' factories — coupling everyone's clock; per-player decoupling is the prime suspect). Write/adjust unit tests in `status.test.ts` to lock the chosen semantics, then re-run `measureDistribution` and assert games are now non-degenerate (a clear fraction reach iron contests). Record before/after histograms in Discoveries and add a one-line note to `docs/pitfalls/implementation-pitfalls.md` (or a rules note) explaining the change + rationale.
-- [ ] Commit `fix: decouple/raise factory-death clock so smart play reaches iron contests (authorized)` (or the accurate variant).
+- [x] Implemented Option (b) per-player decoupling: the death trigger counts the player's OWN controlled factories (`control(state,p).factories.length >= threshold`), gated on `<4` bases — replacing the shared `36 − factorySupply` count. Unit tests in `status.test.ts` lock the per-player semantics (eliminate ≥threshold / survive <threshold incl. a discriminating shared-vs-per-player fixture / ≥4-base never hit). Default threshold recalibrated 18→8 by experiment (minimum empty-coalition wipeouts, zero stalls). Before/after histograms in Discoveries; rule note added as GEO-6 in `docs/pitfalls/implementation-pitfalls.md`.
+- [x] Committed `fix: per-player factory-death clock so smart play reaches iron contests (authorized rule tuning)`.
 
 **End of Phase A2:** ≥3-round review; update Execution Status (and the conditional banner for A2.2).
 

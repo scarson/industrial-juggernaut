@@ -80,8 +80,12 @@ export function runGame(opts: RunOptions): GameResult {
     const player = currentPlayer(state);
 
     if (!state.players[player]!.eliminated) {
-      // Agent chooses an action; chooseAction advances the rng in the returned state.
-      const choice = chooseAction(state, player, opts.archetypes[player]!);
+      // Agent chooses an action and advances the rng in the returned state. When an
+      // explicit `agentFor` is supplied, the move comes from that agent; otherwise the
+      // archetype->greedy path is used unchanged. Both return the same {action, state}.
+      const choice = opts.agentFor
+        ? opts.agentFor(player)(state, player)
+        : chooseAction(state, player, opts.archetypes[player]!);
       state = choice.state;
 
       // Legality guarantee: applyAction throwing here is a fatal agent bug; surface

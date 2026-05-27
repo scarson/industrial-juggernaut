@@ -137,8 +137,12 @@ function bountyCount(killBounty: GameState["config"]["killBounty"]): number {
  *
  * For each currently NON-eliminated player P the FIRST matching cause is assigned:
  *  1. noBases — P has 0 bases on the board.
- *  2. brokenPerimeterAt18Factories — (36 − factorySupply) ≥ brokenPerimeterDeathAtFactories
- *     AND P has < 4 bases (perimeter broken in the late game).
+ *  2. brokenPerimeterAt18Factories — P CONTROLS ≥ brokenPerimeterDeathAtFactories
+ *     factories AND P has < 4 bases (industry-without-territory in the late game).
+ *     This is a PER-PLAYER clock keyed on P's own controlled factories — a player's
+ *     own factory-without-perimeter imbalance kills them, not the table's total
+ *     factory-spam. The EliminationCause name is a stable identifier (the "18"/
+ *     "shared" in the name is historical; the trigger is now per-player controlled).
  *  3. noIron — P has ≥1 base but controls no iron.
  *
  * Self-destruct (emptyPerimeter): if an eliminated player's id === byPlayer AND the
@@ -155,8 +159,7 @@ export function applyEliminations(
   state: GameState,
   byPlayer: PlayerId | null,
 ): { state: GameState; events: GameEvent[] } {
-  const factoriesPlaced = state.config.factorySupply - state.factorySupply;
-  const lateGame = factoriesPlaced >= state.config.brokenPerimeterDeathAtFactories;
+  const threshold = state.config.brokenPerimeterDeathAtFactories;
 
   // First pass over the INCOMING set: decide eliminations from the unchanged state.
   // (No cascade within a call — the driver re-invokes as the board changes.)
@@ -171,11 +174,15 @@ export function applyEliminations(
       decided.push({ id: p.id, cause: "noBases" });
       continue;
     }
-    if (lateGame && baseCount < 4) {
+    // PER-PLAYER broken-perimeter clock: a <4-base player is eliminated once it
+    // controls >= threshold factories (its own industry-without-territory), keyed
+    // on this player's controlled factories rather than the shared placed pool.
+    const ctl = control(state, p.id);
+    if (baseCount < 4 && ctl.factories.length >= threshold) {
       decided.push({ id: p.id, cause: "brokenPerimeterAt18Factories" });
       continue;
     }
-    if (control(state, p.id).iron.length === 0) {
+    if (ctl.iron.length === 0) {
       decided.push({ id: p.id, cause: "noIron" });
       continue;
     }

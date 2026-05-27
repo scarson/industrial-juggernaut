@@ -5,6 +5,7 @@ import { describe, it, expect } from "vitest";
 import { hex, key } from "../../src/geometry/cube";
 import { mkState } from "../helpers/state";
 import { coalitions, coalitionIron, status, applyEliminations } from "../../src/engine/status";
+import { defaultConfig } from "../../src/engine/config";
 import type { GameState } from "../../src/engine/types";
 
 // 10 distinct iron hexes all within cube-distance 5 of the origin (radiating disk).
@@ -170,21 +171,68 @@ describe("applyEliminations", () => {
     expect(state.players[1]!.eliminated).toBe(false);
   });
 
-  it("brokenPerimeterAt18Factories: 18+ factories placed AND <4 bases => eliminated", () => {
-    // Give the player iron so noIron doesn't fire first; <4 bases triggers broken perimeter.
+  // brokenPerimeterAt18Factories is now a PER-PLAYER clock: a <4-base player is
+  // eliminated by this cause once THAT PLAYER controls >= threshold factories
+  // (control(state,p).factories.length), decoupled from the shared placed-factory
+  // pool. The EliminationCause name is preserved as a stable identifier (the "18"
+  // and "shared" in the name are historical). These fixtures set a small explicit
+  // threshold so the per-player controlled-factory counts stay tractable.
+  it("brokenPerimeterAt18Factories: <4 bases AND controls >= threshold factories => eliminated", () => {
+    const cfg = { ...defaultConfig(), brokenPerimeterDeathAtFactories: 3 };
+    // P0: 3 radiating bases near origin; controls iron (so noIron doesn't fire) AND
+    // 3 factories (all within radius 5 of a P0 base) => >= threshold => eliminated.
+    // P1: 4 bases far away with its own iron => survives, never hit by the clock.
     const s = mkState({
       board: 96,
       basesP0: [hex(0, 0, 0), hex(1, -1, 0), hex(2, -2, 0)],
       basesP1: [hex(40, -40, 0), hex(41, -41, 0), hex(42, -42, 0), hex(43, -43, 0)],
-      iron: [hex(3, -3, 0)],
+      iron: [hex(3, -3, 0), hex(40, -39, -1)],
+      factories: [hex(0, 1, -1), hex(0, 2, -2), hex(0, 3, -3)],
+      config: cfg,
     });
-    // Force 18 factories placed: 36 - factorySupply >= 18  =>  factorySupply <= 18.
-    s.factorySupply = 18;
     const { state, events } = applyEliminations(s, null);
     const evt = events.find((e) => e.kind === "eliminated" && e.player === 0);
     expect(evt).toBeDefined();
     if (evt && evt.kind === "eliminated") expect(evt.cause).toBe("brokenPerimeterAt18Factories");
     expect(state.players[0]!.eliminated).toBe(true);
+    // P1 (>=4 bases, own iron) survives — its fate is decoupled from P0's factories.
+    expect(state.players[1]!.eliminated).toBe(false);
+  });
+
+  it("brokenPerimeterAt18Factories: <4 bases but controls FEWER than threshold factories => NOT eliminated", () => {
+    const cfg = { ...defaultConfig(), brokenPerimeterDeathAtFactories: 3 };
+    // DISCRIMINATING fixture (per-player vs shared): the SHARED placed pool is 3
+    // (>= threshold), but all 3 factories sit near P1 — P0 controls 0 of them. Under
+    // the old shared clock P0 would die; under the per-player clock P0 survives.
+    // P0: 3 bases, controls iron, controls 0 factories => survives.
+    const s = mkState({
+      board: 96,
+      basesP0: [hex(0, 0, 0), hex(1, -1, 0), hex(2, -2, 0)],
+      basesP1: [hex(40, -40, 0), hex(41, -41, 0), hex(42, -42, 0), hex(43, -43, 0)],
+      iron: [hex(3, -3, 0), hex(40, -39, -1)],
+      factories: [hex(40, -41, 1), hex(41, -42, 1), hex(42, -43, 1)],
+      config: cfg,
+    });
+    const { state, events } = applyEliminations(s, null);
+    expect(events.find((e) => e.kind === "eliminated" && e.player === 0)).toBeUndefined();
+    expect(state.players[0]!.eliminated).toBe(false);
+  });
+
+  it("brokenPerimeterAt18Factories: a >=4-base player is NEVER hit by this cause even with many factories", () => {
+    const cfg = { ...defaultConfig(), brokenPerimeterDeathAtFactories: 3 };
+    // P0: 4 non-colinear bases forming a perimeter that encloses iron; controls 3
+    // factories. >= threshold, but >=4 bases means the broken-perimeter clock never fires.
+    const s = mkState({
+      board: 96,
+      basesP0: [hex(-2, 2, 0), hex(2, 0, -2), hex(2, -2, 0), hex(-2, 0, 2)],
+      basesP1: [hex(40, -40, 0), hex(41, -41, 0), hex(42, -42, 0), hex(43, -43, 0)],
+      iron: [hex(0, 0, 0), hex(40, -39, -1)],
+      factories: [hex(1, -1, 0), hex(0, 1, -1), hex(-1, 1, 0)],
+      config: cfg,
+    });
+    const { state, events } = applyEliminations(s, null);
+    expect(events.find((e) => e.kind === "eliminated" && e.player === 0)).toBeUndefined();
+    expect(state.players[0]!.eliminated).toBe(false);
   });
 
   it("self-destruct: byPlayer === eliminated player & cause noIron => emptyPerimeter, no bounty", () => {

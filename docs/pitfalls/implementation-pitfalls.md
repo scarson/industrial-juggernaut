@@ -24,7 +24,7 @@ This document serves three audiences. Start here, then go directly to the sectio
 
 | § | Section | You're working on... | Entries | Checklist |
 |---|---------|---------------------|---------|-----------|
-| 1 | [Geometry & Engine](#section-1-geometry--engine) | Hex math, coordinate projection, PRNG threading, derived state | GEO-1 – GEO-5 | §1.C |
+| 1 | [Geometry & Engine](#section-1-geometry--engine) | Hex math, coordinate projection, PRNG threading, derived state | GEO-1 – GEO-6 | §1.C |
 | — | [Orchestration](#orchestration) | Parallel subagent dispatch and output persistence | ORCH-1 | §Orchestration.C |
 | A | [Historical Changelog](#appendix-a-historical-changelog) | Provenance, validation dates, review process meta-observations | — | — |
 | B | [Unified Summary Table](#appendix-b-unified-summary-table) | All pitfalls at a glance, with severity and status | — | — |
@@ -100,6 +100,12 @@ A player's perimeter is a pure function of their current bases. Caching it invit
 
 ---
 
+### GEO-6: Factory-Death Clock Is Per-Player Controlled, Not Shared-Pool
+
+The broken-perimeter death clock (`applyEliminations`, cause `brokenPerimeterAt18Factories`) triggers on the player's OWN controlled-factory count (`control(state, p).factories.length >= config.brokenPerimeterDeathAtFactories`), gated on that player having `< 4` bases — NOT on the shared placed-factory pool (`36 − factorySupply`). The rulebook's wording ("when 18 or more factories have been placed *on the board*") describes a shared clock; the engine deliberately departs from it (authorized tuning, 2026-05-27). **Why:** the shared clock coupled every `<4`-base player's fate to the table's total factory-spam, so one player's industry advanced the death clock for everyone — producing simultaneous turn-3 mass-elimination (200-game heuristic-greedy self-play: 152/200 empty-coalition wipeouts, all games over by turn 3). Per-player decoupling means a player's own industry-without-territory imbalance kills them; that converts simultaneous empty-coalition wipeouts into sequential eliminations with real winners (17/200 empty after the fix) and lets real iron contests play out. The default threshold was recalibrated from 18 (shared-pool-of-36 scale) to 8 (per-player scale; experimentally the minimum-empty-wipeout point with zero turn-cap stalls). The `EliminationCause` name is preserved as a stable identifier — the "18"/"shared" in the name is historical. Do NOT silently revert to the shared count.
+
+---
+
 ### Review Checklist
 
 - [ ] **All geometry predicates use a `1e-9` epsilon and treat on-edge as inside** — no `===`/bare `<`/`>` on projected floats; on-edge counts as inside per R1 (GEO-1)
@@ -107,6 +113,7 @@ A player's perimeter is a pure function of their current bases. Caching it invit
 - [ ] **PRNG state is threaded, not reused** — every randomness consumer takes and returns advanced state; no `Math.random()` anywhere in the engine (GEO-3)
 - [ ] **Hex collections are keyed by canonical `"x,y,z"` strings** — never by object identity (GEO-4)
 - [ ] **Perimeter is recomputed from current bases, never cached** — no stored perimeter that a base change could invalidate (GEO-5)
+- [ ] **Factory-death clock counts the player's OWN controlled factories, not the shared placed pool** — per-player decoupling; not reverted to `36 − factorySupply` (GEO-6)
 
 ---
 
