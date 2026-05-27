@@ -192,7 +192,7 @@ While a base is stranded, opponents may place new bases behind it — since it l
 
 **Catastrophic Perimeter Loss:**
 
-If losing the attack causes your number of bases to fall below 4 bases, your perimeter collapses entirely and your bases return to the radius model. Later in the game, when there are 18 or more factories placed on the board, perimeter loss ends that player’s game.
+If losing the attack causes your number of bases to fall below 4 bases, your perimeter collapses entirely and your bases return to the radius model. Later in the game, once you control 8 or more factories, perimeter loss ends that player’s game (see *Broken Perimeter when Industrialized* under Ways to be defeated; balance-tuned 2026-05-27 from the original shared 18-factory threshold).
 
 **Maxed out Bases**
 
@@ -219,7 +219,7 @@ Alliances may be formed at any time by mutual agreement and dissolved unilateral
 # Ways to be defeated
 No Bases. When an opponent destroys your final base, your game is over.
 
-Broken Perimeter at 18 Factories. When 18 or more factories have been placed on the board, you are removed from the game when your perimeter is broken (you fall to 3 or fewer bases).
+Broken Perimeter when Industrialized. When you control 8 or more factories, you are removed from the game if your perimeter is broken (you fall to 3 or fewer bases). *(Balance tuning, 2026-05-27: originally a shared, board-wide threshold — "18 or more factories placed on the board" — this was changed to a **per-player controlled-factory count of 8**. The shared clock coupled every player's fate to the table's total factory output, causing simultaneous turn-3 mass-eliminations under normal play; the per-player form punishes a player's own industry-without-territory imbalance instead. The threshold (8) is a configurable balance knob. See `docs/pitfalls/implementation-pitfalls.md` GEO-6.)*
 
 No Iron. If through a loss in battle or the creation of an adjacent opponent’s perimeter a player no longer has an iron hex under their control, their game is over.
 
@@ -245,7 +245,7 @@ The game ends when any player — or alliance — controls 10 or more iron hexes
 | Min Bases to attack | 3 within 6 hexes of target (yours or allied) |
 | # bases committed to attacks | 3 to 6 attacking bases, 1 defending |
 | Win vs Base | Replace with your own Base; perimeters change |
-| Broken Perimeter ends a player’s game | If 18 or more factories have been placed on the board |
+| Broken Perimeter ends a player’s game | If you control 8 or more factories (per-player; balance-tuned 2026-05-27, was "18 placed on the board" shared) |
 | Base limit | 12 per player; +12 when you eliminate a player |
 | Victory | 10 Iron hexes (solo or alliance) at end of a round |
 
