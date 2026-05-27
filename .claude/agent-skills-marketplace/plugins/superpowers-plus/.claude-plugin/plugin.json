@@ -1,0 +1,13 @@
+{
+  "name": "superpowers-plus",
+  "description": "Workflow orchestration wrapping superpowers — front-to-back feature-building (brainstorm + adversarial design review + planning), enhanced plan writing with the Living Document Contract, adversarial plan review, structured session handoffs, and the full bug-hunt and health-review workflows (three hunter methodologies + five-axis project health review + cycle skills, all in one plugin)",
+  "version": "0.1.0",
+  "author": {
+    "name": "Samuel Carson",
+    "email": "samuel.carson@gmail.com"
+  },
+  "homepage": "https://github.com/scarson/agent-skills",
+  "repository": "https://github.com/scarson/agent-skills",
+  "license": "MIT",
+  "keywords": ["skills", "workflow", "plans", "review", "handoff", "superpowers"]
+}

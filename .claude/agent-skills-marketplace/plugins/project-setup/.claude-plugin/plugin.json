@@ -1,0 +1,13 @@
+{
+  "name": "project-setup",
+  "description": "Skills for initializing and configuring new projects (git strategy, etc.)",
+  "version": "0.1.0",
+  "author": {
+    "name": "Samuel Carson",
+    "email": "samuel.carson@gmail.com"
+  },
+  "homepage": "https://github.com/scarson/agent-skills",
+  "repository": "https://github.com/scarson/agent-skills",
+  "license": "MIT",
+  "keywords": ["skills", "setup", "bootstrap", "git"]
+}
