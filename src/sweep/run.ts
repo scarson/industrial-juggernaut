@@ -8,6 +8,7 @@ import { heuristicAgent } from "../agent/heuristic-agent";
 import { runGame } from "../driver/run";
 import { seed } from "../rng/pcg";
 import { computeMetrics, turn1LeadersOf, type GameRecord, type SweepMetrics } from "./metrics";
+import type { GameResult } from "../driver/record";
 import type { Agent } from "../agent/agent";
 import type { Archetype } from "../agent/archetypes";
 import type { RuleConfig } from "../engine/config";
@@ -38,7 +39,16 @@ export interface RunConfigOptions {
   agentFactory?: (player: PlayerId) => Agent;
   /** Optional per-config progress callback (default: none). See {@link SweepProgress}. */
   onProgress?: SweepProgress;
+  /** Optional per-GAME progress callback (default: none) — fires after each game so a slow single-config run streams. See {@link GameProgress}. */
+  onGame?: GameProgress;
 }
+
+/**
+ * Per-game progress callback. Fired by {@link runConfig} once per game as it
+ * finishes, so a slow single-config run (e.g. all-MCTS) streams progress instead
+ * of going silent until the whole config is done.
+ */
+export type GameProgress = (done: number, total: number, nPlayers: number, result: GameResult) => void;
 
 const DEFAULT_PLAYER_COUNTS = [2, 3, 4, 5, 6];
 
@@ -121,6 +131,8 @@ export function runConfig(config: RuleConfig, opts: RunConfigOptions): SweepMetr
       setupDecided,
       turn1Leaders: turn1LeadersOf(result),
     });
+
+    opts.onGame?.(gameIndex + 1, opts.games, nPlayers, result);
   }
 
   return computeMetrics(records);

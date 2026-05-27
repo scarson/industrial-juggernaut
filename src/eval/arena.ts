@@ -2,6 +2,7 @@
 // ABOUTME: Pure/deterministic given seed (randomness via the seeded games only); the arena that proves gate (2).
 
 import { runGame } from "../driver/run";
+import type { GameResult } from "../driver/record";
 import type { Agent } from "../agent/agent";
 import type { RuleConfig } from "../engine/config";
 import { defaultConfig } from "../engine/config";
@@ -25,7 +26,16 @@ export interface RoundRobinOpts {
   config?: RuleConfig;
   /** Turn cap passed to each game. */
   turnCap: number;
+  /** Optional per-GAME progress callback (default: none) — fires after each game so a slow arena run streams. See {@link ArenaGameProgress}. */
+  onGame?: ArenaGameProgress;
 }
+
+/**
+ * Per-game arena progress callback. Fired by {@link roundRobin} once per game as
+ * it finishes; `done`/`total` are a flat counter across all matchups so a slow
+ * arena run streams progress instead of going silent until the end.
+ */
+export type ArenaGameProgress = (done: number, total: number, playerCount: number, result: GameResult) => void;
 
 /** Aggregated arena outcome keyed by agent name. */
 export interface RoundRobinResult {
@@ -98,6 +108,10 @@ export function roundRobin(agents: NamedAgent[], opts: RoundRobinOpts): RoundRob
   // can't collide on the game stream.
   let seedOffset = 0n;
 
+  // Flat per-game counter for onGame, across every matchup.
+  const totalGames = opts.playerCounts.length * opts.gamesPerMatchup;
+  let gamesDone = 0;
+
   for (const n of opts.playerCounts) {
     if (agents.length !== n) {
       throw new Error(
@@ -123,6 +137,9 @@ export function roundRobin(agents: NamedAgent[], opts: RoundRobinOpts): RoundRob
         turnCap: opts.turnCap,
         agentFor: (player: PlayerId) => agentAtSeat[player]!.agent,
       });
+
+      gamesDone += 1;
+      opts.onGame?.(gamesDone, totalGames, n, res);
 
       const winnerSeats = new Set(res.winnerOrCoalition);
 

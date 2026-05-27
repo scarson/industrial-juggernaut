@@ -72,6 +72,26 @@ describe("runConfig", () => {
     expect(typeof m.leadVolatility).toBe("number");
   }, 120_000);
 
+  it("invokes onGame once per game with monotonic done, the right total, and the result", () => {
+    const events: { done: number; total: number; nPlayers: number; turns: number }[] = [];
+    runConfig(smallConfig(), {
+      games: 6,
+      turnCap: 25,
+      baseSeed: 1000n,
+      playerCounts: [2, 3],
+      onGame: (done, total, nPlayers, result) => {
+        events.push({ done, total, nPlayers, turns: result.turns });
+      },
+    });
+    expect(events.length).toBe(6);
+    expect(events.map((e) => e.done)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(events.every((e) => e.total === 6)).toBe(true);
+    // Player-count rotation [2,3] is reflected in the per-game nPlayers.
+    expect(events.map((e) => e.nPlayers)).toEqual([2, 3, 2, 3, 2, 3]);
+    // The result is the real game's (turns >= 1).
+    expect(events.every((e) => e.turns >= 1)).toBe(true);
+  }, 120_000);
+
   it("honors playerCounts rotation deterministically", () => {
     const a = runConfig(smallConfig(), { ...RUN_OPTS, playerCounts: [2, 3] });
     const b = runConfig(smallConfig(), { ...RUN_OPTS, playerCounts: [2, 3] });

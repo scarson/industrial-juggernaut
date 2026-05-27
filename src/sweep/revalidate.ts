@@ -43,6 +43,12 @@ function main(): void {
     baseSeed: BASE_SEED,
     playerCounts: HEALTH_PLAYER_COUNTS,
     agentFactory: () => mctsAgent(),
+    onGame: (done, total, nPlayers, result) => {
+      const winner = result.winnerOrCoalition.length === 0 ? "none(cap)" : result.winnerOrCoalition.join("+");
+      console.log(
+        `  [game ${done}/${total}] ${nPlayers}P -> turns=${result.turns} ${result.victoryType} winner=${winner} (${elapsedS(t0)})`,
+      );
+    },
   });
   const verdict = isHealthy(mctsMetrics, thresholds);
   console.log(`mcts@${HEALTH_GAMES}: ${fmtMetrics(mctsMetrics)} ${verdict.pass ? "PASS" : `FAIL: ${verdict.reasons.join("; ")}`} (${elapsedS(t0)})`);
@@ -57,7 +63,17 @@ function main(): void {
       { name: "mcts", agent: mctsAgent() },
       { name: "heuristic", agent: heuristicAgent() },
     ],
-    { playerCounts: [2], gamesPerMatchup: H2H_GAMES, seed: BASE_SEED, config: CONFIG, turnCap: TURN_CAP },
+    {
+      playerCounts: [2],
+      gamesPerMatchup: H2H_GAMES,
+      seed: BASE_SEED,
+      config: CONFIG,
+      turnCap: TURN_CAP,
+      onGame: (done, total, _pc, result) => {
+        const winner = result.winnerOrCoalition.length === 0 ? "none(cap)" : result.winnerOrCoalition.join("+");
+        console.log(`  [h2h ${done}/${total}] turns=${result.turns} ${result.victoryType} winnerSeat=${winner} (${elapsedS(t0)})`);
+      },
+    },
   );
   const mctsWin = rr.winRates["mcts"] ?? 0;
   const heurWin = rr.winRates["heuristic"] ?? 0;

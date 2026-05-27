@@ -75,6 +75,31 @@ describe("roundRobin — determinism", () => {
   });
 });
 
+describe("roundRobin — onGame progress", () => {
+  it("invokes onGame once per game with monotonic done, the right total, and the result", () => {
+    const agents: NamedAgent[] = [
+      { name: "greedy", agent: greedyAgent("aggressive") },
+      { name: "weak", agent: balancedBuilder },
+    ];
+    const events: { done: number; total: number; pc: number; turns: number }[] = [];
+    roundRobin(agents, {
+      playerCounts: [2],
+      gamesPerMatchup: 5,
+      seed: 11n,
+      config: defaultConfig(),
+      turnCap: 300,
+      onGame: (done, total, pc, result) => {
+        events.push({ done, total, pc, turns: result.turns });
+      },
+    });
+    expect(events.length).toBe(5);
+    expect(events.map((e) => e.done)).toEqual([1, 2, 3, 4, 5]);
+    expect(events.every((e) => e.total === 5)).toBe(true);
+    expect(events.every((e) => e.pc === 2)).toBe(true);
+    expect(events.every((e) => e.turns >= 1)).toBe(true);
+  });
+});
+
 describe("roundRobin — win-rate accounting", () => {
   it("win-rates are in [0,1] and the decisive split sums to 1 with the draw rate", () => {
     const agents: NamedAgent[] = [
