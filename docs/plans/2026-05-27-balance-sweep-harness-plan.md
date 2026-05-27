@@ -38,13 +38,13 @@ downstream reconstruction is expensive and fails silently.
 
 ## Execution Status
 
-**Overall:** 🚧 In progress — S1 shipped; S2 claimed 2026-05-27. Spec/plan merged via PR #10 (`72944bb`). 337 tests green.
+**Overall:** 🚧 In progress — S1, S2 shipped; S3 claimed 2026-05-27. Spec/plan merged via PR #10 (`72944bb`). 352 tests green.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
-| S1 — Metrics | ✅ Shipped | `8e104fc` | SweepMetrics + computeMetrics; 337 tests green |
-| S2 — Health gate + rank | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
-| S3 — Runner (grid/OFAT, CRN, CIs) | ⬜ Not started | — | — |
+| S1 — Metrics | ✅ Shipped | `8e104fc` | SweepMetrics + computeMetrics |
+| S2 — Health gate + rank | ✅ Shipped | `c81f5fd` | isHealthy + rankHealthy; 352 tests green |
+| S3 — Runner (grid/OFAT, CRN, CIs) | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
 | S4 — Orchestrator + report | ⬜ Not started | — | — |
 | S5 — Execute the search; recommend balanced config | ⬜ Not started | — | — |
 
@@ -93,7 +93,7 @@ the grid, is a real FINDING, not a test to soften — STOP and report.
 
 ## Phase S2 — Health Gate + Rank
 
-**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
+**Execution Status:** ✅ SHIPPED on 2026-05-27 (commit `c81f5fd`; 352 tests green)
 
 ### Task S2.1: `isHealthy` + `rankHealthy`
 **Files:** Create `src/sweep/health.ts`; Test `test/sweep/health.test.ts`. Uses `SweepMetrics` (S1).
@@ -107,7 +107,7 @@ the grid, is a real FINDING, not a test to soften — STOP and report.
 
 ## Phase S3 — Runner (grid / OFAT, CRN, CIs)
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
 
 ### Task S3.1: `runConfig`, `sweepGrid`, `sweepOFAT`, CRN, confidence intervals
 **Files:** Create `src/sweep/run.ts`; Test `test/sweep/run.test.ts`. Available: `measureDistribution`, `runGame` (+ `agentFor` seam), `heuristicAgent`, `defaultConfig`, `metrics` (S1).
