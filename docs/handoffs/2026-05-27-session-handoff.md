@@ -51,8 +51,11 @@
 - **`ironOverTime[0]` is post-turn-1, not setup;** `setupDecided` is computed by mirroring `runGame`'s board (post-`generateBoard` rng → `setupGame`).
 - **Engine determinism:** all randomness via the seeded PCG (`src/rng/pcg.ts`); no `Math.random`. Strict tsconfig; never relax it. Hex Sets/Maps keyed by `key()` string (GEO-4); derived state recomputed not cached (GEO-5).
 
+## Queued improvements (small, do before the next long run)
+- **Sweep progress logging (Sam-requested).** The S5 run was *silent* (`main.ts` printed only the "Stage 1" header, then ran ~190 configs at 100% CPU with no per-config output), which made "stalled vs. slow" undiagnosable without inspecting the process. Add an optional `onProgress(done, total, label, metrics)` callback to `sweepGrid`/`runConfig` (backward-compatible default no-op; test it), and have `main.ts` log per-config progress (`config k/N: bs… r… → medianTurns/health`) + a per-stage heartbeat. Implement as the FIRST step after S5 completes (can't edit `main.ts` while the S5 process owns it). This makes every future sweep observable.
+
 ## Priority queue (numbered, with dependencies)
-1. **When S5 completes:** verify its report + tests green; push; mark S5 shipped; PR+merge the sweep (S1–S5) to main.
+1. **When S5 completes:** verify its report + tests green; push; mark S5 shipped. THEN add the sweep progress logging (see "Queued improvements"). Then PR+merge the sweep (S1–S5) to main.
 2. **Act on S5's outcome:**
    - **If a healthy config exists:** surface the recommended config + balance findings to Sam; adopt it as `defaultConfig` (update tests encoding old balance); this unblocks #3.
    - **If NONE exists:** surface the redesign-level finding to Sam (the game's geometry/economy can't produce balanced multi-turn games in the searched space) — this is a Sam decision, not an autonomous fix.
