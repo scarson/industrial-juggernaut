@@ -2,6 +2,9 @@
 // ABOUTME: Transcribed from the M1 design spec §4; declarations only, no runtime logic.
 
 import type { RuleConfig } from "./config";
+import type { RngState } from "../rng/pcg";
+
+export type { RngState };
 
 export type Hex = { x: number; y: number; z: number }; // invariant x+y+z=0
 
@@ -38,11 +41,8 @@ export type Phase = {
   indexInOrder: number; // whose round it is
 };
 
-// Opaque PRNG-state placeholder; Phase 1 will own the real PCG implementation.
-export interface RngState {
-  readonly state: bigint;
-  readonly inc: bigint;
-}
+// RngState is owned by `../rng/pcg` (the canonical PCG32 implementation) and
+// re-exported above so existing `./types` importers keep working.
 
 export type GameState = {
   board: Board;
