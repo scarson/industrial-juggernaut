@@ -9,3 +9,6 @@
 !.beads/config.yaml
 !.beads/metadata.json
 !.beads/identity.toml
+
+# Git worktrees — see docs/git-strategy.md
+.claude/worktrees/
