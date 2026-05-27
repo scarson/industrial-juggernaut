@@ -57,14 +57,14 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** 🚧 In progress — A1, A2 shipped (PR #9 merged at `7749f3e`); A3 claimed 2026-05-27.
+**Overall:** 🚧 In progress — A1, A2 shipped (PR #9 `7749f3e`); A3 shipped; A4 claimed 2026-05-27.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
 | A1 — Improved heuristic | ✅ Shipped | `f5b838d`,`5b9ce56` | evaluate() + samplePolicy(); 235 tests green |
 | A2 — Factory-clock investigation + tuning | ✅ Shipped | `41c1056` (A2.2); `fe664f2`,`ba94212` (A2.1) | per-player factory clock, threshold 18→8; 240 tests green |
-| A3 — MCTS core | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
-| A4 — MCTS agent interface | ⬜ Not started | — | — |
+| A3 — MCTS core | ✅ Shipped | `9f31613`,`75a87ae`,`1a1328a`,`47a0640` | tree/max^n/PUCT, PW+chance+determinized, basesInHand fix, leaf-eval+search loop+stepRound; 287 tests |
+| A4 — MCTS agent interface | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
 | A5 — Eval harness | ⬜ Not started | — | — |
 | A6 — Trustworthiness gates (acceptance) | ⬜ Not started | — | — |
 
@@ -72,6 +72,8 @@ notes and commit messages.
 - A2.1 pulled the A5.1 `agentFor` driver seam forward (A2 needs to run arbitrary agents through the real driver; duplicating the loop would risk divergence). Committed 5 files incl. `src/driver/record.ts` (the `RunOptions.agentFor?` type field lives there) — additive, acceptance test stays green. A5.1 will find the seam already present.
 
 ### Discoveries
+- **A3.2 — engine self-consistency bug found + fixed (commit `1a1328a`).** `legalActions` emitted base-build placements without gating on `basesInHand`, so a maxed-out player (0 bases in hand) got actions `applyAction` rejects — a `legalActions ⊆ applyAction-acceptable` violation reachable in late game. Root-caused to `isLegalBasePlacement` (now returns false at `basesInHand===0`); self-consistency test strengthened with a maxed-out fixture.
+- **A3.3 — MCTS expansion O(iterations²) trap (fixed, inline-documented in `runMcts`).** Naively re-calling `expandNode` on every node visit re-paid the full policy-sampling budget as `node.N` grew → quadratic hang (200 iters never finished). Fixed with a per-node saturation cache (stop re-expanding a node once a call adds no new edge): 400 iters in ~190ms, linear. Candidate `docs/pitfalls` entry for a future pass.
 - **A2.2 — per-player factory-death clock fixes the rules-bound degeneration.** Implemented the authorized Option-4 change: `brokenPerimeterAt18Factories` now fires on the player's OWN controlled-factory count (`control(state,p).factories.length >= config.brokenPerimeterDeathAtFactories`, gated on `<4` bases) instead of the shared placed-pool (`36 − factorySupply`). Default threshold recalibrated **18 → 8** (per-player scale). `EliminationCause` name preserved (the "18"/"shared" is now historical). See `src/engine/status.ts` `applyEliminations`, `src/engine/config.ts`, `docs/pitfalls/implementation-pitfalls.md` GEO-6.
   - **Step-1 diagnostic (confirms root cause).** Cause breakdown over the A2.1 batch (200 games, 2–6P, seed 1n, default config): `{ brokenPerimeterAt18Factories: 590 }` — the SOLE elimination cause. Disabling the clock (`threshold=999`) lengthened games from turns `{1:111,2:49,3:40}` to `{1:48,301:152}` (152 cap-hit stalls), iron victories flat at 48 → the shared clock both *caused* the turn-3 wipeouts AND was the only thing terminating the other 152 games. Degeneration confirmed rules-bound.
   - **Threshold sweep (200 games, 2–6P, heuristic-greedy, seed 1n).** Iron victories stay at 48 across all thresholds (iron rushes resolve before the clock matters); the clock governs how the OTHER 152 games end. empty-coalition wipeouts / cap-hits by threshold: `4→33/0`, `5→47/0`, `6→48/0`, **`8→17/0`**, `10→26/4`, `12→51/40`. Chose **8** — minimum empty-coalition wipeouts with zero turn-cap stalls.
@@ -200,7 +202,7 @@ Empirically determine whether the M1 turn-3 mass-elimination is agent-bound or r
 
 ## Phase A3 — MCTS Core
 
-**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
+**Execution Status:** ✅ SHIPPED on 2026-05-27 (commits `9f31613`,`75a87ae`,`1a1328a` (engine self-consistency fix),`47a0640`; 287 tests green)
 
 Determinized N-player max^n MCTS over the pure engine. Behavior+signature level per the design; the executor writes complete tests for every enumerated behavior before implementing.
 
@@ -241,7 +243,7 @@ Determinized N-player max^n MCTS over the pure engine. Behavior+signature level 
 
 ## Phase A4 — MCTS Agent Interface
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
 
 ### Task A4.1: `chooseActionMCTS`
 
