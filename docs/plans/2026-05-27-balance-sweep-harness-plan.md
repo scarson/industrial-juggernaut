@@ -38,7 +38,7 @@ downstream reconstruction is expensive and fails silently.
 
 ## Execution Status
 
-**Overall:** 🚧 In progress — S1–S4 shipped; S5 claimed 2026-05-27. Spec/plan merged via PR #10 (`72944bb`). 374 tests green. (S4 small-grid smoke: 0/8 healthy on the 96-board — S5's wide grid incl. larger boards is the real test.)
+**Overall:** 🟡 S1–S4 shipped; S5 ran 2026-05-27 — **MAJOR FINDING: no healthy config exists anywhere in the wide grid** (heuristicAgent, 64 cells, refined nearest-misses at 150 games). The game does not have a balanced multi-turn region under these health thresholds + this agent; it likely needs a deeper redesign (see S5.1 Discovery). The MCTS trustworthiness gates (A5.2/A6) remain BLOCKED — there is no data-driven balanced "A" to re-validate them on. Spec/plan merged via PR #10 (`72944bb`). 374 tests green.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
@@ -46,14 +46,23 @@ downstream reconstruction is expensive and fails silently.
 | S2 — Health gate + rank | ✅ Shipped | `c81f5fd` | isHealthy + rankHealthy |
 | S3 — Runner (grid/OFAT, CRN, CIs) | ✅ Shipped | `5148523` | runConfig/sweepGrid/sweepOFAT + CRN |
 | S4 — Orchestrator + report | ✅ Shipped | `53de15b` | findBalancedConfig/balanceSweep/report + infeasibility guard; 374 tests green |
-| S5 — Execute the search; recommend balanced config | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
+| S5 — Execute the search; recommend balanced config | ✅ Ran 2026-05-27 — NO healthy config found | — | branch `claude/document-game-design-VpqqB`; report `docs/sweeps/2026-05-27-balance-report.md` |
 
 ### Deviations
-- (none yet)
+- **S5.1 — grid trimmed + split turn caps to bound wall-clock.** board300 games run ~50s/config even at the reduced cap (heuristicAgent evaluates moves across a 300-hex board each turn). The full `boardSize{96,150,220,300}×radius{2,3,4,5}×ironCount{10,12,14,16}×victoryThreshold{8,10,12}` = 192-cell grid did not finish in a sane wall-clock at 40–60 search games (killed twice mid-stage-1 at 30–48 min). Final `main.ts` config (documented inline): full 4-value sweep on the dominant coupled dims `boardSize`×`radius`, but `ironCount{12,16}`×`victoryThreshold{8,12}` (endpoints only) → 64 cells; `SEARCH_GAMES=30` at `SEARCH_TURN_CAP=40` for the coarse gate; survivors refined at `REFINE_GAMES=150`/`REFINE_TURN_CAP=100`. The low search cap is consistent with the gate (medianTurns band tops at 25, so a deep-but-terminating config finishes well under 40; >40 turns ⇒ median far above the ceiling ⇒ fails `maxMedianTurns` anyway; capHit>0.02 at cap-40 is a real "doesn't terminate" signal). Total wall-clock 23.4 min. The wide boardSize range (the point of the search) is preserved.
 
 ### Discoveries
 - **S3.1 — iron-CSP feasibility limits the grid.** The iron placement CSP (max-degree-1 spacing, no outer-2-ring iron) can't fit much iron on small boards (e.g. boardSize 48 → 47 hexes can't hold 8 iron → `placeIron` throws). S5's geometry grid MUST use feasible `(boardSize, ironCount)` pairs, and `findBalancedConfig`/`sweepGrid`/`main.ts` MUST GUARD infeasible combos (try/catch `runConfig`, skip-and-note on placeIron failure) so one bad combo doesn't abort the whole sweep. For boardSize ≥ 96, ironCount ≤ ~16 is feasible.
 - **S3.1 — `ironOverTime[0]` is POST-turn-1, not a setup snapshot** (`runGame` pushes the first row after turn 1 plays out). So `turn1LeadersOf`/`leadVolatility` measure the *after-turn-1* leader (an acceptable early-leader proxy, not literally turn-0). `runConfig` correctly computes `setupDecided` by mirroring `runGame`'s board (threading the post-`generateBoard` rng into `setupGame`), NOT from `ironOverTime[0]`.
+- **S5.1 — NO healthy config in the wide grid (the milestone's load-bearing empirical finding).** Across 64 geometry cells (boardSize{96,150,220,300} × radius{2,3,4,5} × ironCount{12,16} × victoryThreshold{8,12}) driven by `heuristicAgent`, ZERO configs pass the full `defaultHealthThresholds()` gate, at 30 search games AND after refining the top nearest-misses at 150 games. Full data: `docs/sweeps/2026-05-27-balance-report.md`. The S4 "0/8 healthy on the 96-board" smoke generalizes — larger boards did NOT open a healthy region. Per the spec's Risk §8 and the plan's assertion-rigor rule, this is reported as a real finding; the health gate was NOT loosened to manufacture a pass.
+  - **Failure structure (what blocks health):** the nearest misses fail by exactly ONE criterion. Best two (refined, 150 games): `boardSize=96,radius=2,ironCount=16,victoryThreshold=12` → med=2, iron=0.99, seat=0.167(PASS), lead=0.573 — fails ONLY `minMedianTurns` (med 2 < 3); `boardSize=96,radius=2,ironCount=12,victoryThreshold=12` → med=3, iron=0.78, lead=0.31 — fails ONLY `maxSeatBias` (0.233 > 0.20). Across the grid the two dominant blockers are (a) **games too short** (med 1–2: iron victory is reached almost immediately on most geometries — the radius-N base still blankets enough iron) and (b) **seatWinBias > 0.20**.
+  - **Important seatBias caveat (threshold-vs-noise).** `seatWinBias` is computed within each player-count group; the sweep rotates 5 player counts, so even at 150 games a 2-player group has only ~30 games → sampling noise alone gives ≈ `1.96·√(0.25/30)` ≈ 0.18 expected seat deviation. `maxSeatBias=0.20` is barely above that noise floor, so many seatBias "fails" (incl. the 0.233 nearest-miss) are plausibly statistical, not a real first-mover advantage. A future run should either raise games-per-count or relax `maxSeatBias` to a defensible non-noise level before concluding the game is seat-biased. (This is a threshold-calibration question, not a reason to loosen the gate ad hoc now.)
+  - **Balance findings (OFAT around `boardSize=96,radius=2,ironCount=12,victoryThreshold=12`, 150 games, weak-agent caveat applies — heuristicAgent, the roadmap's validity ceiling):**
+    - **auto-win-at-6 does NOT dominate:** iron-victory 0.780±0.066 (on) vs 0.773±0.067 (off); med/seat/lead identical. At this fast geometry games rarely reach turn 6, so the rule is near-inert.
+    - **kill-bounty=full does NOT snowball:** iron-victory 0.780±0.066 (full) → 0.753±0.069 (half) → 0.680±0.075 (none); lead-volatility flat ~0.31 across all three. Bounty size shifts the iron-vs-elimination mix slightly but shows no runaway-leader signal.
+    - **victoryThreshold:** vt10 → med 2 (shorter); vt12 → med 3; vt14 (> ironCount 12, unwinnable-by-iron) → med 18, iron 0.000 (all games go to elimination/cap — confirms the `ironCount < victoryThreshold` prune).
+    - **attackRange:** 6 vs 5 mildly improves health (iron-victory 0.780±0.066 vs 0.680±0.075; lead-volatility 0.313 vs 0.246).
+  - **Consequence for adoption / MCTS gates:** there is NO recommended `defaultConfig` to propose — the data-driven balanced "A" does not exist in this grid. `defaultConfig` was NOT changed (per the non-goal). The MCTS trustworthiness gates A5.2/A6 stay blocked on a balanced game. Recommended next steps for Sam (design decision, not auto-actioned): (1) re-run with a calibrated `maxSeatBias` / more games-per-count to rule out the seat-noise artifact and see if the two single-criterion near-misses (`b96/r2/iron16/vt12`, `b96/r2/iron12/vt12`) actually clear; (2) if they still don't, treat as a genuine balance gap — the radius-N base blanketing iron makes games end turn-1–2 on nearly every geometry, which points at a rules-level change (base-placement / iron-spacing / victory mechanic) rather than a parameter tweak.
 
 ---
 
@@ -144,15 +153,15 @@ the grid, is a real FINDING, not a test to soften — STOP and report.
 
 ## Phase S5 — Execute the Search; Recommend Balanced Config
 
-**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
+**Execution Status:** ✅ RAN on 2026-05-27 (branch `claude/document-game-design-VpqqB`) — NO healthy config found; report `docs/sweeps/2026-05-27-balance-report.md`. See top-of-plan Discovery S5.1 for the finding + balance OFAT results. `defaultConfig` unchanged (correct: there is no balanced config to adopt). MCTS gates A5.2/A6 remain blocked.
 
 ### Task S5.1: run the real geometry grid + OFAT; produce the report
 **Files:** A runnable script `src/sweep/main.ts` (tsx-runnable) + the generated `docs/sweeps/2026-05-27-balance-report.md`. (This is an EXECUTION/measurement task, not a unit-test task.)
-- [ ] Build `src/sweep/main.ts` that runs `findBalancedConfig` over a substantial geometry grid (include larger `boardSize` — e.g. {96, 150, 220, 300} — × `radius` {2,3,4,5} × `ironCount` {10,12,14,16} × `victoryThreshold` {8,10,12}; prune obviously-degenerate combos), then `balanceSweep` of the critique's variables (`autoWinAt6`, `killBounty`, `victoryThreshold`, `attackRange`) around the recommended baseline, then writes the report.
-- [ ] **Bound the compute (two-stage):** the grid is ~100+ configs — use a SMALLER games-per-config for the grid SEARCH (e.g. 60–100, enough to gate health and rank), then re-run only the TOP few candidates + the OFAT balance axes at HIGH games-per-config (e.g. 300–400) for tight CIs. This keeps total wall-clock sane (heuristicAgent is fast; enable worker-thread parallelism if available). The grid may take a while — it's an offline run; that's fine. Document the games-per-config used at each stage in the report.
-- [ ] Run it (`npx tsx src/sweep/main.ts`). RECORD in the report + this plan's Discoveries: the recommended balanced config (with its metrics), and the headline balance findings (does auto-win-at-6 dominate? does kill-bounty=full snowball? etc., each with CIs + the weak-agent caveat).
-- [ ] If a healthy config is found: note it as the recommended new `defaultConfig` for a SEPARATE human-gated adoption step (which then unblocks the MCTS gates A5.2/A6). Do NOT change `defaultConfig` here.
-- [ ] Commit the report + `main.ts`: `feat: run balance sweep; recommend balanced config + balance findings`.
+- [x] Built `src/sweep/main.ts` (two-stage: `findBalancedConfig` geometry grid → refine nearest-misses → `balanceSweep` of `autoWinAt6`/`killBounty`/`victoryThreshold`/`attackRange` → write report). Grid/games trimmed for tractability — see Deviation S5.1.
+- [x] **Bounded the compute (two-stage):** 64-cell grid at 30 search games / turn-cap 40; nearest-misses + OFAT refined at 150 games / turn-cap 100. Wall-clock 23.4 min. Games-per-config + turn caps documented in the report header and Deviation S5.1. (Original 192-cell × 40–60 games plan did not finish in sane wall-clock; see Deviation.)
+- [x] Ran it (`npx tsx src/sweep/main.ts`). Recorded in the report + Discovery S5.1: **NO healthy config found** (the either-way outcome the spec/plan anticipated); headline balance findings — auto-win-at-6 near-inert, kill-bounty=full does not snowball, attackRange 6 mildly healthier — each with CIs + weak-agent caveat.
+- [x] No healthy config found → NO `defaultConfig` recommendation; `defaultConfig` unchanged. The "no balanced region" outcome is surfaced as a MAJOR finding for Sam (design decision), per the spec Risk §8.
+- [ ] Commit the report + `main.ts`: `feat: run balance sweep; no healthy config found (major balance finding)`.
 
 **End of Phase S5:** ≥3-round review; update Execution Status; mark Overall complete; surface the recommended config + balance findings to Sam for the adoption decision.
 
