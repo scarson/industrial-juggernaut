@@ -65,8 +65,8 @@ notes and commit messages.
 | 1 — RNG | ✅ Shipped | `7e1872b` | PCG32, reference-verified |
 | 2 — Geometry | ✅ Shipped | `01a6013`,`c4dba16`,`70291d6`,`244cdcd` | cube, hexline, hull (R1/R3), sightline (R2) |
 | 3 — Board | ✅ Shipped | `87f56f4`,`1ad4633`,`98dc3fc` | shape, iron-CSP (200-seed property test), generate/load |
-| 4 — Territory / control | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
-| 5 — Rules engine | ⬜ Not started | — | — |
+| 4 — Territory / control | ✅ Shipped | `4051191`,`bbb08df` | control() both regimes (board-bounded), mkState helper |
+| 5 — Rules engine | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
 | 6 — Greedy-weighted agent | ⬜ Not started | — | — |
 | 7 — Driver + acceptance | ⬜ Not started | — | — |
 
@@ -74,7 +74,8 @@ notes and commit messages.
 - Task 0.1: also committed `package-lock.json` (the task's literal `git add` list omitted it). Reproducible installs need the lockfile; included it rather than leave it untracked.
 
 ### Discoveries
-- (none yet)
+- **Generated board is a 93-hex asymmetric oval** (Task 3.1 used ASPECT 1.3, size 96 → 93 land hexes, max ring depth 4). Several hand-picked coordinates in plan test snippets are OFF-board — e.g. `(0,5,-5)` and `(8,-8,0)`. Phase 5 tasks that hand-pick hex coordinates in tests MUST either (a) pick interior on-board coords (known on-board: `(0,0,0)`,`(2,-2,0)`,`(4,-4,0)`,`(5,-5,0)`,`(0,4,-4)`; known off-board: `(0,5,-5)`,`(8,-8,0)`,`(6,-6,0)` is on-board), or (b) use `mkState`'s `iron`/base unioning so referenced hexes are guaranteed on-board. Off-board base coords still "work" for radiating-distance fixtures (control board-intersects), but assertions about controlled `hexes` must target on-board coords. Verify a coord is on-board before asserting it's controlled.
+- Task 4.1: corrected `control()` to board-intersect the radiating disk per spec §7 (it initially returned the raw disk); R3 test target moved from off-board `(0,5,-5)` to on-board `(0,4,-4)` (commit `bbb08df`).
 
 ---
 
@@ -613,7 +614,7 @@ describe("board sources", () => {
 
 ## Phase 4 — Territory / Control
 
-**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
+**Execution Status:** ✅ SHIPPED on 2026-05-27 (commits `4051191` control+mkState, `bbb08df` board-intersect fix; 49 tests green)
 
 `control(state, player)` for both regimes (R3 degenerate handling), plus `resourceCount`.
 
@@ -670,6 +671,8 @@ describe("control", () => {
 **Execution Status:** ⬜ NOT STARTED
 
 The heart: legality, `applyAction`, combat, victory/elimination, perimeter reassessment, stranded bases, move generation. Largest phase — split into ordered tasks; each consumes types/functions from earlier tasks.
+
+**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
 
 **Phase 5 task format.** Tasks 5.1, 5.3, 5.4, 5.5, 5.6, 5.8 are specified at the *behavior + signature* level rather than with full test code (a whole engine's worth of test code does not fit one plan). For each, the executor MUST first write complete failing tests covering EVERY enumerated behavior bullet (bite-sized TDD per the Conventions block) before implementing — using the `mkState` builder from Task 4.1 for fixtures, the seeded PRNG for any randomness, and the testing-pitfalls §8 checklist. Each task depends on the exports of all earlier Phase 5 tasks plus Phase 4 `control`; implement them in listed order. A task is not done until its tests are green AND every enumerated behavior has at least one asserting test.
 
