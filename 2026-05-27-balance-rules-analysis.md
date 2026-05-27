@@ -1,7 +1,20 @@
 # Balance Analysis — Why Industrial Juggernaut Ends Too Fast (Rules-Level)
 
 **Date:** 2026-05-27
-**Status:** Analysis for Sam's direction — a design crossroads, not a decided plan.
+**Status:** Analysis for Sam's direction — a design crossroads. **UPDATE (same day): the calibration run resolved the crossroads in favor of "balanceable via parameters" — see §0 below. The rules-level redesigns (P2/P3) are now DEFERRED, not recommended, unless MCTS re-validation overturns the finding.**
+
+## 0. Resolution (added after the 600-game calibration completed)
+
+The focused 600-game re-run (`docs/sweeps/2026-05-27-calibration-report.md`) **found a healthy config**: `boardSize=96, radius=2, ironCount=12, victoryThreshold=12` passes all 7 health criteria (median 3, setupDecided 0, ironVictory 0.79, capHit 0.017, **seatBias 0.167**, leadVolatility 0.35). This is the *exact cell* S5 reported as a near-miss failing only `seatBias 0.233` at 150 games — at 600 games the seatBias drops to 0.167 and it passes. The per-count seatBias diagnostic shows the gate-driving value is the 3P bucket at 0.167, within its ±0.15 sampling CI — i.e. **not distinguishable from fair.** S5's "no healthy config" was a measurement artifact (too few games → seatBias noise), not a property of the game.
+
+**What this means for this analysis:** the game **is balanceable into multi-turn depth without any rules-mechanic change** — a parameter set suffices. The decisive parameter is the **base control radius: 5 → 2** (this is exactly the "Base control radius — Revisit if starting territories feel too large or small" knob the designer flagged in §Variables to Test). A radius-2 disk covers far less of the board, so iron acquisition is no longer a one-move uncontested land-grab — which is precisely the *mechanism* P1/P3 identified, achieved here by tuning rather than redesign. The config also uses ironCount 12 (vs 14) and victoryThreshold 12 (vs 10).
+
+**Caveats that keep P2/P3 on the shelf rather than discarded:**
+- It is the **only** healthy cell of 16 in the focused grid, and a **marginal** pass: median 3 sits at the floor of the band, capHit 0.017 is just under the 0.02 cap, and the victoryThreshold is knife-edged (OFAT: vt11 → median 2 too short; vt12 → median 3 pass; vt13 → unwinnable, ironVictory 0). It is a narrow island, not a broad plateau.
+- The pass is under the **greedy/heuristic agent** (the documented weak-agent caveat, P6). It must be re-validated under MCTS before adoption.
+- radius 2 is a large departure from the rules-as-written radius 5 and changes the game's feel — a design judgment for Sam, even though it is "only" a parameter.
+
+So the recommendation in §5 still stands, now with step 1 complete: **re-validate `b96/r2/iron12/vt12` under MCTS (step 2); if it holds, adopt it as `defaultConfig` (Sam-gated) and the rules redesigns are not needed; if it does not hold under strong play, P3 (perimeter-gated iron) becomes the live option.** The reasoning below is preserved as the record of why the rules redesigns were considered and why they are now parked.
 **Companion docs:**
 - `2026-05-18-design-critique.md` — the original design critique + "Variables to Test" this builds on.
 - `docs/sweeps/2026-05-27-balance-report.md` — the S5 wide-grid sweep (64 configs, the data this reasons over).
