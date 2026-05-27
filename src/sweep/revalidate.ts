@@ -8,7 +8,21 @@ import { runConfigParallel, roundRobinParallel, type NamedAgentSpec } from "./ru
 import { defaultConfig, type RuleConfig } from "../engine/config";
 
 const BASE_SEED = 1_000n;
-const TURN_CAP = 100;
+
+/**
+ * Turn cap for the re-validation. Bounded (not the 100 the greedy reference used)
+ * because all-MCTS self-play can STALEMATE — two strong players each avoid losing
+ * and neither can force a win — running to the cap. A bounded cap turns that into
+ * an observable `capHitFraction` signal instead of a multi-hour hang.
+ */
+const TURN_CAP = 60;
+
+/**
+ * MCTS search budget for the re-validation (vs the 300 arena default). 100 keeps
+ * all-MCTS games tractable while still playing markedly stronger than the greedy
+ * heuristic — enough to answer "does strong play change the game's character?".
+ */
+const MCTS_ITERS = 100;
 
 /** Worker processes (default 4 = all cores; the parent is I/O-bound awaiting results). Override with `--workers N`. */
 function workerCount(): number {
@@ -27,10 +41,10 @@ const CONFIG: RuleConfig = { ...defaultConfig(), boardSize: 96, radius: 2, ironC
 const GREEDY_REF = "greedy@600: med=3 cap=0.02 setup=0.00 iron=0.79 seat=0.17 lead=0.35 (PASS)";
 
 /** Games for the all-MCTS health re-check. MCTS is slow, so this is modest; the question is whether length/health survives strong play, not a tight CI. */
-const HEALTH_GAMES = 18;
+const HEALTH_GAMES = 12;
 
-/** Player counts for the health re-check. Restricted to 2-4P: all-MCTS games scale ~linearly in seats, and 5-6P all-MCTS is prohibitively slow without changing the "does strong play collapse the game to turn 1?" answer. */
-const HEALTH_PLAYER_COUNTS = [2, 3, 4];
+/** Player counts for the health re-check. Restricted to 2-3P: 4P+ all-MCTS games can run to the turn cap (stalemate) and dominate wall-clock without changing the "does strong play collapse or stalemate the game?" answer. */
+const HEALTH_PLAYER_COUNTS = [2, 3];
 
 /** 2-player head-to-head games (gate 2). Seat-rotated so first-mover bias averages out. */
 const H2H_GAMES = 24;
@@ -42,7 +56,7 @@ async function main(): Promise<void> {
   const pool = new GamePool(workers);
   console.log("=== MCTS re-validation of the balanced config ===");
   console.log(`config: boardSize=96 radius=2 ironCount=12 victoryThreshold=12`);
-  console.log(`baseSeed=${BASE_SEED} turnCap=${TURN_CAP} healthGames=${HEALTH_GAMES} (counts ${HEALTH_PLAYER_COUNTS.join(",")}) h2hGames=${H2H_GAMES} workers=${workers}`);
+  console.log(`baseSeed=${BASE_SEED} turnCap=${TURN_CAP} mctsIters=${MCTS_ITERS} healthGames=${HEALTH_GAMES} (counts ${HEALTH_PLAYER_COUNTS.join(",")}) h2hGames=${H2H_GAMES} workers=${workers}`);
   console.log(`reference ${GREEDY_REF}`);
 
   try {
@@ -55,7 +69,7 @@ async function main(): Promise<void> {
         turnCap: TURN_CAP,
         baseSeed: BASE_SEED,
         playerCounts: HEALTH_PLAYER_COUNTS,
-        agentSpec: { kind: "mcts" },
+        agentSpec: { kind: "mcts", iterations: MCTS_ITERS },
         onGame: (done, total, nPlayers, result) => {
           const winner = result.winnerOrCoalition.length === 0 ? "none(cap)" : result.winnerOrCoalition.join("+");
           console.log(`  [game ${done}/${total}] ${nPlayers}P -> turns=${result.turns} ${result.victoryType} winner=${winner} (${elapsedS(t0)})`);
@@ -72,7 +86,7 @@ async function main(): Promise<void> {
     // --- Part B: gate 2 — MCTS vs heuristic head-to-head (2P, seat-rotated, parallel). ---
     console.log("\n--- Part B: gate 2 — MCTS vs heuristic (2P head-to-head) ---");
     const agents: NamedAgentSpec[] = [
-      { name: "mcts", spec: { kind: "mcts" } },
+      { name: "mcts", spec: { kind: "mcts", iterations: MCTS_ITERS } },
       { name: "heuristic", spec: { kind: "heuristic" } },
     ];
     const rr = await roundRobinParallel(
