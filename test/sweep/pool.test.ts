@@ -50,3 +50,46 @@ describe("GamePool determinism", () => {
     expect(r4).toEqual(r1);
   }, 60_000);
 });
+
+describe("GamePool error handling", () => {
+  it("rejects the job (does not hang) when the worker throws — e.g. infeasible iron geometry", async () => {
+    // boardSize 48 (~47 hexes) cannot hold 12 iron under the spacing CSP -> generateBoard throws in the worker.
+    const badJob: SimJob = {
+      seed: "1000",
+      config: { ...defaultConfig(), boardSize: 48, ironCount: 12 },
+      turnCap: 20,
+      nPlayers: 2,
+      seatAgents: [{ kind: "heuristic" }, { kind: "heuristic" }],
+    };
+    const pool = new GamePool(2);
+    try {
+      await expect(pool.runGame(badJob)).rejects.toThrow(/worker job \d+ failed/);
+    } finally {
+      pool.close();
+    }
+  }, 60_000);
+
+  it("a worker error does not poison the pool — a following good job still resolves", async () => {
+    const badJob: SimJob = {
+      seed: "1000",
+      config: { ...defaultConfig(), boardSize: 48, ironCount: 12 },
+      turnCap: 20,
+      nPlayers: 2,
+      seatAgents: [{ kind: "heuristic" }, { kind: "heuristic" }],
+    };
+    const pool = new GamePool(1);
+    try {
+      await expect(pool.runGame(badJob)).rejects.toThrow();
+      const good = await pool.runGame(heuristicJobs(1, 2)[0]!);
+      expect(good.result.turns).toBeGreaterThanOrEqual(1);
+    } finally {
+      pool.close();
+    }
+  }, 60_000);
+
+  it("rejects runGame after close()", async () => {
+    const pool = new GamePool(1);
+    pool.close();
+    await expect(pool.runGame(heuristicJobs(1, 2)[0]!)).rejects.toThrow(/closed/);
+  }, 60_000);
+});
