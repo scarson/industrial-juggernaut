@@ -66,8 +66,8 @@ notes and commit messages.
 | 2 — Geometry | ✅ Shipped | `01a6013`,`c4dba16`,`70291d6`,`244cdcd` | cube, hexline, hull (R1/R3), sightline (R2) |
 | 3 — Board | ✅ Shipped | `87f56f4`,`1ad4633`,`98dc3fc` | shape, iron-CSP (200-seed property test), generate/load |
 | 4 — Territory / control | ✅ Shipped | `4051191`,`bbb08df` | control() both regimes (board-bounded), mkState helper |
-| 5 — Rules engine | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
-| 6 — Greedy-weighted agent | ⬜ Not started | — | — |
+| 5 — Rules engine | ✅ Shipped | `93c0271`,`92855dc`,`86277b2`,`7cb4e7d`,`029782e`,`6249299`,`543b34b`,`50f62a4` | build, combat, apply(build/attack), stranded, status/victory, legalActions, turn |
+| 6 — Greedy-weighted agent | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
 | 7 — Driver + acceptance | ⬜ Not started | — | — |
 
 ### Deviations
@@ -672,7 +672,7 @@ describe("control", () => {
 
 The heart: legality, `applyAction`, combat, victory/elimination, perimeter reassessment, stranded bases, move generation. Largest phase — split into ordered tasks; each consumes types/functions from earlier tasks.
 
-**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
+**Execution Status:** ✅ SHIPPED on 2026-05-27 (commits `93c0271` build, `92855dc` combat, `86277b2` apply-build, `7cb4e7d` apply-attack, `029782e` stranded, `6249299` status/victory, `543b34b` legalActions, `50f62a4` turn; 182 tests green)
 
 **Phase 5 task format.** Tasks 5.1, 5.3, 5.4, 5.5, 5.6, 5.8 are specified at the *behavior + signature* level rather than with full test code (a whole engine's worth of test code does not fit one plan). For each, the executor MUST first write complete failing tests covering EVERY enumerated behavior bullet (bite-sized TDD per the Conventions block) before implementing — using the `mkState` builder from Task 4.1 for fixtures, the seeded PRNG for any randomness, and the testing-pitfalls §8 checklist. Each task depends on the exports of all earlier Phase 5 tasks plus Phase 4 `control`; implement them in listed order. A task is not done until its tests are green AND every enumerated behavior has at least one asserting test.
 
@@ -767,7 +767,7 @@ describe("resolveCombat", () => {
 
 ## Phase 6 — Greedy-Weighted Agent
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
 
 ### Task 6.1: Move scoring + static prunes
 
