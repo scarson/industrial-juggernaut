@@ -26,7 +26,7 @@ export interface FindResult {
 }
 
 /** Cartesian product of `axes` value-lists; each element is a chosen value per axis key. */
-function cartesian(
+export function cartesian(
   axes: Partial<Record<keyof RuleConfig, (number | boolean | string)[]>>,
 ): Partial<RuleConfig>[] {
   const keys = Object.keys(axes) as (keyof RuleConfig)[];

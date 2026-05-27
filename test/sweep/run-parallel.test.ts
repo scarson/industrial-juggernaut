@@ -2,8 +2,14 @@
 // ABOUTME: runConfigParallel == runConfig and roundRobinParallel == roundRobin, bit-for-bit, across worker counts.
 
 import { describe, expect, it } from "vitest";
-import { runConfigParallel, roundRobinParallel, type NamedAgentSpec } from "../../src/sweep/run-parallel";
+import {
+  runConfigParallel,
+  roundRobinParallel,
+  findBalancedConfigParallel,
+  type NamedAgentSpec,
+} from "../../src/sweep/run-parallel";
 import { runConfig } from "../../src/sweep/run";
+import { findBalancedConfig } from "../../src/sweep/orchestrate";
 import { roundRobin, type NamedAgent } from "../../src/eval/arena";
 import { GamePool } from "../../src/sweep/pool";
 import { heuristicAgent } from "../../src/agent/heuristic-agent";
@@ -53,4 +59,24 @@ describe("roundRobinParallel == roundRobin", () => {
     expect(parallel.gamesPlayed).toEqual(serial.gamesPlayed);
     expect(parallel.headToHead).toEqual(serial.headToHead);
   }, 60_000);
+});
+
+describe("findBalancedConfigParallel == findBalancedConfig", () => {
+  it("produces an identical grid + recommendation to the serial orchestrator", async () => {
+    const axes = { radius: [2, 3], victoryThreshold: [8, 10] };
+    const base = config;
+    const common = { games: 10, turnCap: 25, baseSeed: 4242n, playerCounts: [2, 3] };
+    const serial = findBalancedConfig(axes, base, { ...common });
+    const pool = new GamePool(3);
+    let parallel;
+    try {
+      parallel = await findBalancedConfigParallel(axes, base, { ...common, agentSpec: { kind: "heuristic" } }, pool);
+    } finally {
+      pool.close();
+    }
+    // Same configs, same metrics, same health verdicts, same recommendation/ranking.
+    expect(parallel.grid).toEqual(serial.grid);
+    expect(parallel.recommended).toEqual(serial.recommended);
+    expect(parallel.ranked).toEqual(serial.ranked);
+  }, 120_000);
 });
