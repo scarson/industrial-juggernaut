@@ -57,15 +57,15 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** 🚧 In progress — A1, A2 shipped (PR #9 `7749f3e`); A3 shipped; A4 claimed 2026-05-27.
+**Overall:** 🚧 In progress — A1, A2 (PR #9 `7749f3e`), A3, A4 shipped; A5 claimed 2026-05-27. 300 tests green.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
 | A1 — Improved heuristic | ✅ Shipped | `f5b838d`,`5b9ce56` | evaluate() + samplePolicy(); 235 tests green |
 | A2 — Factory-clock investigation + tuning | ✅ Shipped | `41c1056` (A2.2); `fe664f2`,`ba94212` (A2.1) | per-player factory clock, threshold 18→8; 240 tests green |
 | A3 — MCTS core | ✅ Shipped | `9f31613`,`75a87ae`,`1a1328a`,`47a0640` | tree/max^n/PUCT, PW+chance+determinized, basesInHand fix, leaf-eval+search loop+stepRound; 287 tests |
-| A4 — MCTS agent interface | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
-| A5 — Eval harness | ⬜ Not started | — | — |
+| A4 — MCTS agent interface | ✅ Shipped | `6a475e7`,`4c5e297` | chooseActionMCTS + IS-MCTS legality fix; 300 tests |
+| A5 — Eval harness | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
 | A6 — Trustworthiness gates (acceptance) | ⬜ Not started | — | — |
 
 ### Deviations
@@ -245,7 +245,7 @@ Determinized N-player max^n MCTS over the pure engine. Behavior+signature level 
 
 ## Phase A4 — MCTS Agent Interface
 
-**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
+**Execution Status:** ✅ SHIPPED on 2026-05-27 (commits `6a475e7` chooseActionMCTS, `4c5e297` IS-MCTS legality fix; 300 tests green)
 
 ### Task A4.1: `chooseActionMCTS`
 
@@ -264,7 +264,7 @@ Determinized N-player max^n MCTS over the pure engine. Behavior+signature level 
 
 ## Phase A5 — Eval Harness
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
 
 ### Task A5.1: Elo / round-robin arena
 
