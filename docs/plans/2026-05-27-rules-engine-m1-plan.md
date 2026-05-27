@@ -64,7 +64,7 @@ notes and commit messages.
 | 0 — Project scaffold + conventions | ✅ Shipped | `46a710b`,`8aac650`,`cea5532`,`60b9405` | scaffold, lockfile, pitfalls, types+config |
 | 1 — RNG | ✅ Shipped | `7e1872b` | PCG32, reference-verified |
 | 2 — Geometry | ✅ Shipped | `01a6013`,`c4dba16`,`70291d6`,`244cdcd` | cube, hexline, hull (R1/R3), sightline (R2) |
-| 3 — Board | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
+| 3 — Board | ✅ Shipped | `87f56f4`,`1ad4633`,`98dc3fc` | shape, iron-CSP (200-seed property test), generate/load |
 | 4 — Territory / control | ⬜ Not started | — | — |
 | 5 — Rules engine | ⬜ Not started | — | — |
 | 6 — Greedy-weighted agent | ⬜ Not started | — | — |
@@ -507,7 +507,7 @@ describe("segmentBlocked (R2: block only on open-interior crossing)", () => {
 
 Board as data: an oval generator + a fixed-board loader sharing one `Board` type. Iron CSP: 14 iron, none in outer two rings, max-degree-1 adjacency.
 
-**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
+**Execution Status:** ✅ SHIPPED on 2026-05-27 (commits `87f56f4` shape, `1ad4633` iron-CSP, `98dc3fc` generate/load; 43 tests green, iron CSP property-tested over 200 seeds)
 
 ### Task 3.1: Oval board shape + ring computation
 
