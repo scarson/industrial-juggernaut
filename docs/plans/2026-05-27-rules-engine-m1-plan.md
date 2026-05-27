@@ -61,8 +61,8 @@ notes and commit messages.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
-| 0 — Project scaffold + conventions | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
-| 1 — RNG | ⬜ Not started | — | — |
+| 0 — Project scaffold + conventions | ✅ Shipped | `46a710b`,`8aac650`,`cea5532`,`60b9405` | scaffold, lockfile, pitfalls, types+config |
+| 1 — RNG | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
 | 2 — Geometry | ⬜ Not started | — | — |
 | 3 — Board | ⬜ Not started | — | — |
 | 4 — Territory / control | ⬜ Not started | — | — |
@@ -126,7 +126,7 @@ Then update this plan's Execution Status banner + table for the phase.
 
 ## Phase 0 — Project Scaffold + Conventions
 
-**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`, subagent-driven execution)
+**Execution Status:** ✅ SHIPPED on 2026-05-27 (commits `46a710b` scaffold, `8aac650` lockfile, `cea5532` pitfalls content, `60b9405` types+config; branch `claude/document-game-design-VpqqB`)
 
 Establishes the buildable/testable project and the pitfalls docs the later phases' TDD mandate references.
 
@@ -295,7 +295,7 @@ git commit -m "feat: core engine types and rules-faithful default config"
 
 ## Phase 1 — RNG
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
 
 Deterministic seeded PRNG. Everything stochastic depends on this.
 
