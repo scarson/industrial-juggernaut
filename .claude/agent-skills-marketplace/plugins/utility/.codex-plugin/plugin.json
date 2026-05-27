@@ -1,0 +1,21 @@
+{
+  "name": "utility",
+  "version": "0.1.0",
+  "description": "General-purpose utility skills",
+  "author": {
+    "name": "Samuel Carson",
+    "email": "samuel.carson@gmail.com"
+  },
+  "homepage": "https://github.com/scarson/agent-skills",
+  "repository": "https://github.com/scarson/agent-skills",
+  "license": "MIT",
+  "keywords": ["skills", "utilities"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Utility Skills",
+    "shortDescription": "General-purpose utility skills",
+    "longDescription": "Reusable utility skills for agent workflows — starting with url-to-markdown.",
+    "developerName": "Samuel Carson",
+    "category": "Productivity"
+  }
+}

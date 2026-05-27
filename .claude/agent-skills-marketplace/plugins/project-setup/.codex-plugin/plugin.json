@@ -1,0 +1,21 @@
+{
+  "name": "project-setup",
+  "version": "0.1.0",
+  "description": "Skills for initializing and configuring new projects",
+  "author": {
+    "name": "Samuel Carson",
+    "email": "samuel.carson@gmail.com"
+  },
+  "homepage": "https://github.com/scarson/agent-skills",
+  "repository": "https://github.com/scarson/agent-skills",
+  "license": "MIT",
+  "keywords": ["skills", "setup", "bootstrap"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Project Setup Skills",
+    "shortDescription": "Skills for bootstrapping new projects",
+    "longDescription": "Skills for initializing and configuring new projects — git strategy setup, and more.",
+    "developerName": "Samuel Carson",
+    "category": "Productivity"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://code.claude.com/schemas/marketplace.json",
+  "name": "scarson-skills",
+  "owner": {
+    "name": "Samuel Carson",
+    "url": "https://github.com/scarson"
+  },
+  "metadata": {
+    "description": "Sam Carson's personal skills marketplace",
+    "version": "0.4.0"
+  },
+  "plugins": [
+    {
+      "name": "utility",
+      "source": "./plugins/utility",
+      "description": "General-purpose utility skills (url-to-markdown, etc.)"
+    },
+    {
+      "name": "project-setup",
+      "source": "./plugins/project-setup",
+      "description": "Skills for initializing and configuring new projects"
+    },
+    {
+      "name": "superpowers-plus",
+      "source": "./plugins/superpowers-plus",
+      "description": "Workflow orchestration that wraps superpowers — front-to-back feature-building, enhanced plan writing with the Living Document Contract, adversarial plan review, structured session handoffs, and the full bug-hunt and health-review workflows (three hunter methodologies + five-axis project health review + cycle skills, all in one plugin so the install is atomic and dispatch resolution stays intra-plugin)"
+    }
+  ]
+}
