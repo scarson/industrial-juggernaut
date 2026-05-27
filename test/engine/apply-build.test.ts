@@ -242,9 +242,12 @@ describe("applyAction — pass", () => {
 });
 
 describe("applyAction — attack", () => {
-  it("throws (implemented in Task 5.4)", () => {
+  // Task 5.4 implemented the attack branch; an attack with zero attackers is now
+  // an ordinary validation error (3..6 attackers required), no longer a "5.4 stub".
+  // Full attack coverage lives in test/engine/apply-attack.test.ts.
+  it("throws on an illegal attack declaration (no attackers)", () => {
     const s = factoryFixture();
     const action: Action = { kind: "attack", attacks: [{ target: hex(0, 0, 0), attackers: [], defender: hex(0, 0, 0) }] };
-    expect(() => applyAction(s, action)).toThrow(/5\.4/);
+    expect(() => applyAction(s, action)).toThrow();
   });
 });
