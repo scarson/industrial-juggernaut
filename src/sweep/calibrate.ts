@@ -6,7 +6,6 @@ import { dirname, resolve } from "node:path";
 import { findBalancedConfig, balanceSweep, selectBalanced, type GridEntry } from "./orchestrate";
 import { report } from "./report";
 import { defaultHealthThresholds, isHealthy } from "./health";
-import { proportionCI } from "./run";
 import { fmtConfig, fmtConfigFull, fmtMetrics, elapsedS } from "./format";
 import { defaultConfig, type RuleConfig } from "../engine/config";
 
@@ -47,51 +46,6 @@ const CALIBRATION_AXES = {
 /** ironCount < victoryThreshold is unwinnable-by-iron by construction; run but tag/skip in tables. */
 function isPrunable(config: RuleConfig): boolean {
   return config.ironCount < config.victoryThreshold;
-}
-
-/**
- * Supplementary per-count seatBias table — the load-bearing addition over the
- * standard report. The gate's `seatWinBias` is the MAX over player counts, so it's
- * dominated by the highest count (fewest games/seat → noisiest). Showing every
- * count lets a reader see whether a "seatBias FAIL" is driven by genuine low-count
- * bias or only by the under-sampled 6P bucket.
- */
-function perCountSeatBiasSection(grid: GridEntry[]): string {
-  const feasible = grid.filter((g): g is GridEntry & { metrics: NonNullable<GridEntry["metrics"]> } => g.metrics !== null);
-  const counts = Array.from(
-    new Set(feasible.flatMap((g) => Object.keys(g.metrics.seatWinBiasByCount).map(Number))),
-  ).sort((a, b) => a - b);
-
-  const lines: string[] = [];
-  lines.push("## Per-count seatBias (noise-floor diagnostic)");
-  lines.push("");
-  lines.push(
-    "`seatWinBias` (the gate metric) is the MAX over player counts, so it is dominated by the highest count, which has the fewest games per seat and thus the largest sampling noise. This table breaks it out per count so a \"seatBias FAIL\" can be read as genuine low-count bias vs. an under-sampled high-count artifact.",
-  );
-  lines.push("");
-  const header = ["config", ...counts.map((n) => `${n}P`), "max(gate)"].join(" | ");
-  lines.push(`| ${header} |`);
-  lines.push(`| ${["---", ...counts.map(() => "---"), "---"].join(" | ")} |`);
-  for (const g of feasible) {
-    const cells = counts.map((n) => {
-      const b = g.metrics.seatWinBiasByCount[n];
-      return b === undefined ? "—" : b.toFixed(3);
-    });
-    lines.push(`| ${fmtConfig(g.config)} | ${cells.join(" | ")} | ${g.metrics.seatWinBias.toFixed(3)} |`);
-  }
-  lines.push("");
-  // The runner rotates over the default [2,3,4,5,6] counts, so each count gets
-  // GAMES/5 games and each of its n seats gets GAMES/5/n. The per-seat CI on a
-  // fair 0.5 win-rate shows which counts are still indistinguishable from fair.
-  lines.push(
-    `Per-seat 95% CI half-width on a fair (0.5) win-rate at ${GAMES} games: ` +
-      counts.map((n) => `${n}P≈±${proportionCI(0.5, GAMES / 5 / n).toFixed(2)}`).join(", "),
-  );
-  lines.push("");
-  lines.push(
-    "Read: where a count's per-seat CI is wider than the 0.20 gate, that count cannot be distinguished from fair at this sample size — its bias is not yet evidence.",
-  );
-  return lines.join("\n");
 }
 
 function main(): void {
@@ -157,19 +111,15 @@ function main(): void {
     },
   });
 
-  // --- Report: standard sections + the per-count seatBias diagnostic. ---
-  const md =
-    report({
-      recommended: sel.recommended,
-      ranked: sel.ranked,
-      grid,
-      balance,
-      gamesPerConfig: GAMES,
-      thresholds,
-    }) +
-    "\n" +
-    perCountSeatBiasSection(grid) +
-    "\n";
+  // --- Report (the per-count seatBias section is emitted by report() itself). ---
+  const md = report({
+    recommended: sel.recommended,
+    ranked: sel.ranked,
+    grid,
+    balance,
+    gamesPerConfig: GAMES,
+    thresholds,
+  });
 
   mkdirSync(dirname(OUT_PATH), { recursive: true });
   writeFileSync(OUT_PATH, md, "utf8");

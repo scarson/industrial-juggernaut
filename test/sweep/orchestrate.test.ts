@@ -287,6 +287,30 @@ describe("report", () => {
     return [passer, failer];
   }
 
+  it("renders a per-count seatBias section when configs carry per-count data", () => {
+    const grid: GridEntry[] = [
+      gridEntry(
+        { ...defaultConfig(), boardSize: 96 },
+        metrics({ seatWinBias: 0.25, seatWinBiasByCount: { 2: 0.1, 3: 0.25, 4: 0.15 } }),
+        t,
+      ),
+    ];
+    const { recommended, ranked } = selectBalanced(grid, t);
+    const md = report({ recommended, ranked, grid, gamesPerConfig: 600, thresholds: t });
+    expect(md).toContain("## Per-count seatBias");
+    // Per-count columns present.
+    expect(md).toMatch(/\|\s*2P\s*\|\s*3P\s*\|\s*4P\s*\|/);
+    // The 3P value (0.25) appears in the row.
+    expect(md).toContain("0.250");
+  });
+
+  it("omits the per-count seatBias section when no config carries per-count data", () => {
+    const grid = builtGrid(); // metrics() default seatWinBiasByCount = {}
+    const { recommended, ranked } = selectBalanced(grid, t);
+    const md = report({ recommended, ranked, grid, gamesPerConfig: 100, thresholds: t });
+    expect(md).not.toContain("## Per-count seatBias");
+  });
+
   it("renders a recommended-found report with config, grid table, and balance table", () => {
     const grid = builtGrid();
     const { recommended, ranked } = selectBalanced(grid, t);

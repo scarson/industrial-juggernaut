@@ -115,6 +115,50 @@ function gridTableSection(input: ReportInput): string {
   return lines.join("\n");
 }
 
+/**
+ * Per-count seatBias table. `seatWinBias` (the gate metric) is the MAX over
+ * player counts, so it is dominated by the highest count — which has the fewest
+ * games per seat and thus the largest sampling noise. Breaking it out per count
+ * lets a reader judge whether a high `seatBias` is genuine low-count first-mover
+ * advantage or just an under-sampled high-count artifact. Emitted only when at
+ * least one feasible config carries per-count data.
+ */
+function perCountSeatBiasSection(input: ReportInput): string {
+  const feasible = input.grid.filter(
+    (g): g is GridEntry & { metrics: SweepMetrics } => g.metrics !== null,
+  );
+  const counts = [
+    ...new Set(feasible.flatMap((g) => Object.keys(g.metrics.seatWinBiasByCount).map(Number))),
+  ].sort((a, b) => a - b);
+  if (counts.length === 0) return "";
+
+  const lines: string[] = [];
+  lines.push("## Per-count seatBias");
+  lines.push("");
+  lines.push(
+    "`seatWinBias` (the gate metric) is the MAX over player counts, so it is dominated by the highest count, which has the fewest games per seat and thus the largest sampling noise. This table breaks it out per count so a high seatBias can be read as genuine low-count bias vs. an under-sampled high-count artifact.",
+  );
+  lines.push("");
+  lines.push(`| config | ${counts.map((n) => `${n}P`).join(" | ")} | max(gate) |`);
+  lines.push(`| ${["---", ...counts.map(() => "---"), "---"].join(" | ")} |`);
+  for (const g of feasible) {
+    const cells = counts.map((n) => {
+      const b = g.metrics.seatWinBiasByCount[n];
+      return b === undefined ? "—" : fmtNum(b);
+    });
+    lines.push(`| ${configSummary(g.config)} | ${cells.join(" | ")} | ${fmtNum(g.metrics.seatWinBias)} |`);
+  }
+  lines.push("");
+  // Per-seat CI assuming games are split evenly across the counts present; shows
+  // which counts can't yet be distinguished from a fair (uniform) win-rate.
+  const gamesPerCount = input.gamesPerConfig / counts.length;
+  lines.push(
+    `Per-seat 95% CI half-width on a fair win-rate at ${input.gamesPerConfig} games/config: ` +
+      counts.map((n) => `${n}P≈±${fmtNum(proportionCI(1 / n, gamesPerCount / n))}`).join(", "),
+  );
+  return lines.join("\n");
+}
+
 /** Per-axis OFAT balance-effect tables; the headline proportion (ironVictoryFraction) gets a 95% CI. */
 function balanceSection(input: ReportInput): string {
   const balance = input.balance;
@@ -167,6 +211,11 @@ export function report(input: ReportInput): string {
   sections.push(recommendedSection(input));
   sections.push("");
   sections.push(gridTableSection(input));
+  const perCount = perCountSeatBiasSection(input);
+  if (perCount.length > 0) {
+    sections.push("");
+    sections.push(perCount);
+  }
   const balance = balanceSection(input);
   if (balance.length > 0) {
     sections.push("");
