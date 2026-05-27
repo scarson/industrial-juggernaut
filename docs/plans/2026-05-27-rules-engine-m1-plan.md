@@ -61,7 +61,7 @@ notes and commit messages.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
-| 0 — Project scaffold + conventions | ⬜ Not started | — | — |
+| 0 — Project scaffold + conventions | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
 | 1 — RNG | ⬜ Not started | — | — |
 | 2 — Geometry | ⬜ Not started | — | — |
 | 3 — Board | ⬜ Not started | — | — |
@@ -71,7 +71,7 @@ notes and commit messages.
 | 7 — Driver + acceptance | ⬜ Not started | — | — |
 
 ### Deviations
-- (none yet)
+- Task 0.1: also committed `package-lock.json` (the task's literal `git add` list omitted it). Reproducible installs need the lockfile; included it rather than leave it untracked.
 
 ### Discoveries
 - (none yet)
@@ -126,7 +126,7 @@ Then update this plan's Execution Status banner + table for the phase.
 
 ## Phase 0 — Project Scaffold + Conventions
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`, subagent-driven execution)
 
 Establishes the buildable/testable project and the pitfalls docs the later phases' TDD mandate references.
 
