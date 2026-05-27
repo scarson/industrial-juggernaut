@@ -38,11 +38,11 @@ downstream reconstruction is expensive and fails silently.
 
 ## Execution Status
 
-**Overall:** Not started.
+**Overall:** 🚧 In progress — S1 claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`). Spec/plan merged via PR #10 (`72944bb`).
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
-| S1 — Metrics | ⬜ Not started | — | — |
+| S1 — Metrics | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
 | S2 — Health gate + rank | ⬜ Not started | — | — |
 | S3 — Runner (grid/OFAT, CRN, CIs) | ⬜ Not started | — | — |
 | S4 — Orchestrator + report | ⬜ Not started | — | — |
@@ -79,7 +79,7 @@ the grid, is a real FINDING, not a test to soften — STOP and report.
 
 ## Phase S1 — Metrics
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
 
 ### Task S1.1: `SweepMetrics` + computation
 **Files:** Create `src/sweep/metrics.ts`; Test `test/sweep/metrics.test.ts`. Available: `src/eval/measure.ts` (`measureDistribution`), `src/driver/run.ts` (`runGame`, `GameResult`), `src/agent/heuristic-agent.ts`, `src/engine/control.ts`, `src/engine/config.ts`, `src/engine/turn.ts` (`setupGame`).
