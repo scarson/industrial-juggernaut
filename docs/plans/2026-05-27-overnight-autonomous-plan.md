@@ -30,5 +30,19 @@
    - **Fails/collapses:** deepen #3; measure health-under-MCTS across configs; spec P3 (#4); flag that the health gate's `ironVictory ≥ 0.5` may be wrong if strong play is legitimately elimination-driven (Sam discussion).
 3. **Always end:** decision package (#6) + updated handoff; clean commits on `claude/document-game-design-VpqqB`; nothing merged.
 
+## Nice-to-haves (if time permits — Sam-requested; all autonomous-safe, self-contained)
+- **NTH-1: Retrofit `calibrate.ts` + `main.ts` to `findBalancedConfigParallel`.** Makes the canonical sweep scripts ~4× faster; behavior-preserving (parallel==serial proven). Low risk, high convenience for all future sweeps.
+- **NTH-2: Per-count seatBias as a first-class column in `report.ts`** (TDD). The standard report only shows the max-over-counts aggregate, which is noise-dominated by the highest count; surfacing per-count makes every report's seat-bias readable (the analysis doc's "what I'd add"). 
+- **NTH-3: Sweep-harness usage doc** — a short `docs/` page cataloguing the scripts (`calibrate`/`main`/`revalidate`/`confirm`), the `--workers` flag, and the determinism guarantee, so a future session can drive the harness without re-reading the source.
+- (stretch) **NTH-4: DRY the duplicated `cartesian`** — `run.ts` imports orchestrate's now-exported one.
+
+## Operating discipline (Sam-reinforced)
+- **Commit + push IMMEDIATELY after any unit of work** — the container is ephemeral; unpushed work is lost.
+- Only ONE heavy compute job at a time (4 cores); don't run test suites while a sweep/revalidation is using the cores (it starves them). Sequence compute; do code/doc work in between.
+
 ## Running log (updated through the night)
 - (start) Plan written. Revalidation in flight (Part A, all-MCTS, slow 4P games). Beginning #5 + #3.
+- #5 DONE: parallel infra hardened — adversarial review (NDJSON reassembly, backpressure, busy-worker pileup, crash races, bigint round-trip all sound) + 3 hardening tests (worker-error rejection, no pool poisoning, closed-pool guard). Committed.
+- #7 DONE early (verdict-independent): `findBalancedConfigParallel` built + proven == serial. Committed. Enables NTH-1 + Branch-A confirmation sweep.
+- Note: all-MCTS 4P games are ~15-20 min EACH (300-iter MCTS × 4 seats × multi-turn). Part A is throughput-bound on these; the gates (Branch A) will use cheaper 2P MCTS-vs-heuristic matchups (one MCTS seat).
+- Caution logged: completion-order per-game logs bias the early view toward SHORT games (they finish first). Do NOT read the Part A verdict until all 18 aggregate.
