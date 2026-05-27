@@ -175,12 +175,16 @@ describe("applyAction — build: validation throws", () => {
     expect(() => applyAction(s, action)).toThrow();
   });
 
-  it("throws on an illegal single base placement (sees only one friendly base)", () => {
-    // p0 friendly bases; opponent p1 4-base perimeter blocks one sightline so the
-    // target sees only one friendly base => illegal.
+  it("throws on an illegal single base placement (4th base sees only one friendly base)", () => {
+    // p0 has 3 bases (placing its 4th = perimeter establishment, so the triangle
+    // rule applies); opponent p1's 4-base perimeter blocks two of the sightlines so
+    // (4,-2,-2) sees only ONE friendly base => no triangle => illegal. (Corrected
+    // 2026-05-27: previously used a 2-base radiating player, which encoded the bug
+    // that the triangle rule applies during the radiating phase — it does not; see
+    // rules v10 §"Radiating Bases" / §"Placing Bases".)
     const oppBases = [hex(2, 1, -3), hex(2, -1, -1), hex(4, -1, -3), hex(4, 1, -5)];
-    const s = mkState({ board: 96, basesP0: [hex(-2, 2, 0), hex(4, -4, 0)], basesP1: oppBases });
-    const action: Action = { kind: "build", pieces: [{ type: "base", hex: hex(0, 2, -2) }] };
+    const s = mkState({ board: 96, basesP0: [hex(-2, 2, 0), hex(4, -4, 0), hex(0, 4, -4)], basesP1: oppBases });
+    const action: Action = { kind: "build", pieces: [{ type: "base", hex: hex(4, -2, -2) }] };
     expect(() => applyAction(s, action)).toThrow();
   });
 

@@ -135,6 +135,8 @@ A new base placed outside your existing perimeter must satisfy all three of the 
 
 > *⚑ A base that is only visible to one existing base does not extend your perimeter because it encloses no new territory. Such placement is not allowed.*
 
+> *Clarification (2026-05-27): the two-visible-bases triangle requirement governs **perimeter-establishing or perimeter-extending** placements — when you already have 3 or more bases on the board (i.e. you are placing your 4th base or later). During the **radiating phase** (placing your 2nd or 3rd base, when you have no perimeter yet — see "Radiating Bases" above), a new base outside any perimeter needs only the first two conditions: within 5 hexes of a friendly base, and not inside an opponent's perimeter. A radiating base does not yet enclose a polygon, so there is no triangle to form. This is a clarification of the radiating-vs-perimeter intent already described above, not a rule change.*
+
 When placing multiple bases, each new base changes the perimeter by creating one or more triangles with two other visible bases. When players have a high resource count, they can place multiple bases, expanding their perimeter by as many as 5 hexes with each base, claiming considerable area in a single turn.
 
 Bases placed within your existing perimeter fortify your perimeter, but do not claim new territory.

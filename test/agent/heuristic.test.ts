@@ -113,4 +113,117 @@ describe("evaluate", () => {
     });
     expect(evaluate(adj)[0]!).toBeLessThan(evaluate(iso)[0]!);
   });
+
+  // Survival penalty: a <4-base player at/over the per-player factory-death
+  // threshold is at the literal `brokenPerimeterAt18Factories` elimination
+  // condition, so `evaluate` must score it ~as-bad-as-eliminated. With >=4 bases
+  // (perimeter established) the death rule does not apply, so no penalty fires.
+  // All factory fixtures sit on a single radiating base's disk so `control`
+  // resolves them (radius 5 default; factories within 1-2 of the base center).
+  describe("survival penalty (avoid factory-over-build self-elimination)", () => {
+    // On-board hexes near origin used for factories (all within radius 5 of (0,0,0)).
+    const factoryHexes = [
+      hex(1, 0, -1), hex(0, 1, -1), hex(-1, 1, 0), hex(-1, 0, 1),
+      hex(0, -1, 1), hex(1, -1, 0), hex(2, 0, -2), hex(0, 2, -2),
+    ];
+    // Four on-board base hexes forming a non-degenerate hull around origin iron.
+    const fourBases = [hex(-2, 2, 0), hex(2, 0, -2), hex(0, -2, 2), hex(0, 2, -2)];
+    const irons = [hex(0, 0, 0), hex(1, -1, 0)];
+
+    it("a <4-base player at/over the factory-death threshold scores FAR LOWER than the same factories with >=4 bases", () => {
+      const cfg = defaultConfig();
+      const threshold = cfg.brokenPerimeterDeathAtFactories;
+      const facs = factoryHexes.slice(0, threshold);
+
+      // One base + >=threshold controlled factories == the death condition.
+      const atDeath = mkState({
+        board: 96,
+        basesP0: [hex(0, 0, 0)],
+        iron: irons,
+        factories: facs,
+        config: cfg,
+      });
+      // Same factories, but 4 bases forming a valid perimeter — death rule off.
+      const safe = mkState({
+        board: 96,
+        basesP0: fourBases,
+        iron: irons,
+        factories: facs,
+        config: cfg,
+      });
+
+      const atDeathScore = evaluate(atDeath)[0]!;
+      const safeScore = evaluate(safe)[0]!;
+      expect(atDeathScore).toBeLessThan(safeScore);
+      // At/over the threshold with <4 bases the player is literally eliminable;
+      // the score must be deeply negative, comparable to the eliminated sentinel.
+      expect(atDeathScore).toBeLessThan(-1e6);
+    });
+
+    it("a <4-base player approaching the threshold scores lower than one well below it (ramp)", () => {
+      const cfg = defaultConfig();
+      const threshold = cfg.brokenPerimeterDeathAtFactories;
+
+      const near = mkState({
+        board: 96,
+        basesP0: [hex(0, 0, 0)],
+        iron: irons,
+        factories: factoryHexes.slice(0, threshold - 1),
+        config: cfg,
+      });
+      const far = mkState({
+        board: 96,
+        basesP0: [hex(0, 0, 0)],
+        iron: irons,
+        factories: factoryHexes.slice(0, 2),
+        config: cfg,
+      });
+      expect(evaluate(near)[0]!).toBeLessThan(evaluate(far)[0]!);
+    });
+
+    it("pivot incentive: a <4-base player near the threshold prefers building a base over another factory", () => {
+      const cfg = defaultConfig();
+      const threshold = cfg.brokenPerimeterDeathAtFactories;
+      // 3 bases (one short of a perimeter) + (threshold-1) factories: one more
+      // factory trips the death clock, one more base does not.
+      const threeBases = [hex(-2, 2, 0), hex(2, 0, -2), hex(0, -2, 2)];
+      const facs = factoryHexes.slice(0, threshold - 1);
+
+      const afterFactory = mkState({
+        board: 96,
+        basesP0: threeBases,
+        iron: irons,
+        factories: factoryHexes.slice(0, threshold), // +1 factory -> at threshold
+        config: cfg,
+      });
+      const afterBase = mkState({
+        board: 96,
+        basesP0: [...threeBases, hex(0, 2, -2)], // +1 base -> 4-base perimeter
+        iron: irons,
+        factories: facs,
+        config: cfg,
+      });
+      // The agent should prefer the base-build state (escape the death regime).
+      expect(evaluate(afterBase)[0]!).toBeGreaterThan(evaluate(afterFactory)[0]!);
+    });
+
+    it("factories still valued when safe: a >=4-base player scores higher with more controlled factories", () => {
+      const cfg = defaultConfig();
+      const more = mkState({
+        board: 96,
+        basesP0: fourBases,
+        iron: irons,
+        factories: factoryHexes.slice(0, 3),
+        config: cfg,
+      });
+      const fewer = mkState({
+        board: 96,
+        basesP0: fourBases,
+        iron: irons,
+        factories: factoryHexes.slice(0, 1),
+        config: cfg,
+      });
+      expect(evaluate(more)[0]!).toBeGreaterThan(evaluate(fewer)[0]!);
+    });
+  });
 });

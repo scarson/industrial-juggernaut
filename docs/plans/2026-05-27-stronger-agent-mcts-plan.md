@@ -57,21 +57,29 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** 🚧 In progress — A1, A2 shipped; A3 next.
+**Overall:** ⏸ PAUSED at A5.1 — A1–A4 + A5.1 shipped (heuristic, MCTS core+agent, Elo arena; 314 tests green). A5.2/A6 (robustness + trustworthiness gates) DEFERRED pending a balanced multi-turn game config, because the game is currently decided at setup/turn-1 and no single hand-picked knob fixes it (see Discoveries). Per Sam's "A-to-unblock-B" decision (refined): the balance-sweep harness (its own spec/plan) is now the active track and its first deliverable is a data-driven balanced config; this MCTS milestone resumes once that lands.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
 | A1 — Improved heuristic | ✅ Shipped | `f5b838d`,`5b9ce56` | evaluate() + samplePolicy(); 235 tests green |
 | A2 — Factory-clock investigation + tuning | ✅ Shipped | `41c1056` (A2.2); `fe664f2`,`ba94212` (A2.1) | per-player factory clock, threshold 18→8; 240 tests green |
-| A3 — MCTS core | ⬜ Not started | — | — |
-| A4 — MCTS agent interface | ⬜ Not started | — | — |
-| A5 — Eval harness | ⬜ Not started | — | — |
+| A3 — MCTS core | ✅ Shipped | `9f31613`,`75a87ae`,`1a1328a`,`47a0640` | tree/max^n/PUCT, PW+chance+determinized, basesInHand fix, leaf-eval+search loop+stepRound; 287 tests |
+| A4 — MCTS agent interface | ✅ Shipped | `6a475e7`,`4c5e297` | chooseActionMCTS + IS-MCTS legality fix; 300 tests |
+| A5 — Eval harness | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
 | A6 — Trustworthiness gates (acceptance) | ⬜ Not started | — | — |
 
 ### Deviations
 - A2.1 pulled the A5.1 `agentFor` driver seam forward (A2 needs to run arbitrary agents through the real driver; duplicating the loop would risk divergence). Committed 5 files incl. `src/driver/record.ts` (the `RunOptions.agentFor?` type field lives there) — additive, acceptance test stays green. A5.1 will find the seam already present.
 
 ### Discoveries
+- **A5.x — "A-to-unblock" (provisional single-knob balance tweak) is INFEASIBLE; folding it into the sweep (B).** After the base-placement fix, games are decided at setup/turn-1 and no single hand-picked knob gives healthy multi-turn games: **48/200 games are won at SETUP** (a radius-5 base on the 93-hex board blankets ~9–12 of 14 iron, threshold 10); `maxBuildPerRound` cap is inert for pacing; `victoryThreshold`/`ironCount` do nothing alone; `radius`=2 only reaches turn 2 and starts last-standing degeneration. It's a multi-dimensional board-geometry problem (radius × boardSize × ironCount × threshold) — exactly what the sweep harness is for. DECISION: make no hand-balance-change now (reverted the inert `maxBuildPerRound` change to restore green); build the sweep (B) whose FIRST deliverable is to search the config space and identify a balanced multi-turn config (the data-driven "A"). MCTS gates (A5.2/A6) resume once that config exists. Also recorded for A6: against the *competent* (perimeter-building) heuristic-greedy baseline, MCTS@60 iters LOSES (gate 2 cannot be assessed on a 1-turn game — needs the balanced config first).
+- **A5.x — TRUE ROOT CAUSE found + fixed (commit `5caf744`): the 2nd base was impossible.** `isLegalBasePlacement` required a two-visible-bases triangle for ALL outside-perimeter placements, but `setupGame` starts each player at 1 base → 0 legal base placements → no player ever grew past 1 base → forced factory-spam → factory-death. The A2 factory-clock change and the A5.1 survival penalty were both treating symptoms of THIS. Fixed (Option 1): triangle rule applies only at ≥3 existing bases (perimeter-establishing 4th+); radiating 2nd/3rd need only proximity. Distribution transformed: 2P iron victories 0→200, maxBases 1→11; 2–6P empty-coalition 17→0; 1000-game acceptance `iron:1000, last-standing:0, capHits:0`. Rules doc clarified.
+  - **NEW design crossroads (BLOCKED on Sam's direction — beyond factory-clock authorization):** with base-growth working, games now resolve in ~1 TURN (acceptance `turnsHistogram {1:184,2:14,...}`, maxTurns 1) — iron victory is too fast/easy (10-iron threshold vs 14 board iron + a 4-base perimeter enclosing most of it in one turn). This is a BALANCE issue (a "Variables to Test" item: victory threshold / iron count / build budget), and it makes gate (2) uninformative: a 1-turn iron-rush has no depth for lookahead, and MCTS@60 iters now LOSES to the competent greedy baseline 0/20 (Elo 1334 vs 1665). Whether MCTS adds value (and whether the learned agent is warranted) cannot be assessed until balance gives games strategic depth. Surfaced to Sam for direction.
+- **A5.1 — greedy baselines self-eliminate in 2P; heuristic undervalues survival → fixing `evaluate` (Option 1).** Arena diagnosis: both `greedyAgent` and `heuristicAgent` compose multi-piece factory builds crossing the per-player factory-death threshold (8) while `<4` bases → self-destruct at turn 3. So "MCTS beats greedy 20/0 (Elo 1665 vs 1335, 60 iters)" is *partly* MCTS avoiding a multi-turn trap greedy can't see (legit search value) and *partly* a broken baseline. Root cause: `evaluate` rewards factories + perimeters but does NOT penalize the imminent-self-destruct state, so myopic agents walk into it; it also mis-scores MCTS leaf-eval at the cutoff and risks factory-over-build distortion in sweeps. Decision (5-option adversarial): add a survival penalty to `evaluate` (penalize ≥threshold controlled factories while `<4` bases, ramped), then re-measure. Also: the game has a strong ~60/40 first-mover/seat advantage at 2P default — eval pairings need a skill gap exceeding it or seat-balanced counts (arena already rotates seats). MCTS-vs-greedy signal must use the *competent* baseline once `evaluate` is fixed.
+- **A4.1 — MCTS crashes under stochastic transitions (varying legal sets); fixing with IS-MCTS legality filtering.** `runMcts` opens/validates a node's edges against the state from its FIRST visit, but combat chance outcomes + determinized turn-order draws (threaded across iterations) route a DIFFERENT state to the same node on later iterations → a stale edge action becomes illegal → `applyAction` throws on varied mid-game/attack-legal boards. Reachable; would crash A5/A6's many-game runs. Decision (5-option adversarial): re-validate edges against the current-iteration state at selection, select only currently-legal edges, expand from current state if under-populated, never apply an illegal action (standard determinized/IS-MCTS). Turn-order-as-chance-nodes rejected (branching explosion); freeze-state / deterministic-turn-order rejected (bias the search away from the real game → hurts trustworthiness).
+- **A4.1 — no MCTS-beats-greedy divergence on crafted fixtures (open question for A6 gate 2).** The perimeter-aware heuristic already fixes greedy's 4th-base myopia, so greedy composes valid perimeters too; on the one-ply `evaluate`, greedy's area-max placement scores ≥ MCTS's compact one. Whether MCTS beats greedy *over many games* (gate 2) is now genuinely open — the Elo arena (A5) decides it. If MCTS does NOT beat greedy, that itself is a finding (the heuristic may suffice for sweeps; search adds little).
+- **A3.2 — engine self-consistency bug found + fixed (commit `1a1328a`).** `legalActions` emitted base-build placements without gating on `basesInHand`, so a maxed-out player (0 bases in hand) got actions `applyAction` rejects — a `legalActions ⊆ applyAction-acceptable` violation reachable in late game. Root-caused to `isLegalBasePlacement` (now returns false at `basesInHand===0`); self-consistency test strengthened with a maxed-out fixture.
+- **A3.3 — MCTS expansion O(iterations²) trap (fixed, inline-documented in `runMcts`).** Naively re-calling `expandNode` on every node visit re-paid the full policy-sampling budget as `node.N` grew → quadratic hang (200 iters never finished). Fixed with a per-node saturation cache (stop re-expanding a node once a call adds no new edge): 400 iters in ~190ms, linear. Candidate `docs/pitfalls` entry for a future pass.
 - **A2.2 — per-player factory-death clock fixes the rules-bound degeneration.** Implemented the authorized Option-4 change: `brokenPerimeterAt18Factories` now fires on the player's OWN controlled-factory count (`control(state,p).factories.length >= config.brokenPerimeterDeathAtFactories`, gated on `<4` bases) instead of the shared placed-pool (`36 − factorySupply`). Default threshold recalibrated **18 → 8** (per-player scale). `EliminationCause` name preserved (the "18"/"shared" is now historical). See `src/engine/status.ts` `applyEliminations`, `src/engine/config.ts`, `docs/pitfalls/implementation-pitfalls.md` GEO-6.
   - **Step-1 diagnostic (confirms root cause).** Cause breakdown over the A2.1 batch (200 games, 2–6P, seed 1n, default config): `{ brokenPerimeterAt18Factories: 590 }` — the SOLE elimination cause. Disabling the clock (`threshold=999`) lengthened games from turns `{1:111,2:49,3:40}` to `{1:48,301:152}` (152 cap-hit stalls), iron victories flat at 48 → the shared clock both *caused* the turn-3 wipeouts AND was the only thing terminating the other 152 games. Degeneration confirmed rules-bound.
   - **Threshold sweep (200 games, 2–6P, heuristic-greedy, seed 1n).** Iron victories stay at 48 across all thresholds (iron rushes resolve before the clock matters); the clock governs how the OTHER 152 games end. empty-coalition wipeouts / cap-hits by threshold: `4→33/0`, `5→47/0`, `6→48/0`, **`8→17/0`**, `10→26/4`, `12→51/40`. Chose **8** — minimum empty-coalition wipeouts with zero turn-cap stalls.
@@ -200,7 +208,7 @@ Empirically determine whether the M1 turn-3 mass-elimination is agent-bound or r
 
 ## Phase A3 — MCTS Core
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED on 2026-05-27 (commits `9f31613`,`75a87ae`,`1a1328a` (engine self-consistency fix),`47a0640`; 287 tests green)
 
 Determinized N-player max^n MCTS over the pure engine. Behavior+signature level per the design; the executor writes complete tests for every enumerated behavior before implementing.
 
@@ -241,7 +249,7 @@ Determinized N-player max^n MCTS over the pure engine. Behavior+signature level 
 
 ## Phase A4 — MCTS Agent Interface
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED on 2026-05-27 (commits `6a475e7` chooseActionMCTS, `4c5e297` IS-MCTS legality fix; 300 tests green)
 
 ### Task A4.1: `chooseActionMCTS`
 
@@ -260,7 +268,7 @@ Determinized N-player max^n MCTS over the pure engine. Behavior+signature level 
 
 ## Phase A5 — Eval Harness
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
 
 ### Task A5.1: Elo / round-robin arena
 

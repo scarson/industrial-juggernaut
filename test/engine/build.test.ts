@@ -200,11 +200,16 @@ describe("isLegalBasePlacement — outside own perimeter", () => {
     expect(isLegalBasePlacement(s, 0, hex(2, -2, 0))).toBe(true);
   });
 
-  it("illegal when it can see only one friendly base (opponent perimeter blocks the other)", () => {
-    // Opponent perimeter blocks the segment (0,2,-2)->(4,-4,0); only (-2,2,0) is
-    // visible (d=2, within range) => sees one friendly base => illegal.
+  it("radiating phase (<3 bases): legal by proximity even when it sees only one friendly base", () => {
+    // p0 has 2 bases (placing its 3rd = radiating phase). The opponent perimeter
+    // blocks the segment (0,2,-2)->(4,-4,0), so (0,2,-2) sees only ONE friendly
+    // base (-2,2,0) at d=2. The triangle rule applies to perimeter-establishing
+    // placements (>=3 existing bases), NOT the radiating phase, so proximity +
+    // not-in-opponent-perimeter is sufficient => legal. (Corrected 2026-05-27:
+    // previously this asserted `false`, encoding the bug that froze players at 1
+    // base — see rules v10 §"Radiating Bases" / §"Placing Bases".)
     const s = mkState({ board: 96, basesP0: friendly, basesP1: oppBases });
-    expect(isLegalBasePlacement(s, 0, hex(0, 2, -2))).toBe(false);
+    expect(isLegalBasePlacement(s, 0, hex(0, 2, -2))).toBe(true);
   });
 
   it("illegal when inside an opponent's perimeter", () => {
@@ -229,6 +234,90 @@ describe("isLegalBasePlacement — outside own perimeter", () => {
   it("illegal when off the board", () => {
     const s = mkState({ board: 96, basesP0: friendly, basesP1: [hex(2, 1, -3)] });
     expect(isLegalBasePlacement(s, 0, hex(8, -8, 0))).toBe(false);
+  });
+});
+
+describe("isLegalBasePlacement — radiating phase (<3 existing bases)", () => {
+  // Rules v10 §"Radiating Bases": with 1/2/3 bases a player has NO perimeter,
+  // so a 2nd/3rd base needs only proximity to a friendly base + not inside an
+  // opponent perimeter. The two-visible-bases triangle rule governs perimeter
+  // establishment/extension (4th+ base), not the radiating phase.
+
+  it("a 1-base player CAN place a 2nd base by proximity (the headline regression)", () => {
+    // p0 has a single base at (0,0,0); opponent has 1 base (no perimeter).
+    // (2,-2,0) is on-board, empty, d=2 from the base, not in any opponent perimeter.
+    const s = mkState({ board: 96, basesP0: [hex(0, 0, 0)], basesP1: [hex(4, 1, -5)] });
+    expect(isLegalBasePlacement(s, 0, hex(2, -2, 0))).toBe(true);
+  });
+
+  it("a 2-base player CAN place a 3rd base by proximity (no triangle required)", () => {
+    // p0 has 2 bases; (2,0,-2) is d=2 from (0,0,0), empty, not in an opponent perimeter.
+    const s = mkState({ board: 96, basesP0: [hex(0, 0, 0), hex(4, -4, 0)], basesP1: [hex(4, 1, -5)] });
+    expect(isLegalBasePlacement(s, 0, hex(2, 0, -2))).toBe(true);
+  });
+
+  it("radiating 2nd base still illegal when out of range of every friendly base", () => {
+    const s = mkState({ board: 96, basesP0: [hex(0, 0, 0)], basesP1: [hex(4, 1, -5)] });
+    // (6,-6,0) is d=6 from (0,0,0) > placeRange 5.
+    expect(isLegalBasePlacement(s, 0, hex(6, -6, 0))).toBe(false);
+  });
+
+  it("radiating 2nd base still illegal inside an opponent perimeter", () => {
+    // Opponent has a 4-base hull; (2,0,-2) lies inside it.
+    const oppBases = [hex(2, 1, -3), hex(2, -1, -1), hex(4, -1, -3), hex(4, 1, -5)];
+    const s = mkState({ board: 96, basesP0: [hex(0, 0, 0)], basesP1: oppBases });
+    expect(isLegalBasePlacement(s, 0, hex(2, 0, -2))).toBe(false);
+  });
+});
+
+describe("isLegalBasePlacement — perimeter establishment (>=3 existing bases, placing 4th+)", () => {
+  // Rules v10 §"Placing Bases": the 4th+ base extends the perimeter, so it MUST
+  // form an unobstructed triangle with two distinct visible friendly bases.
+  // p0 has 3 bases (placing its 4th); opponent has a 4-base hull that blocks
+  // some sightlines.
+  const three = [hex(-2, 2, 0), hex(4, -4, 0), hex(0, 4, -4)];
+  const oppBases = [hex(2, 1, -3), hex(2, -1, -1), hex(4, -1, -3), hex(4, 1, -5)];
+
+  it("4th base illegal when it sees only ONE friendly base", () => {
+    // (4,-2,-2): in range (d=2 from (4,-4,0)), not in opponent hull, but the
+    // opponent perimeter blocks the lines to the other two bases => visibleCount 1.
+    const s = mkState({ board: 96, basesP0: three, basesP1: oppBases });
+    expect(isLegalBasePlacement(s, 0, hex(4, -2, -2))).toBe(false);
+  });
+
+  it("4th base legal when it sees TWO friendly bases unobstructed", () => {
+    // (0,3,-3): in range (d=1 from (0,4,-4)), not in opponent hull, sees two
+    // friendly bases ((-2,2,0) and (0,4,-4)) => triangle formed => legal.
+    const s = mkState({ board: 96, basesP0: three, basesP1: oppBases });
+    expect(isLegalBasePlacement(s, 0, hex(0, 3, -3))).toBe(true);
+  });
+});
+
+describe("isLegalBasePlacement — bases-in-hand gate", () => {
+  // A geometrically-legal interior placement: p0 has a 4-base non-degenerate
+  // perimeter, and (2,-2,0) is an empty interior hex (legal when bases remain).
+  const perimeterBases = [hex(0, 0, 0), hex(4, -4, 0), hex(4, 0, -4), hex(0, 4, -4)];
+  const fixture = () => mkState({ board: 96, basesP0: perimeterBases });
+
+  it("illegal when the acting player has basesInHand === 0 (cannot place a base you don't have)", () => {
+    const s = fixture();
+    // Maxed out: all bases on the board, none in hand.
+    s.players[0]!.basesInHand = 0;
+    expect(isLegalBasePlacement(s, 0, hex(2, -2, 0))).toBe(false);
+  });
+
+  it("legal for the same fixture when basesInHand > 0 (only the bases-in-hand gate changed)", () => {
+    const s = fixture();
+    s.players[0]!.basesInHand = 1;
+    expect(isLegalBasePlacement(s, 0, hex(2, -2, 0))).toBe(true);
+  });
+
+  it("factory placement is unaffected by basesInHand === 0 (factories come from factorySupply)", () => {
+    // (6,-6,0) is d2 from the farthest base (4,-4,0): empty, non-iron, in range,
+    // and factorySupply > 0 by default. basesInHand has no bearing on factories.
+    const s = fixture();
+    s.players[0]!.basesInHand = 0;
+    expect(isLegalFactoryPlacement(s, 0, hex(6, -6, 0))).toBe(true);
   });
 });
 

@@ -5,10 +5,9 @@
 import { chooseAction } from "../agent/greedy";
 import { generateBoard } from "../board/generate";
 import { loadBoard } from "../board/load";
-import { applyAction } from "../engine/apply";
 import { control } from "../engine/control";
-import { applyEliminations, status } from "../engine/status";
-import { removeEncircledStrandedBases } from "../engine/stranded";
+import { stepRound } from "../engine/round";
+import { status } from "../engine/status";
 import { advanceRound, currentPlayer, setupGame } from "../engine/turn";
 import { seed } from "../rng/pcg";
 import type { Board, GameState, PlayerId } from "../engine/types";
@@ -88,19 +87,19 @@ export function runGame(opts: RunOptions): GameResult {
         : chooseAction(state, player, opts.archetypes[player]!);
       state = choice.state;
 
-      // Legality guarantee: applyAction throwing here is a fatal agent bug; surface
-      // it with full diagnostics including the seed for reproduction.
+      // Apply the action and run the post-action board reassessment (eliminations
+      // for the acting player, then encircled-stranded removal) via the shared
+      // stepRound helper — the SAME per-round body the MCTS simulation uses, so the
+      // search advances a round exactly as the live game does. applyAction throwing
+      // here is a fatal agent bug; surface it with full diagnostics including the
+      // seed for reproduction.
       try {
-        state = applyAction(state, choice.action).state;
+        state = stepRound(state, choice.action).state;
       } catch (e) {
         throw new Error(
           `Illegal action from agent (seed=${opts.seed}, turn=${state.phase.turn}, player=${player}, action=${JSON.stringify(choice.action)}): ${String(e)}`,
         );
       }
-
-      // Post-action board reassessment.
-      state = applyEliminations(state, player).state;
-      state = removeEncircledStrandedBases(state).state;
     }
 
     // End-of-round victory check.

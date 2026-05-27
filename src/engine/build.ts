@@ -140,19 +140,31 @@ function insideAnyOpponentPerimeter(state: GameState, player: PlayerId, h: Hex):
 /**
  * Base placement legality (spec §8 "Placing Bases").
  *
- * `h` must be on the board and empty. Two cases:
+ * The acting player must have a base in hand (`basesInHand > 0`); a maxed-out
+ * player can place nothing. Beyond that, `h` must be on the board and empty.
+ * Two cases:
  *  - INSIDE OWN PERIMETER (player has a valid >=4-base non-degenerate hull and
  *    `h` is inside it): legal anywhere empty in territory (fortifies, claims
  *    nothing).
- *  - OUTSIDE OWN PERIMETER: legal iff
+ *  - OUTSIDE OWN PERIMETER: always requires
  *      (1) within `config.placeRange` of at least one friendly base;
- *      (2) NOT inside any opponent's valid perimeter;
- *      (3) forms an unobstructed triangle with TWO distinct friendly bases —
+ *      (2) NOT inside any opponent's valid perimeter.
+ *    Beyond that, the triangle requirement depends on how many bases the player
+ *    already has on the board (rules v10 §"Radiating Bases" / §"Placing Bases"):
+ *      - RADIATING PHASE (< 3 existing bases — placing the 2nd or 3rd): each base
+ *        radiates a control circle and there is NO perimeter yet, so (1)+(2) alone
+ *        suffice. No triangle is required.
+ *      - PERIMETER ESTABLISHMENT/EXTENSION (>= 3 existing bases — placing the 4th
+ *        or later): the placement extends a perimeter, so it MUST additionally
+ *      (3) form an unobstructed triangle with TWO distinct friendly bases —
  *          two friendly bases b1,b2 with `segmentBlocked(h, b.hex, OPP)` false,
  *          where OPP is the opponent-perimeter blocker set. Seeing only ONE
  *          friendly base is illegal (encloses no new territory).
  */
 export function isLegalBasePlacement(state: GameState, player: PlayerId, h: Hex): boolean {
+  // You cannot place a base you don't have: a maxed-out player (all 12 bases on
+  // the board) has none in hand, so no placement is legal regardless of geometry.
+  if (state.players[player]!.basesInHand <= 0) return false;
   if (!onBoard(state, h)) return false;
   if (occupied(state, h)) return false;
 
@@ -168,6 +180,12 @@ export function isLegalBasePlacement(state: GameState, player: PlayerId, h: Hex)
 
   // (2) not inside any opponent perimeter.
   if (insideAnyOpponentPerimeter(state, player, h)) return false;
+
+  // Radiating phase (< 3 existing bases): no perimeter exists yet, so the 2nd/3rd
+  // base needs only proximity + not-in-opponent-perimeter (rules v10 §"Radiating
+  // Bases"). The triangle rule below governs the 4th+ base that establishes or
+  // extends a perimeter (rules v10 §"Placing Bases").
+  if (friendly.length < PERIMETER_BASE_COUNT - 1) return true;
 
   // (3) unobstructed triangle with two distinct friendly bases.
   const opp = opponentPerimeterBlockers(state, player);
