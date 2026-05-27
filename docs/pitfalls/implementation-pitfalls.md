@@ -26,6 +26,7 @@ This document serves three audiences. Start here, then go directly to the sectio
 |---|---------|---------------------|---------|-----------|
 | 1 | [Geometry & Engine](#section-1-geometry--engine) | Hex math, coordinate projection, PRNG threading, derived state | GEO-1 – GEO-6 | §1.C |
 | — | [Orchestration](#orchestration) | Parallel subagent dispatch and output persistence | ORCH-1 | §Orchestration.C |
+| — | [Balance & Evaluation](#balance--evaluation) | Sweep harness, config health, agent-relative balance | BAL-1 | §Balance.C |
 | A | [Historical Changelog](#appendix-a-historical-changelog) | Provenance, validation dates, review process meta-observations | — | — |
 | B | [Unified Summary Table](#appendix-b-unified-summary-table) | All pitfalls at a glance, with severity and status | — | — |
 
@@ -135,6 +136,25 @@ Pitfalls that arise when a session dispatches parallel subagents and consolidate
 
 - [ ] **Dispatch prompts include the mandatory-persistence block** — copy from `docs/git-strategy.md` §Output persistence; substitute `<PERSISTENCE_PATH>` with a durable per-subagent path (ORCH-1)
 - [ ] **Plan specifies exact persistence paths, not "write somewhere useful"** — ambiguous paths default to `/tmp` under pressure, which doesn't survive (ORCH-1)
+
+---
+
+## Balance & Evaluation
+
+Pitfalls specific to the offline balance/agent-evaluation harness (`src/sweep/`, `src/eval/`).
+
+### BAL-1: A Config Is "Balanced" Only If It Survives the STRONGEST Agent, Not Greedy
+
+**Trigger:** Searching `RuleConfig` space for a "balanced" config via `findBalancedConfig`/the health gate, which run under the heuristic/greedy agent by default.
+
+**What you need to do:** Before concluding a config is balanced (let alone adopting it as `defaultConfig`), **re-validate it under MCTS** (`src/sweep/revalidate.ts`). A config that passes the health gate under greedy self-play may collapse under competent play.
+
+**Why (lived 2026-05-27):** `b96/r2/iron12/vt12` passed all 7 health criteria under greedy (median 3 turns, ironVictory 0.79) — but under MCTS it ended **6/6 games by `last-standing` elimination, 0% iron victory**. Strong play's dominant line is to **deny the opponent's iron** (radius-2 control disks + scarce iron make denial easy) → `noIron` elimination (`src/engine/status.ts`) → last-standing win, faster than racing to the iron threshold. Greedy never finds this line, so the health gate (tuned on greedy self-play) **certified agent myopia as balance.** The fix is methodological, not a code change: gate under the strongest available agent. See `2026-05-27-balance-rules-analysis.md` §0.1.
+
+### Review Checklist
+
+- [ ] **Every "balanced config" claim is backed by an MCTS revalidation, not just greedy self-play** — the greedy health profile can be an artifact of the agent being too weak to find degenerate lines (BAL-1)
+- [ ] **No `defaultConfig` change adopts a config validated only under greedy** (BAL-1)
 - [ ] **Orchestrator commits subagent artifacts wave-by-wave** — committed files land on the campaign branch before consolidation begins (ORCH-1)
 
 ---
@@ -162,6 +182,7 @@ TODO — add entries as this document evolves.
 | GEO-4 | Set Membership on Hex | MEDIUM | UNIMPLEMENTED | Geometry & Engine |
 | GEO-5 | Perimeter Is Derived, Never Stored | MEDIUM | UNIMPLEMENTED | Geometry & Engine |
 | ORCH-1 | Analysis Dispatches Must Persist Findings | HIGH | VALIDATED | Orchestration |
+| BAL-1 | A Config Is "Balanced" Only Under the Strongest Agent | HIGH | VALIDATED | Balance & Evaluation |
 
 Severity levels: `CRITICAL` (production data loss / security), `HIGH` (correctness bug under predictable conditions), `MEDIUM` (correctness bug under edge cases), `LOW` (cleanliness / clarity).
 
