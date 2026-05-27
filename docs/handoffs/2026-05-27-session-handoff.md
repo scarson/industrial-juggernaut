@@ -4,7 +4,7 @@
 
 ## Headline state
 - **Branch:** `claude/document-game-design-VpqqB` (all work; the only dev branch).
-- **Tip:** see `git log -1` (overnight work pushed continuously; latest is the parallel-infra + analysis-overturn + P3-spec + doc commits). `origin/main` is at `72944bb` (PR #10). The branch is ahead of main by ALL the sweep work (S1–S5) + the overnight parallel infra + docs — **none PR'd to main yet.**
+- **Tip:** `f83e887` (this handoff commit) — overnight work pushed continuously (parallel infra + analysis-overturn + P3-spec + docs + BAL-1 pitfall). `origin/main` is at `72944bb` (PR #10). The branch is ahead of main by ALL the sweep work (S1–S5) + the overnight parallel infra + docs — **none PR'd to main yet.**
 - **Tests:** full suite green — **396 passing, 36 files** (re-confirmed after all overnight changes), strict `tsc` clean.
 - **⚠️ THE BALANCE CONCLUSION FLIPPED OVERNIGHT — read `2026-05-27-balance-rules-analysis.md` §0.1 first.** The 600-game calibration found a config (`b96/r2/iron12/vt12`) that passed all 7 health criteria **under the greedy agent**. The overnight MCTS revalidation **OVERTURNED that**: under strong (MCTS) play the config ends **6/6 games by elimination (0% iron victory)** — strong play wins by denying the opponent's iron → `noIron` elimination, which greedy never finds. So the "balanced config" was a **greedy-agent artifact**; it is **NOT adoptable**. Balance here is agent-relative. **This is now a Sam DECISION among four options (analysis §0.1), not an agent task.**
 - **Parallel infra shipped (overnight):** the sweep harness now runs games across CPU cores via a spawned-`tsx` worker pool, proven bit-for-bit identical to serial. See "What shipped (overnight)" below.
