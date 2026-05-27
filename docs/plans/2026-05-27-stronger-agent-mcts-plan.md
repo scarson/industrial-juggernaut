@@ -57,11 +57,11 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** Not started.
+**Overall:** 🚧 In progress — Phase A1 claimed 2026-05-27.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
-| A1 — Improved heuristic | ⬜ Not started | — | — |
+| A1 — Improved heuristic | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
 | A2 — Factory-clock investigation + tuning | ⬜ Not started | — | — |
 | A3 — MCTS core | ⬜ Not started | — | — |
 | A4 — MCTS agent interface | ⬜ Not started | — | — |
@@ -128,7 +128,7 @@ Then update this plan's Execution Status banner + table for the phase.
 
 ## Phase A1 — Improved Heuristic
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
 
 The perimeter-aware evaluation + stochastic policy that every later phase depends on. This is the dominant lever for the 4th-base-myopia fix.
 
