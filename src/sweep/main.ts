@@ -6,8 +6,8 @@ import { dirname, resolve } from "node:path";
 import { findBalancedConfig, balanceSweep, selectBalanced, type GridEntry } from "./orchestrate";
 import { report } from "./report";
 import { defaultHealthThresholds, isHealthy } from "./health";
+import { fmtConfig, fmtConfigFull, fmtMetrics, elapsedS } from "./format";
 import { defaultConfig, type RuleConfig } from "../engine/config";
-import type { SweepMetrics } from "./metrics";
 
 /**
  * Common-random-numbers base seed for the whole run. A single fixed seed across
@@ -77,24 +77,6 @@ const GEOMETRY_AXES = {
  */
 function isPrunable(config: RuleConfig): boolean {
   return config.ironCount < config.victoryThreshold;
-}
-
-function fmtConfig(c: RuleConfig): string {
-  return `boardSize=${c.boardSize}, radius=${c.radius}, ironCount=${c.ironCount}, victoryThreshold=${c.victoryThreshold}`;
-}
-
-function fmtMetrics(m: SweepMetrics): string {
-  return `med=${m.medianTurns} cap=${m.capHitFraction.toFixed(2)} setup=${m.setupDecidedFraction.toFixed(2)} iron=${m.ironVictoryFraction.toFixed(2)} seat=${m.seatWinBias.toFixed(2)} lead=${m.leadVolatility.toFixed(2)}`;
-}
-
-/** Like fmtConfig but also the OFAT-varied balance knobs, so an OFAT line shows exactly which knob is set to what. */
-function fmtConfigFull(c: RuleConfig): string {
-  return `${fmtConfig(c)}, autoWinAt6=${c.autoWinAt6}, killBounty=${c.killBounty}, attackRange=${c.attackRange}`;
-}
-
-/** Seconds elapsed since `t0`, as a heartbeat suffix for live progress lines. */
-function elapsedS(t0: number): string {
-  return `${((Date.now() - t0) / 1000).toFixed(0)}s`;
 }
 
 function main(): void {
