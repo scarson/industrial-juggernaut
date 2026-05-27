@@ -747,3 +747,95 @@ describe("runMcts — search loop", () => {
     expect(best.action.kind).toBe("attack");
   });
 });
+
+// ===========================================================================
+// A4.1 — IS-MCTS legality filtering under stochastic transitions.
+//
+// Transitions are stochastic: combat chance outcomes and the determinized
+// turn-order rollover draw are threaded from the search rng and DIFFER across
+// iterations. So a LATER iteration can route a different state — including a
+// different acting player — to a tree node whose edges were opened against an
+// EARLIER iteration's state. A stale edge's action (e.g. a base build at one
+// player's hex) is then no longer legal in the current state (a different
+// player is acting, or the budget/basesInHand differ), and applying it throws.
+// IS-MCTS legality filtering selects only edges legal in the CURRENT state.
+// ===========================================================================
+
+// A 3-player mid-game position. With determinized turn order, later iterations
+// reach interior tree nodes with a different acting player than first opened
+// them, so a stale build edge becomes illegal in the current state. Verified to
+// throw `illegal base placement` / `exceeds build budget` before the fix.
+const stochasticLegalitySetFixture = (): GameState =>
+  mkState({
+    board: 96,
+    basesP0: [
+      { x: 0, y: 0, z: 0 },
+      { x: 2, y: -2, z: 0 },
+      { x: 4, y: -4, z: 0 },
+    ],
+    basesP1: [
+      { x: 0, y: 4, z: -4 },
+      { x: 1, y: 3, z: -4 },
+    ],
+    basesP2: [
+      { x: -4, y: 4, z: 0 },
+      { x: -3, y: 4, z: -1 },
+    ],
+    iron: [
+      { x: 5, y: -5, z: 0 },
+      { x: 6, y: -6, z: 0 },
+      { x: 3, y: 1, z: -4 },
+    ],
+  });
+
+describe("runMcts — IS-MCTS legality filtering (A4.1)", () => {
+  it("completes without throwing on a fixture whose legal action set varies across determinizations", () => {
+    // Before the fix this threw `applyAction(build): illegal base placement …` /
+    // `… exceeds build budget …` at ~400 iterations on seed 0 (a stale edge
+    // applied under a determinization where it is no longer legal).
+    const params = coreParams({ iterations: 400, maxDepth: 20 });
+    const state = stochasticLegalitySetFixture();
+    expect(() => runMcts(state, 0, params, seed(0n))).not.toThrow();
+  });
+
+  it("returns root actions that are all applyAction-acceptable in the root state", () => {
+    const params = coreParams({ iterations: 400, maxDepth: 20 });
+    const state = stochasticLegalitySetFixture();
+    const { rootStats } = runMcts(state, 0, params, seed(0n));
+    expect(rootStats.length).toBeGreaterThan(0);
+    for (const stat of rootStats) {
+      expect(() => applyAction(state, stat.action)).not.toThrow();
+    }
+    const best = rootStats.reduce((a, b) => (b.visits > a.visits ? b : a));
+    expect(() => applyAction(state, best.action)).not.toThrow();
+  });
+
+  it("preserves determinism: same fixture + seed gives an identical root visit distribution twice", () => {
+    const params = coreParams({ iterations: 400, maxDepth: 20 });
+    const r1 = runMcts(stochasticLegalitySetFixture(), 0, params, seed(0n));
+    const r2 = runMcts(stochasticLegalitySetFixture(), 0, params, seed(0n));
+    const dist = (r: { rootStats: { action: Action; visits: number }[] }) =>
+      r.rootStats.map((s) => [actionKey(s.action), s.visits] as const).sort();
+    expect(dist(r1)).toEqual(dist(r2));
+  });
+
+  it("falls back / treats terminal when a node's only opened edges are illegal in the current state (no throw)", () => {
+    // Build a node whose single opened edge is a base build that is ONLY legal for
+    // the acting player at expansion time. Reaching that node under a determinization
+    // where the build is illegal (different player / no bases in hand) must NOT call
+    // applyAction with the stale action — the search filters it out and expands a
+    // fresh legal action (or treats the node terminal), never throwing.
+    const params = coreParams({ iterations: 400, maxDepth: 12 });
+    // A maxed-out attacker (basesInHand 0) plus opponents: build edges sampled when
+    // a player still has bases in hand become illegal once a win consumes the last
+    // base / a different player acts. Exercises both the budget and basesInHand paths.
+    const state = stochasticLegalitySetFixture();
+    state.players[0]!.basesInHand = 1;
+    state.players[2]!.basesInHand = 0;
+    expect(() => runMcts(state, 0, params, seed(3n))).not.toThrow();
+    const { rootStats } = runMcts(state, 0, params, seed(3n));
+    for (const stat of rootStats) {
+      expect(() => applyAction(state, stat.action)).not.toThrow();
+    }
+  });
+});

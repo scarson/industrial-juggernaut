@@ -119,18 +119,29 @@ export function backup(path: PathStep[], leafValueVec: number[]): void {
  * ties to the lowest edge index (deterministic).
  */
 export function selectChild(node: Node, actingPlayer: PlayerId, cPuct: number): Edge {
-  const edges = node.edges;
-  if (edges.length === 0) {
-    throw new Error("selectChild: node has no edges");
+  return selectAmong(node, node.edges, actingPlayer, cPuct);
+}
+
+/**
+ * PUCT argmax over an EXPLICIT subset of a node's edges (the IS-MCTS legality
+ * filter passes only the edges legal in the current-iteration state — see
+ * `runMcts`). Uses the node's visit count `node.N` for the exploration term and
+ * the uniform-prior fallback is sized to the candidate subset so an edge with no
+ * stored prior is still scored sensibly. Breaks ties to the lowest index in
+ * `candidates` (deterministic). `selectChild` is the whole-node special case.
+ */
+function selectAmong(node: Node, candidates: Edge[], actingPlayer: PlayerId, cPuct: number): Edge {
+  if (candidates.length === 0) {
+    throw new Error("selectAmong: no candidate edges");
   }
-  const uniformPrior = 1 / edges.length;
+  const uniformPrior = 1 / candidates.length;
   const sqrtParentN = Math.sqrt(node.N);
   const priorOf = (edge: Edge): number => edge.prior ?? uniformPrior;
 
-  let bestEdge = edges[0]!;
+  let bestEdge = candidates[0]!;
   let bestScore = puctScore(bestEdge, actingPlayer, cPuct, priorOf(bestEdge), sqrtParentN);
-  for (let i = 1; i < edges.length; i++) {
-    const edge = edges[i]!;
+  for (let i = 1; i < candidates.length; i++) {
+    const edge = candidates[i]!;
     const score = puctScore(edge, actingPlayer, cPuct, priorOf(edge), sqrtParentN);
     if (score > bestScore) {
       bestScore = score;
@@ -396,6 +407,36 @@ function fixedCandidates(state: GameState, player: PlayerId, rng: RngState): { c
  * WITHOUT a PRNG draw); non-attack edges leave `child` unset (lazily filled by the
  * A3.3 search loop). Threads the search rng (GEO-3). Returns the advanced rng.
  */
+/**
+ * Build and append one edge for `candidate` to `node`. Asserts the action is
+ * applyAction-acceptable in `state` (fidelity guard) and, for a single-decl
+ * attack, attaches the combat `ChanceNode` (both outcomes built WITHOUT a PRNG
+ * draw). Shared by `expandNode`'s progressive widening and the search loop's
+ * IS-MCTS legality fallback so both construct edges identically.
+ */
+function openEdge(node: Node, state: GameState, player: PlayerId, candidate: Candidate): void {
+  const playerCount = state.players.length;
+  const action = candidate.action;
+  applyAction(state, action);
+  const edge: Edge = {
+    action,
+    childN: 0,
+    valueVec: zeros(playerCount),
+    prior: candidate.prior,
+  };
+  if (action.kind === "attack" && action.attacks.length === 1) {
+    const outcome = attackOutcomes(state, player, action.attacks[0]!);
+    edge.chance = {
+      p: outcome.p,
+      winState: outcome.winState,
+      loseState: outcome.loseState,
+      win: makeNode([], playerCount),
+      lose: makeNode([], playerCount),
+    };
+  }
+  node.edges.push(edge);
+}
+
 export function expandNode(
   node: Node,
   state: GameState,
@@ -403,32 +444,12 @@ export function expandNode(
   params: ExpansionParams,
   rng: RngState,
 ): { rng: RngState } {
-  const playerCount = state.players.length;
   const opened = new Set<string>(node.edges.map((e) => actionKey(e.action)));
   let curRng = rng;
 
   const addEdge = (candidate: Candidate): void => {
-    const action = candidate.action;
-    // Assert every opened child is applyAction-acceptable (fidelity guard).
-    applyAction(state, action);
-    const edge: Edge = {
-      action,
-      childN: 0,
-      valueVec: zeros(playerCount),
-      prior: candidate.prior,
-    };
-    if (action.kind === "attack" && action.attacks.length === 1) {
-      const outcome = attackOutcomes(state, player, action.attacks[0]!);
-      edge.chance = {
-        p: outcome.p,
-        winState: outcome.winState,
-        loseState: outcome.loseState,
-        win: makeNode([], playerCount),
-        lose: makeNode([], playerCount),
-      };
-    }
-    node.edges.push(edge);
-    opened.add(actionKey(action));
+    openEdge(node, state, player, candidate);
+    opened.add(actionKey(candidate.action));
   };
 
   if (params.candidateMode === "fixed") {
@@ -708,13 +729,51 @@ export function runMcts(
         if (node.edges.length === before && before > 0) saturated.add(node);
       }
 
-      if (node.edges.length === 0) {
-        // No expandable legal candidate (degenerate) -> evaluate as a leaf.
-        leafVec = leafValue(curState, params);
-        break;
+      // IS-MCTS legality filter. Transitions are stochastic (combat chance
+      // outcomes + the determinized turn-order rollover are drawn from the search
+      // rng), so a LATER iteration can reach this node with a DIFFERENT state —
+      // even a different acting player — than the one its edges were opened
+      // against. Selecting/applying a stale edge illegal in `curState` would throw
+      // in `applyAction`. So restrict selection to the edges legal RIGHT NOW; stale
+      // edges are skipped this iteration (they stay on the node for determinizations
+      // where they are legal again). `legalActions` is the same generator move-gen
+      // uses, keyed by `actionKey` to match opened edges (attacks emit the same
+      // representative, builds the same single-piece placements). Computed once per
+      // descent step and reused below (it is O(board hexes × hull) — not cheap).
+      const legalKeys = new Set<string>(legalActions(curState).map(actionKey));
+      let legalEdges = node.edges.filter((e) => legalKeys.has(actionKey(e.action)));
+
+      if (legalEdges.length === 0) {
+        // No currently-legal opened edge for this determinization. Open ONE fresh
+        // legal action drawn DIRECTLY from `legalActions(curState)` (not the PW
+        // `samplePolicy` loop) and use it. Going through `legalActions` here is
+        // deliberate: it is the exact set already computed for `legalKeys`, it is
+        // all-legal by construction, and — critically — it does NOT re-pay the
+        // progressive-widening sampling budget (`expandNode` burns up to `cap·4`
+        // policy draws). A node repeatedly reached with all-stale edges would
+        // otherwise re-run that loop every visit, reintroducing the O(iterations²)
+        // expansion trap the saturation cache exists to prevent. An empty
+        // `legalKeys` means no legal action exists -> terminal leaf.
+        if (legalKeys.size > 0) {
+          const opened = new Set<string>(node.edges.map((e) => actionKey(e.action)));
+          const fresh = legalActions(curState).find((a) => !opened.has(actionKey(a)));
+          if (fresh !== undefined) {
+            openEdge(node, curState, acting, { action: fresh, prior: 1 });
+            legalEdges = [node.edges[node.edges.length - 1]!];
+          }
+        }
+        if (legalEdges.length === 0) {
+          // No legal action exists in this state (`legalKeys` empty) -> evaluate as
+          // a leaf. Never apply an action illegal in `curState`. (When `legalKeys`
+          // is non-empty a fresh legal action is always found above: any action in
+          // `legalActions(curState)` is legal now, so if it were already an opened
+          // edge it would have matched `legalKeys` and appeared in `legalEdges`.)
+          leafVec = leafValue(curState, params);
+          break;
+        }
       }
 
-      const edge = selectChild(node, acting, params.cPuct);
+      const edge = selectAmong(node, legalEdges, acting, params.cPuct);
       path.push({ node, edge });
 
       if (edge.chance !== undefined) {
