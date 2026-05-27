@@ -23,7 +23,7 @@ describe("control", () => {
   });
   it("R3: colinear 4 bases => no enclosed territory, falls back to radiating", () => {
     const s = mkState({ board: 96, basesP0: [hex(0, 0, 0), hex(1, -1, 0), hex(2, -2, 0), hex(3, -3, 0)] });
-    expect(control(s, 0).hexes.has(key(hex(0, 5, -5)))).toBe(true);
+    expect(control(s, 0).hexes.has(key(hex(0, 4, -4)))).toBe(true);
   });
 
   // Structural: resourceCount sums controlled iron + factories.

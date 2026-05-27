@@ -1,7 +1,7 @@
 // ABOUTME: Territory control — which hexes (and thus iron/factories) a player commands.
 // ABOUTME: Radiating disks below 4 bases (overlaps shared); convex-hull interior at 4+ non-colinear bases (R1). Derived every call (GEO-5).
 
-import { key } from "../geometry/cube";
+import { distance, key } from "../geometry/cube";
 import { convexHull, hexInHull, hullArea } from "../geometry/hull";
 import type { GameState, Hex, PlayerId } from "./types";
 
@@ -17,16 +17,15 @@ export interface Control {
  * Hexes a player controls, plus the controlled iron and factories.
  *
  * Recomputed from the current bases every call — never cached (GEO-5). All
- * membership is keyed by the canonical "x,y,z" string (GEO-4).
+ * membership is keyed by the canonical "x,y,z" string (GEO-4). In both regimes
+ * the controlled set is intersected with the board, so `hexes` only ever holds
+ * real board coordinates (spec §7).
  *
  * - RADIATING (<4 bases, or 4+ but degenerate/colinear hull → R3 fallback):
- *   union of `config.radius`-disks around each base. Non-exclusive; overlaps
+ *   board hexes within `config.radius` of any base. Non-exclusive; overlaps
  *   with other radiating players are shared (we do not subtract them here).
  * - PERIMETER (4+ non-colinear bases): the convex-hull interior, on-edge inside
  *   per R1.
- *
- * Iron/factories are resolved against the board state, so off-board phantom
- * hexes never contribute resources.
  */
 export function control(state: GameState, player: PlayerId): Control {
   const myBases = state.bases.filter((b) => b.owner === player);
@@ -46,13 +45,12 @@ export function control(state: GameState, player: PlayerId): Control {
       if (hexInHull(h, hull)) hexes.add(key(h));
     }
   } else {
-    // RADIATING: union of radius-disks around each base. The disk is the set of
-    // valid lattice hexes within `config.radius` of a base; off-board hexes never
-    // carry iron/factories (those are resolved against board state below), so the
-    // raw disk membership is harmless and keeps a base's full reach addressable.
+    // RADIATING: union of radius-disks around each base, intersected with the
+    // board (spec §7) — a board hex is controlled iff it lies within
+    // `config.radius` (cube distance) of at least one of the player's bases.
     const radius = state.config.radius;
-    for (const base of myBases) {
-      forEachInDisk(base.hex, radius, (h) => hexes.add(key(h)));
+    for (const h of state.board.hexes) {
+      if (myBases.some((base) => distance(base.hex, h) <= radius)) hexes.add(key(h));
     }
   }
 
@@ -66,16 +64,4 @@ export function control(state: GameState, player: PlayerId): Control {
 export function resourceCount(state: GameState, player: PlayerId): number {
   const ctl = control(state, player);
   return ctl.iron.length + ctl.factories.length;
-}
-
-/** Visit every valid lattice hex within `radius` (cube distance) of `center`. */
-function forEachInDisk(center: Hex, radius: number, visit: (h: Hex) => void): void {
-  for (let dx = -radius; dx <= radius; dx++) {
-    const lo = Math.max(-radius, -dx - radius);
-    const hi = Math.min(radius, -dx + radius);
-    for (let dy = lo; dy <= hi; dy++) {
-      const dz = -dx - dy;
-      visit({ x: center.x + dx, y: center.y + dy, z: center.z + dz });
-    }
-  }
 }
