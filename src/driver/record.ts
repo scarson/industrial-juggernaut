@@ -1,6 +1,7 @@
 // ABOUTME: Game-driver result records — GameResult, BoardSource, RunOptions (Task 7.1).
 // ABOUTME: Pure data types only; consumed by runGame and the acceptance/sweep harnesses.
 
+import type { Agent } from "../agent/agent";
 import type { Archetype } from "../agent/archetypes";
 import type { RuleConfig } from "../engine/config";
 import type { BoardDefinition, PlayerId } from "../engine/types";
@@ -36,4 +37,11 @@ export interface RunOptions {
   archetypes: Archetype[];
   config: RuleConfig;
   turnCap: number;
+  /**
+   * Optional agent injection. When provided, the acting player's move comes from
+   * `agentFor(player)(state, player)` instead of the archetype->greedy path; the
+   * returned `state` is threaded exactly as the archetype path threads its result.
+   * Purely additive — omitting it preserves the existing archetype behavior.
+   */
+  agentFor?: (player: PlayerId) => Agent;
 }
