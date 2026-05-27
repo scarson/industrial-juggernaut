@@ -62,8 +62,8 @@ notes and commit messages.
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
 | 0 — Project scaffold + conventions | ✅ Shipped | `46a710b`,`8aac650`,`cea5532`,`60b9405` | scaffold, lockfile, pitfalls, types+config |
-| 1 — RNG | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
-| 2 — Geometry | ⬜ Not started | — | — |
+| 1 — RNG | ✅ Shipped | `7e1872b` | PCG32, reference-verified |
+| 2 — Geometry | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
 | 3 — Board | ⬜ Not started | — | — |
 | 4 — Territory / control | ⬜ Not started | — | — |
 | 5 — Rules engine | ⬜ Not started | — | — |
@@ -295,7 +295,7 @@ git commit -m "feat: core engine types and rules-faithful default config"
 
 ## Phase 1 — RNG
 
-**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
+**Execution Status:** ✅ SHIPPED on 2026-05-27 (commit `7e1872b`; PCG32 verified against canonical reference vectors)
 
 Deterministic seeded PRNG. Everything stochastic depends on this.
 
@@ -360,6 +360,8 @@ git commit -m "feat: deterministic PCG32 PRNG with explicit state"
 **Execution Status:** ⬜ NOT STARTED
 
 Cube-coordinate math, hex line rasterization, convex hull, point-in-hull, and the sight-line blocking test. Resolutions R1 (hull interior, on-edge = inside) and R2 (block only on open-interior crossing) are implemented here.
+
+**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
 
 ### Task 2.1: Cube coordinate math
 
