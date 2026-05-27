@@ -63,8 +63,8 @@ notes and commit messages.
 |---|---|---|---|
 | 0 — Project scaffold + conventions | ✅ Shipped | `46a710b`,`8aac650`,`cea5532`,`60b9405` | scaffold, lockfile, pitfalls, types+config |
 | 1 — RNG | ✅ Shipped | `7e1872b` | PCG32, reference-verified |
-| 2 — Geometry | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
-| 3 — Board | ⬜ Not started | — | — |
+| 2 — Geometry | ✅ Shipped | `01a6013`,`c4dba16`,`70291d6`,`244cdcd` | cube, hexline, hull (R1/R3), sightline (R2) |
+| 3 — Board | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
 | 4 — Territory / control | ⬜ Not started | — | — |
 | 5 — Rules engine | ⬜ Not started | — | — |
 | 6 — Greedy-weighted agent | ⬜ Not started | — | — |
@@ -361,7 +361,7 @@ git commit -m "feat: deterministic PCG32 PRNG with explicit state"
 
 Cube-coordinate math, hex line rasterization, convex hull, point-in-hull, and the sight-line blocking test. Resolutions R1 (hull interior, on-edge = inside) and R2 (block only on open-interior crossing) are implemented here.
 
-**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
+**Execution Status:** ✅ SHIPPED on 2026-05-27 (commits `01a6013` cube, `c4dba16` hexline, `70291d6` hull/R1/R3, `244cdcd` sightline/R2; 30 tests green)
 
 ### Task 2.1: Cube coordinate math
 
@@ -506,6 +506,8 @@ describe("segmentBlocked (R2: block only on open-interior crossing)", () => {
 **Execution Status:** ⬜ NOT STARTED
 
 Board as data: an oval generator + a fixed-board loader sharing one `Board` type. Iron CSP: 14 iron, none in outer two rings, max-degree-1 adjacency.
+
+**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
 
 ### Task 3.1: Oval board shape + ring computation
 
