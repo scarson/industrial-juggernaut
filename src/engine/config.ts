@@ -15,6 +15,6 @@ export const defaultConfig = (): RuleConfig => ({
   combatTable: { 3: 0.75, 4: 5 / 6, 5: 8 / 9, 6: 1 },
   autoWinAt6: true, killBounty: "full",
   factorySupply: 36, ironCount: 14, boardSize: 96,
-  victoryThreshold: 10, brokenPerimeterDeathAtFactories: 18,
+  victoryThreshold: 10, brokenPerimeterDeathAtFactories: 8,
   allowPass: false,
 });
