@@ -123,4 +123,7 @@ async function main(): Promise<void> {
   }
 }
 
-void main();
+void main().catch((err: unknown) => {
+  // Fail loud but clean (e.g. a worker dying mid-job rejects here) rather than a raw unhandled-rejection trace.
+  console.error(`revalidation aborted: ${err instanceof Error ? err.message : String(err)}`);
+});

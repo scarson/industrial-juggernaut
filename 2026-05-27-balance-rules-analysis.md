@@ -1,9 +1,30 @@
 # Balance Analysis — Why Industrial Juggernaut Ends Too Fast (Rules-Level)
 
 **Date:** 2026-05-27
-**Status:** Analysis for Sam's direction — a design crossroads. **UPDATE (same day): the calibration run resolved the crossroads in favor of "balanceable via parameters" — see §0 below. The rules-level redesigns (P2/P3) are now DEFERRED, not recommended, unless MCTS re-validation overturns the finding.**
+**Status:** Analysis for Sam's direction — a design crossroads. **UPDATE 1: the calibration run looked like "balanceable via parameters" (§0). UPDATE 2 (MCTS revalidation — §0.1) OVERTURNS that: under strong play the config collapses, so the parameter-only fix was a greedy-agent artifact and the rules-level question (P2/P3) is LIVE again, not parked. Read §0.1 first.**
 
-## 0. Resolution (added after the 600-game calibration completed)
+## 0.1 OVERTURNED by MCTS revalidation (read this first)
+
+The §0 "balanceable via parameters" resolution was based on **greedy/heuristic** self-play. The MCTS revalidation (`src/sweep/revalidate.ts`, all-MCTS self-play on the very same `b96/r2/iron12/vt12`) **overturns it**:
+
+- **Under MCTS, 6/6 games ended by `last-standing` (elimination) — 0% iron victory.** 2P games end at **turn 1**; 3P games at **~turn 10**. Compare the greedy reference on the identical config: **79% iron victory, median 3 turns.**
+- **Mechanism (confirmed by static analysis, `src/engine/status.ts:185`):** strong play's dominant line is to **deny the opponent's iron** — with radius-2 control disks and only 12 iron, that's easy — triggering the `noIron` elimination → last-standing win, faster and surer than racing to the iron threshold. Greedy never finds this line; it just accumulates iron. So the "healthy, iron-driven, median-3" profile is a **greedy-agent artifact**, not a property of the game.
+
+**Conclusion:** the config is **NOT adoptable as a balanced default** — its balance does not survive competent play. "Balance" here is **agent-relative**, and the harness's health gate (tuned on greedy self-play) mis-certifies it. This is the P6 caveat (§2) realized in full.
+
+**What this means for the project:**
+- The MCTS trustworthiness gates (A5.2/A6) remain **blocked** — and now for a *deeper* reason than "no config searched": no config we've found is balanced under *strong* play.
+- The rules-level options are **live again**: P3 (perimeter-gated victory-iron) is specced in `2026-05-27-perimeter-gated-iron-experiment.md`, **but** its §5 flags the crux — the `noIron` elimination must likely change too, or iron-denial still wins. P2 (change the victory *model* — hold-iron-for-N-rounds / economic VP) is the bigger alternative.
+- A harness lesson: a config should be gated under the **strongest available agent**, not greedy — else the gate certifies agent myopia. (Candidate follow-up: make `revalidate` part of the standard "is this config balanced?" check, not an afterthought.)
+
+**Sam's decision (the live crossroads):** (a) greenlight the P3 spike (with the `noIron` companion change), or (b) pursue the P2 victory-model change, or (c) reconsider whether elimination-via-iron-denial is an acceptable strategic axis (and if so, lengthen it so it isn't turn-1), or (d) accept that the game's depth lives in the human/alliance layer the sim can't model and stop tuning against agents. The reasoning in §1–§7 below feeds all four.
+
+---
+
+## 0. Resolution (SUPERSEDED by §0.1 — kept for the record)
+
+> The following was the post-calibration resolution, **before** the MCTS revalidation overturned it. Preserved to show the reasoning chain; the operative conclusion is §0.1.
+
 
 The focused 600-game re-run (`docs/sweeps/2026-05-27-calibration-report.md`) **found a healthy config**: `boardSize=96, radius=2, ironCount=12, victoryThreshold=12` passes all 7 health criteria (median 3, setupDecided 0, ironVictory 0.79, capHit 0.017, **seatBias 0.167**, leadVolatility 0.35). This is the *exact cell* S5 reported as a near-miss failing only `seatBias 0.233` at 150 games — at 600 games the seatBias drops to 0.167 and it passes. The per-count seatBias diagnostic shows the gate-driving value is the 3P bucket at 0.167, within its ±0.15 sampling CI — i.e. **not distinguishable from fair.** S5's "no healthy config" was a measurement artifact (too few games → seatBias noise), not a property of the game.
 
