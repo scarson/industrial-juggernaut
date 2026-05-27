@@ -62,7 +62,7 @@ notes and commit messages.
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
 | A1 — Improved heuristic | ✅ Shipped | `f5b838d`,`5b9ce56` | evaluate() + samplePolicy(); 235 tests green |
-| A2 — Factory-clock investigation + tuning | ✅ Shipped | _(see A2.2 commit)_ | per-player factory clock, threshold 18→8; 240 tests green |
+| A2 — Factory-clock investigation + tuning | ✅ Shipped | `41c1056` (A2.2); `fe664f2`,`ba94212` (A2.1) | per-player factory clock, threshold 18→8; 240 tests green |
 | A3 — MCTS core | ⬜ Not started | — | — |
 | A4 — MCTS agent interface | ⬜ Not started | — | — |
 | A5 — Eval harness | ⬜ Not started | — | — |
