@@ -38,15 +38,15 @@ downstream reconstruction is expensive and fails silently.
 
 ## Execution Status
 
-**Overall:** 🚧 In progress — S1, S2, S3 shipped; S4 claimed 2026-05-27. Spec/plan merged via PR #10 (`72944bb`). 365 tests green.
+**Overall:** 🚧 In progress — S1–S4 shipped; S5 claimed 2026-05-27. Spec/plan merged via PR #10 (`72944bb`). 374 tests green. (S4 small-grid smoke: 0/8 healthy on the 96-board — S5's wide grid incl. larger boards is the real test.)
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
 | S1 — Metrics | ✅ Shipped | `8e104fc` | SweepMetrics + computeMetrics |
 | S2 — Health gate + rank | ✅ Shipped | `c81f5fd` | isHealthy + rankHealthy |
-| S3 — Runner (grid/OFAT, CRN, CIs) | ✅ Shipped | `5148523` | runConfig/sweepGrid/sweepOFAT + CRN; 365 tests green |
-| S4 — Orchestrator + report | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
-| S5 — Execute the search; recommend balanced config | ⬜ Not started | — | — |
+| S3 — Runner (grid/OFAT, CRN, CIs) | ✅ Shipped | `5148523` | runConfig/sweepGrid/sweepOFAT + CRN |
+| S4 — Orchestrator + report | ✅ Shipped | `53de15b` | findBalancedConfig/balanceSweep/report + infeasibility guard; 374 tests green |
+| S5 — Execute the search; recommend balanced config | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
 
 ### Deviations
 - (none yet)
@@ -126,7 +126,7 @@ the grid, is a real FINDING, not a test to soften — STOP and report.
 
 ## Phase S4 — Orchestrator + Report
 
-**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
+**Execution Status:** ✅ SHIPPED on 2026-05-27 (commit `53de15b`; 374 tests green; small-grid smoke 0/8 healthy — wide grid pending S5)
 
 ### Task S4.1: `findBalancedConfig`, `balanceSweep`, `report`
 **Files:** Create `src/sweep/orchestrate.ts`, `src/sweep/report.ts`; Test `test/sweep/orchestrate.test.ts`.
@@ -144,7 +144,7 @@ the grid, is a real FINDING, not a test to soften — STOP and report.
 
 ## Phase S5 — Execute the Search; Recommend Balanced Config
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
 
 ### Task S5.1: run the real geometry grid + OFAT; produce the report
 **Files:** A runnable script `src/sweep/main.ts` (tsx-runnable) + the generated `docs/sweeps/2026-05-27-balance-report.md`. (This is an EXECUTION/measurement task, not a unit-test task.)
