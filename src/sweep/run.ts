@@ -50,7 +50,7 @@ export interface RunConfigOptions {
  */
 export type GameProgress = (done: number, total: number, nPlayers: number, result: GameResult) => void;
 
-const DEFAULT_PLAYER_COUNTS = [2, 3, 4, 5, 6];
+export const DEFAULT_PLAYER_COUNTS = [2, 3, 4, 5, 6];
 
 /**
  * The CRN seed for a game: `baseSeed + gameIndex`, independent of the config.
@@ -98,6 +98,40 @@ function setupDecidedFor(config: RuleConfig, perSeed: bigint, nPlayers: number):
  * via the `agentFor` seam (heuristicAgent by default), then aggregate every
  * GameRecord with `computeMetrics`. Deterministic given (config, baseSeed, games).
  */
+/**
+ * Run ONE seeded game and build its `GameRecord` (result + setupDecided +
+ * turn1Leaders). The single source of truth for "play one game" — both the serial
+ * {@link runConfig} loop and the parallel worker call this so a sharded run
+ * produces byte-identical records to a serial one. Deterministic given
+ * `(config, gameSeed, nPlayers, agentFor)`.
+ */
+export function runOneGame(
+  config: RuleConfig,
+  gameSeed: bigint,
+  nPlayers: number,
+  agentFor: (player: PlayerId) => Agent,
+  turnCap: number,
+): GameRecord {
+  const setupDecided = setupDecidedFor(config, gameSeed, nPlayers);
+
+  // archetypes is a length-nPlayers placeholder: the `agentFor` seam supplies
+  // the actual move, so the archetype path is never taken — fill with a valid
+  // archetype to satisfy the length-nPlayers contract.
+  const archetypes: Archetype[] = Array.from({ length: nPlayers }, () => "economic");
+
+  const result = runGame({
+    seed: gameSeed,
+    boardSource: { kind: "generate", size: config.boardSize, ironCount: config.ironCount },
+    nPlayers,
+    archetypes,
+    config,
+    turnCap,
+    agentFor,
+  });
+
+  return { result, nPlayers, setupDecided, turn1Leaders: turn1LeadersOf(result) };
+}
+
 export function runConfig(config: RuleConfig, opts: RunConfigOptions): SweepMetrics {
   const playerCounts = opts.playerCounts ?? DEFAULT_PLAYER_COUNTS;
   const agentFor: (player: PlayerId) => Agent =
@@ -108,31 +142,10 @@ export function runConfig(config: RuleConfig, opts: RunConfigOptions): SweepMetr
     const nPlayers = playerCounts[gameIndex % playerCounts.length]!;
     const gameSeed = perGameSeed(opts.baseSeed, gameIndex);
 
-    const setupDecided = setupDecidedFor(config, gameSeed, nPlayers);
+    const record = runOneGame(config, gameSeed, nPlayers, agentFor, opts.turnCap);
+    records.push(record);
 
-    // archetypes is a length-nPlayers placeholder: the `agentFor` seam supplies
-    // the actual move, so the archetype path is never taken — fill with a valid
-    // archetype to satisfy the length-nPlayers contract.
-    const archetypes: Archetype[] = Array.from({ length: nPlayers }, () => "economic");
-
-    const result = runGame({
-      seed: gameSeed,
-      boardSource: { kind: "generate", size: config.boardSize, ironCount: config.ironCount },
-      nPlayers,
-      archetypes,
-      config,
-      turnCap: opts.turnCap,
-      agentFor,
-    });
-
-    records.push({
-      result,
-      nPlayers,
-      setupDecided,
-      turn1Leaders: turn1LeadersOf(result),
-    });
-
-    opts.onGame?.(gameIndex + 1, opts.games, nPlayers, result);
+    opts.onGame?.(gameIndex + 1, opts.games, nPlayers, record.result);
   }
 
   return computeMetrics(records);

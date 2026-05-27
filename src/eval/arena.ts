@@ -87,104 +87,133 @@ function expectedScore(ra: number, rb: number): number {
  * `seed + offset + i` (offset advances per matchup), so the full game stream and
  * thus every output is reproducible. No `Math.random`.
  */
-export function roundRobin(agents: NamedAgent[], opts: RoundRobinOpts): RoundRobinResult {
-  const config = opts.config ?? defaultConfig();
+/** One scheduled arena game: its player count, seed, and the agent-index playing each seat. */
+export interface ScheduledGame {
+  n: number;
+  seed: bigint;
+  /** seatAgentIdx[s] = index (into the agent list) of the agent in seat s. */
+  seatAgentIdx: number[];
+}
 
+/**
+ * Build the deterministic game schedule for `agentCount` agents under `opts`.
+ * For each player count `n` (which must equal `agentCount`), game `g` rotates
+ * the agents across seats (seat `s` ← agent `(s+g) mod n`) and gets seed
+ * `opts.seed + seedOffset + g`, where seedOffset advances per matchup so matchups
+ * never collide on the game stream. Identical for serial and parallel runs — the
+ * basis of their bit-for-bit equivalence.
+ */
+export function buildArenaSchedule(agentCount: number, opts: RoundRobinOpts): ScheduledGame[] {
+  const schedule: ScheduledGame[] = [];
+  let seedOffset = 0n;
+  for (const n of opts.playerCounts) {
+    if (agentCount !== n) {
+      throw new Error(
+        `roundRobin: playerCount ${n} requires exactly ${n} agents (got ${agentCount}); ` +
+          `assign one named agent per seat.`,
+      );
+    }
+    for (let g = 0; g < opts.gamesPerMatchup; g++) {
+      const seatAgentIdx = Array.from({ length: n }, (_unused, s) => (s + g) % n);
+      schedule.push({ n, seed: opts.seed + seedOffset + BigInt(g), seatAgentIdx });
+    }
+    seedOffset += BigInt(opts.gamesPerMatchup);
+  }
+  return schedule;
+}
+
+/**
+ * Aggregate arena outcomes into a {@link RoundRobinResult}. PURE and
+ * order-sensitive: `winnerSeatsPerGame[i]` is the winner coalition of
+ * `schedule[i]`, and the Elo pass walks them in that fixed order, so the result
+ * is identical however the games were simulated (serially or across workers).
+ * `agentNames[k]` is the name of agent index `k` (the indices `seatAgentIdx` use).
+ */
+export function aggregateArena(
+  agentNames: string[],
+  schedule: ScheduledGame[],
+  winnerSeatsPerGame: number[][],
+): RoundRobinResult {
   const wins: Record<string, number> = {};
   const gamesPlayed: Record<string, number> = {};
   const elo: Record<string, number> = {};
   const headToHead: Record<string, Record<string, number>> = {};
-  for (const a of agents) {
-    wins[a.name] = 0;
-    gamesPlayed[a.name] = 0;
-    elo[a.name] = ELO_START;
-    headToHead[a.name] = {};
-    for (const b of agents) {
-      if (a.name !== b.name) headToHead[a.name]![b.name] = 0;
+  const uniqueNames = [...new Set(agentNames)];
+  for (const a of uniqueNames) {
+    wins[a] = 0;
+    gamesPlayed[a] = 0;
+    elo[a] = ELO_START;
+    headToHead[a] = {};
+    for (const b of uniqueNames) {
+      if (a !== b) headToHead[a]![b] = 0;
     }
   }
 
-  // Each matchup consumes a disjoint, deterministic block of seeds so matchups
-  // can't collide on the game stream.
-  let seedOffset = 0n;
+  for (let i = 0; i < schedule.length; i++) {
+    const { n, seatAgentIdx } = schedule[i]!;
+    const winnerSeats = new Set(winnerSeatsPerGame[i]!);
 
-  // Flat per-game counter for onGame, across every matchup.
-  const totalGames = opts.playerCounts.length * opts.gamesPerMatchup;
-  let gamesDone = 0;
-
-  for (const n of opts.playerCounts) {
-    if (agents.length !== n) {
-      throw new Error(
-        `roundRobin: playerCount ${n} requires exactly ${n} agents (got ${agents.length}); ` +
-          `assign one named agent per seat.`,
-      );
+    for (let s = 0; s < n; s++) {
+      const name = agentNames[seatAgentIdx[s]!]!;
+      gamesPlayed[name]! += 1;
+      if (winnerSeats.has(s)) wins[name]! += 1;
     }
 
-    for (let g = 0; g < opts.gamesPerMatchup; g++) {
-      // seat s -> agent index (s + g) mod n; agentAtSeat[s] is the NamedAgent in seat s.
-      const agentAtSeat: NamedAgent[] = Array.from(
-        { length: n },
-        (_unused, s) => agents[(s + g) % n]!,
-      );
-
-      const res = runGame({
-        seed: opts.seed + seedOffset + BigInt(g),
-        boardSource: { kind: "generate", size: config.boardSize, ironCount: config.ironCount },
-        nPlayers: n,
-        // Unused under agentFor, but RunOptions requires a length-n array.
-        archetypes: Array.from({ length: n }, () => "economic" as const),
-        config,
-        turnCap: opts.turnCap,
-        agentFor: (player: PlayerId) => agentAtSeat[player]!.agent,
-      });
-
-      gamesDone += 1;
-      opts.onGame?.(gamesDone, totalGames, n, res);
-
-      const winnerSeats = new Set(res.winnerOrCoalition);
-
-      // Tally wins/games per agent for this game.
-      for (let s = 0; s < n; s++) {
-        const name = agentAtSeat[s]!.name;
-        gamesPlayed[name]! += 1;
-        if (winnerSeats.has(s)) wins[name]! += 1;
-      }
-
-      // Pairwise Elo update + head-to-head over every unordered seat pair.
-      for (let s = 0; s < n; s++) {
-        for (let t = s + 1; t < n; t++) {
-          const a = agentAtSeat[s]!.name;
-          const b = agentAtSeat[t]!.name;
-          // Same agent in both seats (possible only if names collide) — skip.
-          if (a === b) continue;
-          const aWon = winnerSeats.has(s);
-          const bWon = winnerSeats.has(t);
-          let scoreA: Score;
-          if (aWon && !bWon) {
-            scoreA = 1;
-            headToHead[a]![b]! += 1;
-          } else if (bWon && !aWon) {
-            scoreA = 0;
-            headToHead[b]![a]! += 1;
-          } else {
-            // Both lost, both in a shared coalition, or no winner: a draw.
-            scoreA = 0.5;
-          }
-          const expA = expectedScore(elo[a]!, elo[b]!);
-          elo[a]! += ELO_K * (scoreA - expA);
-          elo[b]! += ELO_K * (1 - scoreA - (1 - expA));
+    for (let s = 0; s < n; s++) {
+      for (let t = s + 1; t < n; t++) {
+        const a = agentNames[seatAgentIdx[s]!]!;
+        const b = agentNames[seatAgentIdx[t]!]!;
+        if (a === b) continue;
+        const aWon = winnerSeats.has(s);
+        const bWon = winnerSeats.has(t);
+        let scoreA: Score;
+        if (aWon && !bWon) {
+          scoreA = 1;
+          headToHead[a]![b]! += 1;
+        } else if (bWon && !aWon) {
+          scoreA = 0;
+          headToHead[b]![a]! += 1;
+        } else {
+          scoreA = 0.5;
         }
+        const expA = expectedScore(elo[a]!, elo[b]!);
+        elo[a]! += ELO_K * (scoreA - expA);
+        elo[b]! += ELO_K * (1 - scoreA - (1 - expA));
       }
     }
-
-    seedOffset += BigInt(opts.gamesPerMatchup);
   }
 
   const winRates: Record<string, number> = {};
-  for (const a of agents) {
-    const gp = gamesPlayed[a.name]!;
-    winRates[a.name] = gp === 0 ? 0 : wins[a.name]! / gp;
+  for (const a of uniqueNames) {
+    const gp = gamesPlayed[a]!;
+    winRates[a] = gp === 0 ? 0 : wins[a]! / gp;
   }
 
   return { winRates, gamesPlayed, elo, headToHead };
+}
+
+export function roundRobin(agents: NamedAgent[], opts: RoundRobinOpts): RoundRobinResult {
+  const config = opts.config ?? defaultConfig();
+  const schedule = buildArenaSchedule(agents.length, opts);
+  const agentNames = agents.map((a) => a.name);
+
+  const winnerSeatsPerGame: number[][] = [];
+  let done = 0;
+  for (const e of schedule) {
+    const res = runGame({
+      seed: e.seed,
+      boardSource: { kind: "generate", size: config.boardSize, ironCount: config.ironCount },
+      nPlayers: e.n,
+      // Unused under agentFor, but RunOptions requires a length-n array.
+      archetypes: Array.from({ length: e.n }, () => "economic" as const),
+      config,
+      turnCap: opts.turnCap,
+      agentFor: (player: PlayerId) => agents[e.seatAgentIdx[player]!]!.agent,
+    });
+    done += 1;
+    opts.onGame?.(done, schedule.length, e.n, res);
+    winnerSeatsPerGame.push(res.winnerOrCoalition);
+  }
+
+  return aggregateArena(agentNames, schedule, winnerSeatsPerGame);
 }

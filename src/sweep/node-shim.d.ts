@@ -1,5 +1,5 @@
-// ABOUTME: Minimal ambient declarations for the Node built-ins src/sweep/main.ts uses at runtime under tsx.
-// ABOUTME: Avoids pulling @types/node (a dependency) or relaxing tsconfig; covers only the few APIs main.ts touches.
+// ABOUTME: Minimal ambient declarations for the Node built-ins the sweep scripts (main, calibrate, pool, worker) use under tsx.
+// ABOUTME: Avoids pulling @types/node (a dependency) or relaxing tsconfig; covers only the few APIs these files touch.
 
 declare module "node:fs" {
   export function mkdirSync(path: string, options?: { recursive?: boolean }): void;
@@ -11,4 +11,39 @@ declare module "node:path" {
   export function dirname(path: string): string;
 }
 
-declare const process: { cwd(): string };
+declare module "node:url" {
+  export function fileURLToPath(url: string | URL): string;
+}
+
+declare module "node:readline" {
+  export interface Interface {
+    on(event: "line", cb: (line: string) => void): Interface;
+  }
+  export function createInterface(opts: { input: unknown }): Interface;
+}
+
+declare module "node:child_process" {
+  export interface ChildProcessIO {
+    write(chunk: string): void;
+    end(): void;
+  }
+  export interface ChildProcess {
+    stdin: ChildProcessIO | null;
+    stdout: unknown;
+    on(event: "exit", cb: (code: number | null) => void): void;
+    on(event: string, cb: (...args: unknown[]) => void): void;
+  }
+  export function spawn(
+    command: string,
+    args: string[],
+    options?: { stdio?: (string | number | null)[] },
+  ): ChildProcess;
+}
+
+declare const process: {
+  cwd(): string;
+  execPath: string;
+  argv: string[];
+  stdin: unknown;
+  stdout: { write(chunk: string): void };
+};
