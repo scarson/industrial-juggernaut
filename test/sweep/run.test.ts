@@ -167,6 +167,26 @@ describe("sweepGrid", () => {
       expect(r.config.boardSize).toBe(base.boardSize);
     }
   }, 120_000);
+
+  it("invokes onProgress once per config with monotonic done and the right total", () => {
+    const base = smallConfig();
+    const calls: { done: number; total: number; boardSize: number; gamesPlayed: number }[] = [];
+    const results = sweepGrid({ boardSize: [72, 96], ironCount: [6, 8] }, base, {
+      games: 8,
+      turnCap: 20,
+      baseSeed: 2000n,
+      playerCounts: [2],
+      onProgress: (done, total, config, metrics) => {
+        calls.push({ done, total, boardSize: config.boardSize, gamesPlayed: metrics?.gamesPlayed ?? -1 });
+      },
+    });
+    // One event per config (4), done counts 1..4, total fixed at 4.
+    expect(calls.length).toBe(results.length);
+    expect(calls.map((c) => c.done)).toEqual([1, 2, 3, 4]);
+    expect(calls.every((c) => c.total === 4)).toBe(true);
+    // sweepGrid never catches, so every reported metrics is the just-computed one.
+    expect(calls.every((c) => c.gamesPlayed === 8)).toBe(true);
+  }, 120_000);
 });
 
 describe("CRN (common random numbers)", () => {

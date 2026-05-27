@@ -5,8 +5,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { findBalancedConfig, balanceSweep, selectBalanced, type GridEntry } from "./orchestrate";
 import { report } from "./report";
-import { defaultHealthThresholds } from "./health";
+import { defaultHealthThresholds, isHealthy } from "./health";
 import { defaultConfig, type RuleConfig } from "../engine/config";
+import type { SweepMetrics } from "./metrics";
 
 /**
  * Common-random-numbers base seed for the whole run. A single fixed seed across
@@ -82,6 +83,20 @@ function fmtConfig(c: RuleConfig): string {
   return `boardSize=${c.boardSize}, radius=${c.radius}, ironCount=${c.ironCount}, victoryThreshold=${c.victoryThreshold}`;
 }
 
+function fmtMetrics(m: SweepMetrics): string {
+  return `med=${m.medianTurns} cap=${m.capHitFraction.toFixed(2)} setup=${m.setupDecidedFraction.toFixed(2)} iron=${m.ironVictoryFraction.toFixed(2)} seat=${m.seatWinBias.toFixed(2)} lead=${m.leadVolatility.toFixed(2)}`;
+}
+
+/** Like fmtConfig but also the OFAT-varied balance knobs, so an OFAT line shows exactly which knob is set to what. */
+function fmtConfigFull(c: RuleConfig): string {
+  return `${fmtConfig(c)}, autoWinAt6=${c.autoWinAt6}, killBounty=${c.killBounty}, attackRange=${c.attackRange}`;
+}
+
+/** Seconds elapsed since `t0`, as a heartbeat suffix for live progress lines. */
+function elapsedS(t0: number): string {
+  return `${((Date.now() - t0) / 1000).toFixed(0)}s`;
+}
+
 function main(): void {
   const t0 = Date.now();
   const thresholds = defaultHealthThresholds();
@@ -94,12 +109,26 @@ function main(): void {
   console.log("Health thresholds:", JSON.stringify(thresholds));
 
   // --- Stage 1: coarse geometry search over the wide grid (small games). ---
+  // Live per-config logging via onProgress — the grid runs cell-by-cell, so this
+  // streams progress as each config finishes instead of going silent until the
+  // whole grid is done (which made "stalled vs. slow" undiagnosable). Prunable
+  // (structurally-unwinnable) cells still run but are tagged so the log is honest.
   console.log("\n--- Stage 1: geometry grid search (coarse) ---");
   const search = findBalancedConfig(GEOMETRY_AXES, base, {
     games: SEARCH_GAMES,
     turnCap: SEARCH_TURN_CAP,
     baseSeed: BASE_SEED,
     thresholds,
+    onProgress: (done, total, config, metrics) => {
+      if (metrics === null) {
+        console.log(`[${done}/${total}] ${fmtConfig(config)} -> infeasible (${elapsedS(t0)})`);
+        return;
+      }
+      const h = isHealthy(metrics, thresholds);
+      const prunedTag = isPrunable(config) ? " [pruned: unwinnable]" : "";
+      const verdict = h.pass ? "PASS" : `fail(${h.reasons.length})`;
+      console.log(`[${done}/${total}] ${fmtConfig(config)} -> ${fmtMetrics(metrics)} ${verdict}${prunedTag} (${elapsedS(t0)})`);
+    },
   });
 
   // Drop prunable combos from the reported grid so the report isn't padded with
@@ -110,17 +139,8 @@ function main(): void {
   const infeasible = prunedGrid.length - ran.length;
   const passers = prunedGrid.filter((g) => g.health.pass);
 
-  let i = 0;
-  for (const g of prunedGrid) {
-    i++;
-    if (g.metrics === null) continue;
-    const verdict = g.health.pass ? "PASS" : `fail(${g.health.reasons.length})`;
-    console.log(
-      `[${i}/${prunedGrid.length}] ${fmtConfig(g.config)} -> med=${g.metrics.medianTurns} cap=${g.metrics.capHitFraction.toFixed(2)} setup=${g.metrics.setupDecidedFraction.toFixed(2)} iron=${g.metrics.ironVictoryFraction.toFixed(2)} seat=${g.metrics.seatWinBias.toFixed(2)} lead=${g.metrics.leadVolatility.toFixed(2)} ${verdict}`,
-    );
-  }
   console.log(
-    `\nStage 1 done: ${ran.length} feasible, ${infeasible} infeasible/pruned-infeasible, ${passers.length} healthy at ${SEARCH_GAMES} games. (${((Date.now() - t0) / 1000).toFixed(0)}s)`,
+    `\nStage 1 done: ${ran.length} feasible, ${infeasible} infeasible/pruned-infeasible, ${passers.length} healthy at ${SEARCH_GAMES} games. (${elapsedS(t0)})`,
   );
 
   // --- Stage 2: refine the top candidates at high games. ---
@@ -185,15 +205,12 @@ function main(): void {
     games: REFINE_GAMES,
     turnCap: REFINE_TURN_CAP,
     baseSeed: BASE_SEED,
-  });
-  for (const axis of balanceAxes) {
-    for (const row of balance[axis as string]!) {
-      const m = row.metrics;
+    onProgress: (done, total, config, metrics) => {
       console.log(
-        `[ofat ${axis}=${String(row.value)}] ${m === null ? "infeasible" : `med=${m.medianTurns} iron=${m.ironVictoryFraction.toFixed(3)} setup=${m.setupDecidedFraction.toFixed(3)} seat=${m.seatWinBias.toFixed(3)} lead=${m.leadVolatility.toFixed(3)}`}`,
+        `[ofat ${done}/${total}] ${fmtConfigFull(config)} -> ${metrics === null ? "infeasible" : fmtMetrics(metrics)} (${elapsedS(t0)})`,
       );
-    }
-  }
+    },
+  });
 
   // --- Report: recommended config (refined) + full coarse grid + OFAT tables. ---
   // The grid table shows the coarse search (the breadth); the recommended section

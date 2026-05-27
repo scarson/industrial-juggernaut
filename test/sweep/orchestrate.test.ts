@@ -203,6 +203,29 @@ describe("findBalancedConfig — infeasibility guard", () => {
       expect(result.ranked.some((r) => r.config === e.config)).toBe(false);
     }
   }, 120_000);
+
+  it("invokes onProgress per cell, including infeasible cells (metrics null)", () => {
+    const base = defaultConfig();
+    const events: { done: number; total: number; isNull: boolean }[] = [];
+    // 48/12 is infeasible (iron CSP) -> metrics null; the other three are feasible.
+    const result = findBalancedConfig({ boardSize: [48, 96], ironCount: [8, 12] }, base, {
+      games: 8,
+      turnCap: 20,
+      baseSeed: 8000n,
+      playerCounts: [2],
+      onProgress: (done, total, _config, metrics) => {
+        events.push({ done, total, isNull: metrics === null });
+      },
+    });
+    // One event per grid cell, done 1..N, total fixed at N.
+    expect(events.length).toBe(result.grid.length);
+    expect(events.map((e) => e.done)).toEqual(
+      Array.from({ length: result.grid.length }, (_, i) => i + 1),
+    );
+    expect(events.every((e) => e.total === result.grid.length)).toBe(true);
+    // The infeasible cell reported a null-metrics progress event (not skipped).
+    expect(events.some((e) => e.isNull)).toBe(true);
+  }, 120_000);
 });
 
 describe("balanceSweep", () => {
@@ -227,6 +250,27 @@ describe("balanceSweep", () => {
       expect(r.metrics!.gamesPlayed).toBe(6);
     }
     expect(a).toEqual(b);
+  }, 120_000);
+
+  it("invokes onProgress across all axis values with a flat running counter", () => {
+    const baseline = { ...defaultConfig(), boardSize: 96, ironCount: 8 };
+    const axes: (keyof RuleConfig)[] = ["victoryThreshold", "autoWinAt6"];
+    const valuesPerAxis = { victoryThreshold: [8, 10], autoWinAt6: [true, false] };
+    const dones: number[] = [];
+    let seenTotal = -1;
+    balanceSweep(baseline, axes, valuesPerAxis, {
+      games: 6,
+      turnCap: 20,
+      baseSeed: 9000n,
+      playerCounts: [2],
+      onProgress: (done, total) => {
+        dones.push(done);
+        seenTotal = total;
+      },
+    });
+    // 2 + 2 = 4 values total; the counter is flat across axes (1..4).
+    expect(dones).toEqual([1, 2, 3, 4]);
+    expect(seenTotal).toBe(4);
   }, 120_000);
 });
 

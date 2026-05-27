@@ -13,6 +13,20 @@ import type { Archetype } from "../agent/archetypes";
 import type { RuleConfig } from "../engine/config";
 import type { PlayerId } from "../engine/types";
 
+/**
+ * Per-config progress callback. Fired by the multi-config entry points
+ * ({@link sweepGrid}, `findBalancedConfig`, `balanceSweep`) once per config as it
+ * completes, so a long sweep is observable live instead of silent-until-done.
+ * `metrics` is `null` for a config whose geometry was infeasible (the grid search
+ * catches the throw and reports a null-metrics cell).
+ */
+export type SweepProgress = (
+  done: number,
+  total: number,
+  config: RuleConfig,
+  metrics: SweepMetrics | null,
+) => void;
+
 /** What every runner entry point needs: game count, turn cap, CRN base seed, and optional rotation/agent. */
 export interface RunConfigOptions {
   games: number;
@@ -22,6 +36,8 @@ export interface RunConfigOptions {
   playerCounts?: number[];
   /** Override the agent used for every seat (default heuristicAgent). */
   agentFactory?: (player: PlayerId) => Agent;
+  /** Optional per-config progress callback (default: none). See {@link SweepProgress}. */
+  onProgress?: SweepProgress;
 }
 
 const DEFAULT_PLAYER_COUNTS = [2, 3, 4, 5, 6];
@@ -137,9 +153,13 @@ export function sweepGrid(
   base: RuleConfig,
   opts: RunConfigOptions,
 ): { config: RuleConfig; metrics: SweepMetrics }[] {
-  return cartesian(axes).map((overrides) => {
+  const combos = cartesian(axes);
+  const total = combos.length;
+  return combos.map((overrides, idx) => {
     const config: RuleConfig = { ...base, ...overrides };
-    return { config, metrics: runConfig(config, opts) };
+    const metrics = runConfig(config, opts);
+    opts.onProgress?.(idx + 1, total, config, metrics);
+    return { config, metrics };
   });
 }
 

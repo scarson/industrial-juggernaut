@@ -77,15 +77,20 @@ export function findBalancedConfig(
 ): FindResult {
   const thresholds = opts.thresholds ?? defaultHealthThresholds();
 
-  const grid: GridEntry[] = cartesian(axes).map((overrides) => {
+  const combos = cartesian(axes);
+  const total = combos.length;
+  const grid: GridEntry[] = combos.map((overrides, idx) => {
     const config: RuleConfig = { ...base, ...overrides };
+    let entry: GridEntry;
     try {
       const metrics = runConfig(config, opts);
-      return { config, metrics, health: isHealthy(metrics, thresholds) };
+      entry = { config, metrics, health: isHealthy(metrics, thresholds) };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return { config, metrics: null, health: { pass: false, reasons: [`infeasible: ${message}`] } };
+      entry = { config, metrics: null, health: { pass: false, reasons: [`infeasible: ${message}`] } };
     }
+    opts.onProgress?.(idx + 1, total, config, entry.metrics);
+    return entry;
   });
 
   const { recommended, ranked } = selectBalanced(grid, thresholds);
@@ -105,15 +110,23 @@ export function balanceSweep(
   opts: RunConfigOptions,
 ): Record<string, { value: number | boolean | string; metrics: SweepMetrics | null }[]> {
   const out: Record<string, { value: number | boolean | string; metrics: SweepMetrics | null }[]> = {};
+  // Flat counter across every (axis, value) so onProgress reports global progress
+  // over the whole OFAT sweep, not per-axis.
+  const total = axes.reduce((sum, axis) => sum + (valuesPerAxis[axis as string]?.length ?? 0), 0);
+  let done = 0;
   for (const axis of axes) {
     const values = valuesPerAxis[axis as string] ?? [];
     out[axis as string] = values.map((value) => {
+      let metrics: SweepMetrics | null;
       try {
-        const metrics = sweepOFAT(baseline, axis, [value], opts)[0]!.metrics;
-        return { value, metrics };
+        // sweepOFAT does not fire onProgress itself, so this loop owns reporting.
+        metrics = sweepOFAT(baseline, axis, [value], opts)[0]!.metrics;
       } catch {
-        return { value, metrics: null };
+        metrics = null;
       }
+      done++;
+      opts.onProgress?.(done, total, { ...baseline, [axis]: value }, metrics);
+      return { value, metrics };
     });
   }
   return out;
