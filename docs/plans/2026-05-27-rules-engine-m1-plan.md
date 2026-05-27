@@ -61,17 +61,17 @@ notes and commit messages.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
-| 0 — Project scaffold + conventions | ⬜ Not started | — | — |
-| 1 — RNG | ⬜ Not started | — | — |
-| 2 — Geometry | ⬜ Not started | — | — |
-| 3 — Board | ⬜ Not started | — | — |
+| 0 — Project scaffold + conventions | ✅ Shipped | `46a710b`,`8aac650`,`cea5532`,`60b9405` | scaffold, lockfile, pitfalls, types+config |
+| 1 — RNG | ✅ Shipped | `7e1872b` | PCG32, reference-verified |
+| 2 — Geometry | ✅ Shipped | `01a6013`,`c4dba16`,`70291d6`,`244cdcd` | cube, hexline, hull (R1/R3), sightline (R2) |
+| 3 — Board | ✅ Shipped | `87f56f4`,`1ad4633`,`98dc3fc` | shape, iron-CSP (200-seed property test), generate/load |
 | 4 — Territory / control | ⬜ Not started | — | — |
 | 5 — Rules engine | ⬜ Not started | — | — |
 | 6 — Greedy-weighted agent | ⬜ Not started | — | — |
 | 7 — Driver + acceptance | ⬜ Not started | — | — |
 
 ### Deviations
-- (none yet)
+- Task 0.1: also committed `package-lock.json` (the task's literal `git add` list omitted it). Reproducible installs need the lockfile; included it rather than leave it untracked.
 
 ### Discoveries
 - (none yet)
@@ -126,7 +126,7 @@ Then update this plan's Execution Status banner + table for the phase.
 
 ## Phase 0 — Project Scaffold + Conventions
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED on 2026-05-27 (commits `46a710b` scaffold, `8aac650` lockfile, `cea5532` pitfalls content, `60b9405` types+config; branch `claude/document-game-design-VpqqB`)
 
 Establishes the buildable/testable project and the pitfalls docs the later phases' TDD mandate references.
 
@@ -295,7 +295,7 @@ git commit -m "feat: core engine types and rules-faithful default config"
 
 ## Phase 1 — RNG
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED on 2026-05-27 (commit `7e1872b`; PCG32 verified against canonical reference vectors)
 
 Deterministic seeded PRNG. Everything stochastic depends on this.
 
@@ -360,6 +360,8 @@ git commit -m "feat: deterministic PCG32 PRNG with explicit state"
 **Execution Status:** ⬜ NOT STARTED
 
 Cube-coordinate math, hex line rasterization, convex hull, point-in-hull, and the sight-line blocking test. Resolutions R1 (hull interior, on-edge = inside) and R2 (block only on open-interior crossing) are implemented here.
+
+**Execution Status:** ✅ SHIPPED on 2026-05-27 (commits `01a6013` cube, `c4dba16` hexline, `70291d6` hull/R1/R3, `244cdcd` sightline/R2; 30 tests green)
 
 ### Task 2.1: Cube coordinate math
 
@@ -504,6 +506,8 @@ describe("segmentBlocked (R2: block only on open-interior crossing)", () => {
 **Execution Status:** ⬜ NOT STARTED
 
 Board as data: an oval generator + a fixed-board loader sharing one `Board` type. Iron CSP: 14 iron, none in outer two rings, max-degree-1 adjacency.
+
+**Execution Status:** ✅ SHIPPED on 2026-05-27 (commits `87f56f4` shape, `1ad4633` iron-CSP, `98dc3fc` generate/load; 43 tests green, iron CSP property-tested over 200 seeds)
 
 ### Task 3.1: Oval board shape + ring computation
 

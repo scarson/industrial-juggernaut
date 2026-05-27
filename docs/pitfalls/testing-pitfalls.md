@@ -99,17 +99,15 @@ The test suite itself is code. It decays if not maintained. Messy test infrastru
 
 ---
 
-## 8. TODO — Project-Specific Topic
+## 8. Engine Determinism & Geometry
 
-<!-- TODO: add topic sections as the project surfaces specific testing disciplines. Examples from other projects:
-- AOT Correctness (for .NET AOT-compiled code)
-- Serialization Boundary (round-trip JSON tests)
-- Sandbox Bindings (JS sandbox API coverage)
-- Cross-Platform (tests that must pass on Windows and Linux)
-Each section follows the same [ ] checkbox format as the sections above.
-Delete this placeholder when you add real content. -->
+The engine is a deterministic rules engine: the same `(seed, action-sequence)` must always produce the same final state. Determinism and geometry bugs hide behind happy-path tests — they only surface on replay, on regime boundaries, or on the rare on-edge geometric input. Test them directly.
 
-TODO — project-specific topic.
+- [ ] **Seed every randomized test.** Any test touching the PRNG, board generation, or combat MUST pass a fixed seed; a test that passes only sometimes is a defect — never loosen the assertion to hide it.
+- [ ] **Property tests assert invariants, not example outputs.** Use fast-check for "for all legal states/actions, property P holds"; treat any counterexample as a real defect, never narrow the generator to dodge it.
+- [ ] **Structural assertions over substring.** Compare hex sets by normalized sorted arrays, not stringified blobs, so a reordering or formatting change can't mask a real difference.
+- [ ] **Test regime-boundary values explicitly.** Resource counts 1/2/3/4; base counts crossing 3↔4 (radiating↔perimeter switch); commitment levels 3/4/5/6; placed-factory count crossing 18 (late-game elimination activates).
+- [ ] **Replay equivalence is asserted.** `(seed, action-sequence)` must reproduce an identical final state — assert structural equality of the whole game state, not just a hash.
 
 ---
 

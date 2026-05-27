@@ -22,55 +22,91 @@ This document serves three audiences. Start here, then go directly to the sectio
 
 ## Table of Contents
 
-<!-- TODO: replace the example rows below with your project's actual domain sections. -->
-
 | § | Section | You're working on... | Entries | Checklist |
 |---|---------|---------------------|---------|-----------|
-| 1 | [EXAMPLE-DOMAIN-1](#1-example-domain-1) | TODO — describe what this section covers | PREFIX-1 – PREFIX-N | §1.C |
-| 2 | [EXAMPLE-DOMAIN-2](#2-example-domain-2) | TODO — describe what this section covers | PREFIX-1 – PREFIX-N | §2.C |
+| 1 | [Geometry & Engine](#section-1-geometry--engine) | Hex math, coordinate projection, PRNG threading, derived state | GEO-1 – GEO-5 | §1.C |
 | — | [Orchestration](#orchestration) | Parallel subagent dispatch and output persistence | ORCH-1 | §Orchestration.C |
 | A | [Historical Changelog](#appendix-a-historical-changelog) | Provenance, validation dates, review process meta-observations | — | — |
 | B | [Unified Summary Table](#appendix-b-unified-summary-table) | All pitfalls at a glance, with severity and status | — | — |
 
 ---
 
-# Section 1: EXAMPLE-DOMAIN-1
+# Section 1: Geometry & Engine
 
-<!-- TODO: rename this section to your project's first domain (e.g. "Authentication & Security", "Data Pipeline", "API Handlers"). Delete this comment. -->
-
-> **Reader context:** I'm building or reviewing [what this domain covers].
+> **Reader context:** I'm building or reviewing the hex-board geometry, coordinate projection, the deterministic PRNG, or any state derived from board layout.
 >
-> TODO — describe the shape of the pitfalls in this section and why they matter.
+> The engine is a deterministic rules engine over a hex board. Two trap families dominate this domain: (1) floating-point and integer-lattice errors when hex coordinates are projected to plane coordinates or interpolated, and (2) state-correctness errors from sharing mutable PRNG state, keying collections by object identity, or caching values that should be derived. Every entry here is a correctness bug that breaks determinism or geometry silently — the kind that passes a happy-path test and fails a replay.
 
 ---
 
-### PREFIX-1: TODO — First Pitfall Title
+### GEO-1: Floating Point in Convex Hull / Point-in-Polygon
 
-<!-- TODO: replace this example with a real pitfall entry. Use the Flaw → Why → Fix → Lesson structure for complex findings, or a single condensed paragraph for simple ones. See §How to Add a Pitfall below. -->
+**The Flaw:** Hex centers project to floating-point plane coordinates, and geometry predicates (convex-hull orientation, point-in-polygon sidedness) compare those projected floats directly — or with `===` — to decide which side of an edge a point falls on.
 
-**The Flaw:** TODO — what the code does wrong or what's missing.
+**Why It Matters:** A point that lies exactly on an edge produces an orientation determinant of ~0 that floating-point rounding can flip to a tiny positive or negative value. Without tolerance, the same point is classified "inside" on one machine or evaluation order and "outside" on another, breaking determinism and perimeter computation. The failure is intermittent and invisible in happy-path tests because it only triggers for collinear/on-edge configurations.
 
-**Why It Matters:** TODO — the production failure mode. What breaks, for whom, and why it's hard to detect.
+**The Fix:** Use an epsilon of `1e-9` on every orientation/sidedness test, and treat an on-edge point as **inside** (this is design resolution **R1**). Never compare projected floats with `===` or `<`/`>` without the epsilon band:
 
-**The Fix:** TODO — the specific code change or pattern to apply. Include a code example when the fix is non-trivial.
+```
+// orientation: > eps left, < -eps right, otherwise collinear (on edge → inside)
+const d = cross(a, b, p);
+if (d > EPS) return LEFT;
+if (d < -EPS) return RIGHT;
+return ON_EDGE; // counts as inside per R1
+```
 
-**The Lesson:** TODO — the generalizable principle. What should the reader watch for in future code?
+**The Lesson:** Any time integer/lattice data is projected into floating-point space for a geometric decision, the decision needs an explicit tolerance and a documented tie-break rule. Exact float equality on derived coordinates is always a bug.
+
+---
+
+### GEO-2: Hex Rounding
+
+**The Flaw:** Interpolating between two hexes (cube-coordinate lerp) produces fractional cube coordinates, and the endpoints are truncated or naively rounded component-by-component, landing off the integer lattice where `x + y + z = 0` no longer holds.
+
+**Why It Matters:** A hex whose components don't sum to zero is not a valid lattice point; downstream set membership, adjacency, and distance calculations silently produce wrong neighbors. Independent rounding of each axis can violate the constraint even when each axis rounds "correctly."
+
+**The Fix:** Round fractional cube coordinates with the standard cube-round algorithm: round each of x, y, z, then reset the component with the largest rounding delta from the sum of the other two, so `x + y + z = 0` always holds.
+
+**The Lesson:** Constrained coordinate systems (cube coords, normalized quaternions, simplex coords) must be re-projected onto their constraint after any floating-point operation. Per-component rounding is not constraint-preserving.
+
+---
+
+### GEO-3: PRNG State Threading
+
+**The Flaw:** A randomness consumer reads from a shared/ambient PRNG, reuses a PRNG state captured before a previous draw, or calls `Math.random()` directly.
+
+**Why It Matters:** Determinism depends on a single, linear sequence of draws from a seeded generator. If two consumers draw from the same pre-draw state, they collide and produce identical "random" values; if any code path calls `Math.random()`, the engine becomes non-deterministic and replays diverge. This breaks `(seed, actions) → state` reproducibility — the foundational engine invariant.
+
+**The Fix:** Every consumer of randomness takes a PRNG state as input and returns the advanced state alongside its result. Thread the returned state forward; never reuse a pre-draw state. There must be **no `Math.random()` anywhere in the engine** — enforce with a lint rule.
+
+```
+const [roll, next] = drawD6(prng);
+// use `next` for the following draw — never `prng` again
+```
+
+**The Lesson:** Determinism is a data-flow property: randomness state must be threaded explicitly, like an accumulator, never read from ambient context. A reused state is a silent collision.
+
+---
+
+### GEO-4: Set Membership on Hex
+
+A `Hex` is a value object, not a reference — two `Hex` instances with the same coordinates are equal but are distinct objects. Keying a `Set` or `Map` by object identity will store duplicates and fail membership tests for an equal-but-distinct hex. Always key collections by a canonical string `"x,y,z"`, never by object identity.
+
+---
+
+### GEO-5: Perimeter Is Derived, Never Stored
+
+A player's perimeter is a pure function of their current bases. Caching it invites staleness: a later base placement or removal silently invalidates the cached value, and the engine then reasons about a perimeter that no longer matches the board. Always recompute the perimeter from the current bases at the point of use; never store it as mutable state.
 
 ---
 
 ### Review Checklist
 
-<!-- TODO: one checkbox per pitfall above. Each item is a pass/fail check. Example format: -->
-
-- [ ] **Check derived from PREFIX-1** — TODO
-
----
-
-# Section 2: EXAMPLE-DOMAIN-2
-
-<!-- TODO: rename, or delete this section if not needed. Duplicate the Section 1 template for each additional domain. -->
-
-TODO.
+- [ ] **All geometry predicates use a `1e-9` epsilon and treat on-edge as inside** — no `===`/bare `<`/`>` on projected floats; on-edge counts as inside per R1 (GEO-1)
+- [ ] **Fractional cube coordinates are cube-rounded** — largest-delta component reset so `x + y + z = 0` holds after every lerp/round (GEO-2)
+- [ ] **PRNG state is threaded, not reused** — every randomness consumer takes and returns advanced state; no `Math.random()` anywhere in the engine (GEO-3)
+- [ ] **Hex collections are keyed by canonical `"x,y,z"` strings** — never by object identity (GEO-4)
+- [ ] **Perimeter is recomputed from current bases, never cached** — no stored perimeter that a base change could invalidate (GEO-5)
 
 ---
 
@@ -113,8 +149,12 @@ TODO — add entries as this document evolves.
 
 | ID | Title | Severity | Status | Domain |
 |----|-------|----------|--------|--------|
+| GEO-1 | Floating Point in Convex Hull / Point-in-Polygon | HIGH | UNIMPLEMENTED | Geometry & Engine |
+| GEO-2 | Hex Rounding | HIGH | UNIMPLEMENTED | Geometry & Engine |
+| GEO-3 | PRNG State Threading | CRITICAL | UNIMPLEMENTED | Geometry & Engine |
+| GEO-4 | Set Membership on Hex | MEDIUM | UNIMPLEMENTED | Geometry & Engine |
+| GEO-5 | Perimeter Is Derived, Never Stored | MEDIUM | UNIMPLEMENTED | Geometry & Engine |
 | ORCH-1 | Analysis Dispatches Must Persist Findings | HIGH | VALIDATED | Orchestration |
-| PREFIX-1 | TODO | TODO | TODO | Section 1 |
 
 Severity levels: `CRITICAL` (production data loss / security), `HIGH` (correctness bug under predictable conditions), `MEDIUM` (correctness bug under edge cases), `LOW` (cleanliness / clarity).
 
