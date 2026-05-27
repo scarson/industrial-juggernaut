@@ -57,13 +57,13 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** 🚧 In progress — A1, A2 shipped; A3 next.
+**Overall:** 🚧 In progress — A1, A2 shipped (PR #9 merged at `7749f3e`); A3 claimed 2026-05-27.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
 | A1 — Improved heuristic | ✅ Shipped | `f5b838d`,`5b9ce56` | evaluate() + samplePolicy(); 235 tests green |
 | A2 — Factory-clock investigation + tuning | ✅ Shipped | `41c1056` (A2.2); `fe664f2`,`ba94212` (A2.1) | per-player factory clock, threshold 18→8; 240 tests green |
-| A3 — MCTS core | ⬜ Not started | — | — |
+| A3 — MCTS core | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
 | A4 — MCTS agent interface | ⬜ Not started | — | — |
 | A5 — Eval harness | ⬜ Not started | — | — |
 | A6 — Trustworthiness gates (acceptance) | ⬜ Not started | — | — |
@@ -200,7 +200,7 @@ Empirically determine whether the M1 turn-3 mass-elimination is agent-bound or r
 
 ## Phase A3 — MCTS Core
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
 
 Determinized N-player max^n MCTS over the pure engine. Behavior+signature level per the design; the executor writes complete tests for every enumerated behavior before implementing.
 
