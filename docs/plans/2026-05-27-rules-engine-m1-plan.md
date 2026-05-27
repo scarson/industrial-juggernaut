@@ -57,7 +57,7 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** Not started.
+**Overall:** ✅ 8/8 phases shipped — M1 complete. 219 tests green, strict typecheck clean. 1000-game acceptance (2–6 players): all terminate (0 cap hits), 0 illegal actions, 242 iron victories / 758 empty-coalition mutual-eliminations, max 3 turns.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
@@ -68,7 +68,7 @@ notes and commit messages.
 | 4 — Territory / control | ✅ Shipped | `4051191`,`bbb08df` | control() both regimes (board-bounded), mkState helper |
 | 5 — Rules engine | ✅ Shipped | `93c0271`,`92855dc`,`86277b2`,`7cb4e7d`,`029782e`,`6249299`,`543b34b`,`50f62a4` | build, combat, apply(build/attack), stranded, status/victory, legalActions, turn |
 | 6 — Greedy-weighted agent | ✅ Shipped | `360550a`,`a9795ee` | move scoring, archetype agent (softmax, greedy multi-placement, defensive reserve) |
-| 7 — Driver + acceptance | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
+| 7 — Driver + acceptance | ✅ Shipped | `082da5b`,`9fa25ed` | driver + result records, 1000-game acceptance (all terminate, 0 illegal) |
 
 ### Deviations
 - Task 0.1: also committed `package-lock.json` (the task's literal `git add` list omitted it). Reproducible installs need the lockfile; included it rather than leave it untracked.
@@ -76,7 +76,7 @@ notes and commit messages.
 ### Discoveries
 - **Generated board is a 93-hex asymmetric oval** (Task 3.1 used ASPECT 1.3, size 96 → 93 land hexes, max ring depth 4). Several hand-picked coordinates in plan test snippets are OFF-board — e.g. `(0,5,-5)` and `(8,-8,0)`. Phase 5 tasks that hand-pick hex coordinates in tests MUST either (a) pick interior on-board coords (known on-board: `(0,0,0)`,`(2,-2,0)`,`(4,-4,0)`,`(5,-5,0)`,`(0,4,-4)`; known off-board: `(0,5,-5)`,`(8,-8,0)`,`(6,-6,0)` is on-board), or (b) use `mkState`'s `iron`/base unioning so referenced hexes are guaranteed on-board. Off-board base coords still "work" for radiating-distance fixtures (control board-intersects), but assertions about controlled `hexes` must target on-board coords. Verify a coord is on-board before asserting it's controlled.
 - Task 4.1: corrected `control()` to board-intersect the radiating disk per spec §7 (it initially returned the raw disk); R3 test target moved from off-board `(0,5,-5)` to on-board `(0,4,-4)` (commit `bbb08df`).
-- **MAJOR (Task 7.1): greedy-agent games degenerate to turn-3 mutual elimination.** With the current greedy archetype agents, games end fast by *double-elimination*: agents spam factories (a myopic scorer treats a 4th base as iron-LOSING when switching from radiating disks to an enclosed hull, so it avoids the perimeter regime), the shared 36-factory pool crosses 18 placed factories within ~3 turns, and the `brokenPerimeterAt18Factories` rule eliminates every still-radiating (`<4`-base) player simultaneously → `status()` returns the empty-coalition `last-standing` terminal (`winnerOrCoalition: []`). This is NOT an engine bug (no illegal actions; legality guard never fires; spec-sanctioned terminal) — it is (a) the exact M1-agent limitation the agent-roadmap predicted ("myopic per-move scorer handles the 4th-base timing decision badly"), and (b) a genuine balance signal: the 18-factory death rule + shared pool + factory-preferring play → universal mutual elimination (relevant to the design-critique's concern about that rule). **Resolution for M1:** the acceptance test (7.2) asserts the engine-validation invariants (all games terminate within the cap, zero illegal actions across 2–6 players) and records the victory-type distribution as the finding; meaningful winners require the stronger (lookahead) agent or scoring re-tuning, both deferred per the roadmap. This is the simulator doing its job — surfacing a gross structural outcome.
+- **MAJOR (Task 7.1): greedy-agent games degenerate to turn-3 mutual elimination.** With the current greedy archetype agents, games end fast by *double-elimination*: agents spam factories (a myopic scorer treats a 4th base as iron-LOSING when switching from radiating disks to an enclosed hull, so it avoids the perimeter regime), the shared 36-factory pool crosses 18 placed factories within ~3 turns, and the `brokenPerimeterAt18Factories` rule eliminates every still-radiating (`<4`-base) player simultaneously → `status()` returns the empty-coalition `last-standing` terminal (`winnerOrCoalition: []`). This is NOT an engine bug (no illegal actions; legality guard never fires; spec-sanctioned terminal) — it is (a) the exact M1-agent limitation the agent-roadmap predicted ("myopic per-move scorer handles the 4th-base timing decision badly"), and (b) a genuine balance signal: the 18-factory death rule + shared pool + factory-preferring play → universal mutual elimination (relevant to the design-critique's concern about that rule). **Resolution for M1:** the acceptance test (7.2) asserts the engine-validation invariants (all games terminate within the cap, zero illegal actions across 2–6 players) and records the victory-type distribution as the finding; meaningful winners require the stronger (lookahead) agent or scoring re-tuning, both deferred per the roadmap. This is the simulator doing its job — surfacing a gross structural outcome. **Actual 1000-game result (2–6P):** 242 iron victories (24%, a real winner reaches 10 iron — concentrated in higher player counts) vs. 758 empty-coalition mutual-eliminations (76%, concentrated in 2-player), all by turn 3, 0 cap hits. So the degeneration is partial, not total — meaningful iron victories DO occur — but the turn-3 mass-elimination clock (18-factory rule + factory-spamming) dominates pacing. Concrete follow-ups when tuning the agent / revisiting balance: (a) give the scorer a forward-looking incentive to reach the 4-base perimeter even at a transient iron dip; (b) reconsider whether `brokenPerimeterAt18Factories` firing on the *shared* placed-factory count (vs. per-player) is intended — it couples all players' clocks.
 
 ---
 
@@ -798,7 +798,7 @@ describe("resolveCombat", () => {
 
 ## Phase 7 — Driver + Acceptance
 
-**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
+**Execution Status:** ✅ SHIPPED on 2026-05-27 (commits `082da5b` driver, `9fa25ed` acceptance; 219 tests green; 1000-game acceptance passes — all terminate, zero illegal actions)
 
 ### Task 7.1: Game driver + result records
 
