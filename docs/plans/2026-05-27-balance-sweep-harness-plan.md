@@ -38,21 +38,22 @@ downstream reconstruction is expensive and fails silently.
 
 ## Execution Status
 
-**Overall:** 🚧 In progress — S1, S2 shipped; S3 claimed 2026-05-27. Spec/plan merged via PR #10 (`72944bb`). 352 tests green.
+**Overall:** 🚧 In progress — S1, S2, S3 shipped; S4 claimed 2026-05-27. Spec/plan merged via PR #10 (`72944bb`). 365 tests green.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
 | S1 — Metrics | ✅ Shipped | `8e104fc` | SweepMetrics + computeMetrics |
-| S2 — Health gate + rank | ✅ Shipped | `c81f5fd` | isHealthy + rankHealthy; 352 tests green |
-| S3 — Runner (grid/OFAT, CRN, CIs) | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
-| S4 — Orchestrator + report | ⬜ Not started | — | — |
+| S2 — Health gate + rank | ✅ Shipped | `c81f5fd` | isHealthy + rankHealthy |
+| S3 — Runner (grid/OFAT, CRN, CIs) | ✅ Shipped | `5148523` | runConfig/sweepGrid/sweepOFAT + CRN; 365 tests green |
+| S4 — Orchestrator + report | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
 | S5 — Execute the search; recommend balanced config | ⬜ Not started | — | — |
 
 ### Deviations
 - (none yet)
 
 ### Discoveries
-- (none yet)
+- **S3.1 — iron-CSP feasibility limits the grid.** The iron placement CSP (max-degree-1 spacing, no outer-2-ring iron) can't fit much iron on small boards (e.g. boardSize 48 → 47 hexes can't hold 8 iron → `placeIron` throws). S5's geometry grid MUST use feasible `(boardSize, ironCount)` pairs, and `findBalancedConfig`/`sweepGrid`/`main.ts` MUST GUARD infeasible combos (try/catch `runConfig`, skip-and-note on placeIron failure) so one bad combo doesn't abort the whole sweep. For boardSize ≥ 96, ironCount ≤ ~16 is feasible.
+- **S3.1 — `ironOverTime[0]` is POST-turn-1, not a setup snapshot** (`runGame` pushes the first row after turn 1 plays out). So `turn1LeadersOf`/`leadVolatility` measure the *after-turn-1* leader (an acceptable early-leader proxy, not literally turn-0). `runConfig` correctly computes `setupDecided` by mirroring `runGame`'s board (threading the post-`generateBoard` rng into `setupGame`), NOT from `ironOverTime[0]`.
 
 ---
 
@@ -107,7 +108,7 @@ the grid, is a real FINDING, not a test to soften — STOP and report.
 
 ## Phase S3 — Runner (grid / OFAT, CRN, CIs)
 
-**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
+**Execution Status:** ✅ SHIPPED on 2026-05-27 (commit `5148523`; 365 tests green)
 
 ### Task S3.1: `runConfig`, `sweepGrid`, `sweepOFAT`, CRN, confidence intervals
 **Files:** Create `src/sweep/run.ts`; Test `test/sweep/run.test.ts`. Available: `measureDistribution`, `runGame` (+ `agentFor` seam), `heuristicAgent`, `defaultConfig`, `metrics` (S1).
@@ -125,7 +126,7 @@ the grid, is a real FINDING, not a test to soften — STOP and report.
 
 ## Phase S4 — Orchestrator + Report
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
 
 ### Task S4.1: `findBalancedConfig`, `balanceSweep`, `report`
 **Files:** Create `src/sweep/orchestrate.ts`, `src/sweep/report.ts`; Test `test/sweep/orchestrate.test.ts`.
