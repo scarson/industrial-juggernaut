@@ -232,6 +232,34 @@ describe("isLegalBasePlacement — outside own perimeter", () => {
   });
 });
 
+describe("isLegalBasePlacement — bases-in-hand gate", () => {
+  // A geometrically-legal interior placement: p0 has a 4-base non-degenerate
+  // perimeter, and (2,-2,0) is an empty interior hex (legal when bases remain).
+  const perimeterBases = [hex(0, 0, 0), hex(4, -4, 0), hex(4, 0, -4), hex(0, 4, -4)];
+  const fixture = () => mkState({ board: 96, basesP0: perimeterBases });
+
+  it("illegal when the acting player has basesInHand === 0 (cannot place a base you don't have)", () => {
+    const s = fixture();
+    // Maxed out: all bases on the board, none in hand.
+    s.players[0]!.basesInHand = 0;
+    expect(isLegalBasePlacement(s, 0, hex(2, -2, 0))).toBe(false);
+  });
+
+  it("legal for the same fixture when basesInHand > 0 (only the bases-in-hand gate changed)", () => {
+    const s = fixture();
+    s.players[0]!.basesInHand = 1;
+    expect(isLegalBasePlacement(s, 0, hex(2, -2, 0))).toBe(true);
+  });
+
+  it("factory placement is unaffected by basesInHand === 0 (factories come from factorySupply)", () => {
+    // (6,-6,0) is d2 from the farthest base (4,-4,0): empty, non-iron, in range,
+    // and factorySupply > 0 by default. basesInHand has no bearing on factories.
+    const s = fixture();
+    s.players[0]!.basesInHand = 0;
+    expect(isLegalFactoryPlacement(s, 0, hex(6, -6, 0))).toBe(true);
+  });
+});
+
 describe("isLegalBasePlacement — inside own perimeter", () => {
   // p0 has a 4-base non-degenerate perimeter.
   const perimeterBases = [hex(0, 0, 0), hex(4, -4, 0), hex(4, 0, -4), hex(0, 4, -4)];

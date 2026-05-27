@@ -6,6 +6,7 @@ import { hex, key, distance } from "../../src/geometry/cube";
 import { defaultConfig } from "../../src/engine/config";
 import type { Action, GameState } from "../../src/engine/types";
 import { applyAction } from "../../src/engine/apply";
+import { isLegalBasePlacement } from "../../src/engine/build";
 import { legalActions } from "../../src/engine/legal";
 import { mkState } from "../helpers/state";
 
@@ -43,6 +44,36 @@ describe("legalActions — self-consistency (load-bearing)", () => {
     });
     const actions = legalActions(s);
     expect(actions.length).toBeGreaterThan(0);
+    for (const a of actions) {
+      expect(() => applyAction(s, a)).not.toThrow();
+    }
+  });
+
+  it("emits no base-build action and every action applies for a maxed-out player (basesInHand 0)", () => {
+    // A late-game maxed-out player: all bases on board (basesInHand 0) but with
+    // buildBudget >= 1 (controls iron) and at least one geometrically-legal base
+    // hex inside its own perimeter. legalActions must NOT emit a base build it
+    // cannot apply (you cannot place a base you don't have); factory builds may
+    // still appear if factorySupply > 0 and within range.
+    const perimeterBases = [hex(0, 0, 0), hex(4, -4, 0), hex(4, 0, -4), hex(0, 4, -4)];
+    const s = mkState({
+      board: 96,
+      basesP0: perimeterBases,
+      iron: [hex(2, -2, 0), hex(2, 0, -2)], // rc=2 => buildBudget 1
+    });
+    s.players[0]!.basesInHand = 0;
+    // Sanity: there IS a geometrically-legal interior base hex when bases remain.
+    const withBases = mkState({ board: 96, basesP0: perimeterBases });
+    expect(isLegalBasePlacement(withBases, 0, hex(0, 2, -2))).toBe(true);
+
+    const actions = legalActions(s);
+    expect(actions.length).toBeGreaterThan(0);
+    // (a) NO base-build action is emitted for the maxed-out player.
+    const baseBuilds = actions.filter(
+      (a) => a.kind === "build" && a.pieces.some((p) => p.type === "base"),
+    );
+    expect(baseBuilds).toHaveLength(0);
+    // (b) EVERY emitted action is accepted by applyAction without throwing.
     for (const a of actions) {
       expect(() => applyAction(s, a)).not.toThrow();
     }

@@ -140,7 +140,9 @@ function insideAnyOpponentPerimeter(state: GameState, player: PlayerId, h: Hex):
 /**
  * Base placement legality (spec §8 "Placing Bases").
  *
- * `h` must be on the board and empty. Two cases:
+ * The acting player must have a base in hand (`basesInHand > 0`); a maxed-out
+ * player can place nothing. Beyond that, `h` must be on the board and empty.
+ * Two cases:
  *  - INSIDE OWN PERIMETER (player has a valid >=4-base non-degenerate hull and
  *    `h` is inside it): legal anywhere empty in territory (fortifies, claims
  *    nothing).
@@ -153,6 +155,9 @@ function insideAnyOpponentPerimeter(state: GameState, player: PlayerId, h: Hex):
  *          friendly base is illegal (encloses no new territory).
  */
 export function isLegalBasePlacement(state: GameState, player: PlayerId, h: Hex): boolean {
+  // You cannot place a base you don't have: a maxed-out player (all 12 bases on
+  // the board) has none in hand, so no placement is legal regardless of geometry.
+  if (state.players[player]!.basesInHand <= 0) return false;
   if (!onBoard(state, h)) return false;
   if (occupied(state, h)) return false;
 
