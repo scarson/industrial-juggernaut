@@ -57,12 +57,12 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** 🚧 In progress — Phase A1 claimed 2026-05-27.
+**Overall:** 🚧 In progress — A1 shipped; A2 claimed 2026-05-27.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
-| A1 — Improved heuristic | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
-| A2 — Factory-clock investigation + tuning | ⬜ Not started | — | — |
+| A1 — Improved heuristic | ✅ Shipped | `f5b838d`,`5b9ce56` | evaluate() + samplePolicy(); 235 tests green |
+| A2 — Factory-clock investigation + tuning | 🚧 In progress | — | branch `claude/document-game-design-VpqqB` |
 | A3 — MCTS core | ⬜ Not started | — | — |
 | A4 — MCTS agent interface | ⬜ Not started | — | — |
 | A5 — Eval harness | ⬜ Not started | — | — |
@@ -128,7 +128,7 @@ Then update this plan's Execution Status banner + table for the phase.
 
 ## Phase A1 — Improved Heuristic
 
-**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
+**Execution Status:** ✅ SHIPPED on 2026-05-27 (commits `f5b838d` evaluate(), `5b9ce56` samplePolicy(); 235 tests green)
 
 The perimeter-aware evaluation + stochastic policy that every later phase depends on. This is the dominant lever for the 4th-base-myopia fix.
 
@@ -168,7 +168,7 @@ Available additionally: `src/engine/legal.ts` (`legalActions`), `src/engine/buil
 
 ## Phase A2 — Factory-Clock Investigation + Authorized Tuning
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** 🚧 IN PROGRESS — claimed 2026-05-27 (branch `claude/document-game-design-VpqqB`)
 
 Empirically determine whether the M1 turn-3 mass-elimination is agent-bound or rules-bound, and apply the **Sam-authorized (2026-05-27)** factory-clock tuning if needed. This gates trustworthiness gate (1).
 
