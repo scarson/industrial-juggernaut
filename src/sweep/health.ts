@@ -13,6 +13,12 @@ export interface HealthThresholds {
   maxCapHit: number;
   maxSeatBias: number;
   minLeadVolatility: number;
+  /**
+   * Optional upper bound on leadVolatility (default: unbounded). Useful when measuring under
+   * stronger agents where high lead volatility indicates "outcome essentially random late in
+   * the game", which is undesirable above a point. Backwards-compatible: omitted = no upper check.
+   */
+  maxLeadVolatility?: number;
 }
 
 /**
@@ -30,6 +36,34 @@ export function defaultHealthThresholds(): HealthThresholds {
     maxCapHit: 0.02,
     maxSeatBias: 0.2,
     minLeadVolatility: 0.2,
+  };
+}
+
+/**
+ * Thresholds for evaluating MCTS-strong-agent self-play distributions (per the gate-recalibration
+ * spec at `docs/2026-05-28-gate-recalibration-for-c.md`). Relaxed from `defaultHealthThresholds()`
+ * because variant (c)-style configs deliberately produce different distributions under MCTS vs.
+ * greedy — the greedy-tuned gate isn't the right instrument. Use this when running revalidations,
+ * stress tests, or any sweep where MCTS is the evaluator.
+ *
+ * Deltas vs default:
+ *  - minIronVictory 0.5 → 0.15 (under MCTS, any iron-vic > 0 is a recovery from baseline 0)
+ *  - maxMedianTurns 25 → 30 (MCTS games can run longer)
+ *  - maxCapHit 0.02 → 0.05 (some MCTS games stalemate; capHit is informative, not a fail)
+ *  - maxSeatBias 0.20 → 0.50 (at small MCTS sample sizes the per-seat CI is below the 0.20 cap)
+ *  - NEW maxLeadVolatility 0.85 (very-high LV under MCTS = "outcomes essentially random late")
+ * minLeadVolatility, maxSetupDecided, minMedianTurns stay at default values.
+ */
+export function mctsHealthThresholds(): HealthThresholds {
+  return {
+    minMedianTurns: 3,
+    maxMedianTurns: 30,
+    maxSetupDecided: 0.05,
+    minIronVictory: 0.15,
+    maxCapHit: 0.05,
+    maxSeatBias: 0.5,
+    minLeadVolatility: 0.2,
+    maxLeadVolatility: 0.85,
   };
 }
 
@@ -69,6 +103,9 @@ export function isHealthy(
   }
   if (m.leadVolatility < t.minLeadVolatility) {
     reasons.push(`leadVolatility ${m.leadVolatility} below min ${t.minLeadVolatility}`);
+  }
+  if (t.maxLeadVolatility !== undefined && m.leadVolatility > t.maxLeadVolatility) {
+    reasons.push(`leadVolatility ${m.leadVolatility} above max ${t.maxLeadVolatility}`);
   }
 
   return { pass: reasons.length === 0, reasons };

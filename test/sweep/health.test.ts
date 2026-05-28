@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import {
   defaultHealthThresholds,
+  mctsHealthThresholds,
   isHealthy,
   rankHealthy,
   type HealthThresholds,
@@ -223,5 +224,55 @@ describe("rankHealthy", () => {
     ];
     const ranked = rankHealthy(scored, strict);
     expect(ranked.map((r) => r.config)).toEqual([b]);
+  });
+});
+
+describe("mctsHealthThresholds", () => {
+  it("returns relaxed thresholds appropriate for MCTS-strong-agent self-play distributions", () => {
+    const t = mctsHealthThresholds();
+    // Compared to the default (greedy-tuned) thresholds:
+    expect(t.minMedianTurns).toBe(3); // unchanged — multi-turn under any agent
+    expect(t.maxMedianTurns).toBeGreaterThan(25); // relaxed (MCTS can run longer)
+    expect(t.minIronVictory).toBeLessThan(0.5); // relaxed (any iron-vic > 0 is recovery)
+    expect(t.maxCapHit).toBeGreaterThan(0.02); // relaxed (some MCTS games stalemate)
+    expect(t.maxSeatBias).toBeGreaterThan(0.2); // relaxed (CI wide at small MCTS samples)
+    expect(t.maxLeadVolatility).toBeDefined(); // NEW upper bound on lead volatility
+    expect(t.maxLeadVolatility!).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("isHealthy — maxLeadVolatility check", () => {
+  const baselineMetrics: SweepMetrics = {
+    gamesPlayed: 100,
+    medianTurns: 5,
+    meanTurns: 5,
+    turnsHistogram: { 5: 100 },
+    setupDecidedFraction: 0,
+    ironVictoryFraction: 0.3,
+    capHitFraction: 0,
+    seatWinBias: 0.1,
+    seatWinBiasByCount: {},
+    leadVolatility: 0.5,
+    victoryType: { iron: 30, "last-standing": 70 },
+    noWinnerFraction: 0,
+  };
+
+  it("passes when leadVolatility is below the maxLeadVolatility cap", () => {
+    const verdict = isHealthy({ ...baselineMetrics, leadVolatility: 0.7 }, mctsHealthThresholds());
+    // 0.7 < 0.85 -> passes the new upper bound (and old lower bound).
+    expect(verdict.reasons.some((r) => r.includes("leadVolatility"))).toBe(false);
+  });
+
+  it("FAILS when leadVolatility exceeds the maxLeadVolatility cap", () => {
+    const verdict = isHealthy({ ...baselineMetrics, leadVolatility: 0.95 }, mctsHealthThresholds());
+    expect(verdict.reasons.some((r) => /leadVolatility.*above max/.test(r))).toBe(true);
+  });
+
+  it("does NOT check maxLeadVolatility when it is undefined (default behavior preserved)", () => {
+    const t = defaultHealthThresholds();
+    expect(t.maxLeadVolatility).toBeUndefined();
+    // Even an extremely high leadVolatility passes the default thresholds' lead check.
+    const verdict = isHealthy({ ...baselineMetrics, leadVolatility: 0.99 }, t);
+    expect(verdict.reasons.some((r) => /leadVolatility.*above max/.test(r))).toBe(false);
   });
 });
