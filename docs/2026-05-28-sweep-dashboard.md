@@ -1,6 +1,6 @@
 # Sweep Dashboard
 
-**Date:** generated 2026-05-28T14:23:33.068Z. **Source:** every JSONL under `docs/sweeps/data/`.
+**Date:** generated 2026-05-28T15:10:07.810Z. **Source:** every JSONL under `docs/sweeps/data/`.
 
 Run `npx tsx src/sweep/dashboard.ts` to refresh.
 
@@ -8,7 +8,9 @@ Run `npx tsx src/sweep/dashboard.ts` to refresh.
 
 | File | Records |
 | --- | ---: |
+| `2026-05-28-alliance-deltas-aware.jsonl` | 4 |
 | `2026-05-28-alliance-deltas.jsonl` | 750 |
+| `2026-05-28-alliance-weights.jsonl` | 250 |
 | `2026-05-28-mcts-300-on-c.jsonl` | 28 |
 | `2026-05-28-mcts-budgets.jsonl` | 48 |
 | `2026-05-28-profile-turn-complexity.jsonl` | 3 |
@@ -45,6 +47,20 @@ Run `npx tsx src/sweep/dashboard.ts` to refresh.
 | `Variant (c) 2P all-MCTS — long-game scenario` | 12 | last-standing | [0] | 24 | 63 | 102 | 29827 | 901 |
 | `Variant (c) 2P MCTS(seat0) vs heuristic(seat1)` | 2 | iron | [1] | 4 | 65 | 126 | 13 | 34 |
 | `Baseline 2P all-MCTS — turn-1 collapse scenario` | 1 | last-standing | [1] | 1 | 65 | 65 | 221 | 221 |
+
+### 2026-05-28-alliance-deltas-aware.jsonl
+
+**Records:** 4
+
+| variant | games | iron | last-std | none | median t | iron-vic | victory bar |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `alliances OFF (baseline)` | 4 | 4 | 0 | 0 | 2.0 | 100.0% | `████████████████████` |
+
+### 2026-05-28-alliance-weights.jsonl
+
+**Records:** 250
+**Aggregate:** 250 games · iron=191 · last-standing=59 · none=0 · median turns=2.0
+**Iron-vic:** 76.4% `███████████████·····`
 
 ### 2026-05-28-mcts-budgets.jsonl
 
