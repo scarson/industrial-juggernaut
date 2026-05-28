@@ -35,14 +35,19 @@ export const MCTS_SEARCH_RNG_SALT = 0x9e3779b97f4a7c15n;
 
 /**
  * Default agent params: the core MCTS defaults but with a MODEST iteration
- * budget (300) suitable for arena/sweep throughput. The core default (1000) is
+ * budget (100) suitable for arena/sweep throughput. The core default (1000) is
  * tuned for single-move strength; sweeps play thousands of games, so a smaller
- * per-move budget trades a little move quality for far more games-per-hour
- * (tighter confidence intervals). 300 is enough to let progressive widening open
- * a useful candidate set and concentrate visits, while staying fast in the arena.
+ * per-move budget trades a little move quality for far more games-per-hour.
+ *
+ * 2026-05-28 update: dropped from 300 to 100 after the MCTS@300 stress test on
+ * variant (c) showed @300 produces IDENTICAL h2h-vs-heuristic results to @100
+ * (`docs/2026-05-28-mcts-300-on-c.md`: 6.3% vs 93.8%, Δ -0.0pp). The perimeter-
+ * aware heuristic is near-optimal on the (c) regime; paying for 3× search depth
+ * adds no discernible benefit. A pending follow-up explores whether even @25/@50
+ * is indistinguishable from @100 (`src/sweep/compare-mcts-budgets.ts`).
  */
 export function defaultMctsParams(): MctsParams {
-  return { ...defaultMctsCoreParams(), iterations: 300 };
+  return { ...defaultMctsCoreParams(), iterations: 100 };
 }
 
 /**
