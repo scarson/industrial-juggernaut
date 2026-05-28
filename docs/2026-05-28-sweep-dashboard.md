@@ -1,6 +1,6 @@
 # Sweep Dashboard
 
-**Date:** generated 2026-05-28T15:27:59.064Z. **Source:** every JSONL under `docs/sweeps/data/`.
+**Date:** generated 2026-05-28T23:09:27.745Z. **Source:** every JSONL under `docs/sweeps/data/`.
 
 Run `npx tsx src/sweep/dashboard.ts` to refresh.
 
@@ -14,6 +14,7 @@ Run `npx tsx src/sweep/dashboard.ts` to refresh.
 | `2026-05-28-mcts-300-on-c.jsonl` | 28 |
 | `2026-05-28-mcts-budgets.jsonl` | 48 |
 | `2026-05-28-profile-turn-complexity.jsonl` | 3 |
+| `2026-05-29-lookahead2-vs-heuristic-c-2p.jsonl` | 300 |
 
 ## Per-file detail
 
@@ -70,6 +71,12 @@ Run `npx tsx src/sweep/dashboard.ts` to refresh.
 
 **Records:** 48
 **Aggregate:** 48 games · iron=48 · last-standing=0 · none=0 · median turns=2.0
+**Iron-vic:** 100.0% `████████████████████`
+
+### 2026-05-29-lookahead2-vs-heuristic-c-2p.jsonl
+
+**Records:** 300
+**Aggregate:** 300 games · iron=300 · last-standing=0 · none=0 · median turns=2.0
 **Iron-vic:** 100.0% `████████████████████`
 
 ---

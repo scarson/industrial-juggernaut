@@ -123,9 +123,20 @@ export function buildBudgetForType(state: GameState, player: PlayerId, type: Bas
  * The player's base(s) farthest (by cube distance) from their first/oldest base
  * (min `order`). Returns ALL bases tied for the maximum distance (R4). If the
  * player has only the first base, returns that base.
+ *
+ * Tactical Depth Phase 4: when `baseTypesEnabled`, ONLY forge bases generate
+ * factories — so a factory placement's anchor must be a forge, not a watchtower
+ * or outpost. We filter to forges BEFORE computing the farthest base. If a player
+ * has no forge bases (e.g. an all-outpost strategy), `farthestBases` returns []
+ * and `isLegalFactoryPlacement` will correctly reject every factory placement.
+ *
+ * When the flag is off, every base is treated as a forge (the existing behavior).
  */
 export function farthestBases(state: GameState, player: PlayerId): Base[] {
-  const bases = basesOf(state, player);
+  let bases = basesOf(state, player);
+  if (state.config.baseTypesEnabled) {
+    bases = bases.filter((b) => (b.type ?? "forge") === "forge");
+  }
   const first = oldestBase(bases);
   if (first === undefined) return [];
 

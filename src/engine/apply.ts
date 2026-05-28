@@ -209,7 +209,9 @@ function applyOneAttack(
   }
 
   // 4. Resolve combat — single Bernoulli draw threaded through the PRNG (GEO-3).
-  const { attackerWon, state: rng2 } = resolveCombat(state.rngState, commit, state.config);
+  //    Phase 4: pass the defender's base type so watchtower's +1 defense is honored.
+  const defenderType = defenderBase.type ?? "forge";
+  const { attackerWon, state: rng2 } = resolveCombat(state.rngState, commit, state.config, defenderType);
 
   // Identity set of committed bases (attackers + defender) for fatigue. Keyed by
   // canonical hex string + owner so we never confuse two players sharing geometry.
