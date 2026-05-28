@@ -295,3 +295,4 @@
 {"boardSize":192,"victoryThreshold":10,"ironCount":14,"done":25,"total":30,"nPlayers":2,"turns":61,"victoryType":"none","winner":[],"hitTurnCap":true,"elapsedSec":305.762}
 {"boardSize":192,"victoryThreshold":10,"ironCount":14,"done":26,"total":30,"nPlayers":2,"turns":61,"victoryType":"none","winner":[],"hitTurnCap":true,"elapsedSec":306.779}
 {"boardSize":192,"victoryThreshold":10,"ironCount":14,"done":27,"total":30,"nPlayers":2,"turns":4,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":307.842}
+{"boardSize":192,"victoryThreshold":10,"ironCount":14,"done":28,"total":30,"nPlayers":2,"turns":4,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":308.884}
