@@ -4,6 +4,7 @@
 import { readFileSync, writeFileSync, existsSync, appendFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { generateBoard } from "../board/generate";
+import { buildBudget } from "../engine/build";
 import { defaultConfig, type RuleConfig } from "../engine/config";
 import { control } from "../engine/control";
 import { legalActions } from "../engine/legal";
@@ -289,6 +290,51 @@ interface SessionMeta {
  * safe for sequential agent use; not safe for concurrent writers (the CLI is one-shot
  * per invocation, so this is fine).
  */
+/**
+ * Parse the compact `--build` shortcut string into a multi-piece build Action.
+ * Format: `type@x,y,z;type@x,y,z;...` where type ∈ {factory, base}. Whitespace
+ * and surrounding spaces are tolerated. Every piece must have the same type
+ * (engine constraint — a build round is one type only). Throws on syntax error
+ * or mixed-type pieces; does NOT validate placement legality (the engine's
+ * applyAction handles that and returns a clear error if a piece is illegal).
+ */
+function parseBuildShortcut(s: string): Action {
+  const parts = s.split(";").map((p) => p.trim()).filter((p) => p.length > 0);
+  if (parts.length === 0) {
+    throw new Error(`--build: empty piece list (format: "type@x,y,z;type@x,y,z;...")`);
+  }
+  const pieces: Array<{ type: "factory" | "base"; hex: Hex }> = [];
+  let firstType: "factory" | "base" | null = null;
+  for (const part of parts) {
+    const atIdx = part.indexOf("@");
+    if (atIdx < 0) {
+      throw new Error(`--build piece "${part}": missing '@' separator (format: "type@x,y,z")`);
+    }
+    const type = part.slice(0, atIdx).trim();
+    if (type !== "factory" && type !== "base") {
+      throw new Error(`--build piece "${part}": type must be "factory" or "base" (got "${type}")`);
+    }
+    if (firstType === null) firstType = type;
+    if (type !== firstType) {
+      throw new Error(`--build: all pieces must be the same type (mixed "${firstType}" and "${type}")`);
+    }
+    const coordsStr = part.slice(atIdx + 1).trim();
+    const coords = coordsStr.split(",").map((c) => c.trim());
+    if (coords.length !== 3) {
+      throw new Error(`--build piece "${part}": hex must be "x,y,z" (got ${coords.length} components)`);
+    }
+    const [x, y, z] = coords.map(Number);
+    if (![x, y, z].every((n) => Number.isInteger(n))) {
+      throw new Error(`--build piece "${part}": hex coords must be integers`);
+    }
+    if (x! + y! + z! !== 0) {
+      throw new Error(`--build piece "${part}": cube-coord invariant x+y+z=0 violated (got ${x! + y! + z!})`);
+    }
+    pieces.push({ type, hex: { x: x!, y: y!, z: z! } });
+  }
+  return { kind: "build", pieces };
+}
+
 function appendLog(logPath: string | undefined, entry: Record<string, unknown>): void {
   if (logPath === undefined || logPath === "") return;
   const enriched = { ts: new Date().toISOString(), ...entry };
@@ -441,13 +487,38 @@ function cmdLegal(argv: Argv): void {
   const path = argv.positional(0, "<state-file>");
   const state = loadState(path);
   const acts = legalActions(state);
+  const acting = currentPlayer(state);
+  const budget = buildBudget(state, acting);
+  const ctl = control(state, acting);
   if (argv.flag("--json")) {
-    console.log(JSON.stringify(acts.map((a, i) => ({ index: i, action: a, display: formatAction(a) })), null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          turn: state.phase.turn,
+          player: acting,
+          buildBudget: budget,
+          controlledIron: ctl.iron.length,
+          controlledFactories: ctl.factories.length,
+          singlePieceActions: acts.map((a, i) => ({ index: i, action: a, display: formatAction(a) })),
+          multiPieceBuildNote:
+            "legalActions ONLY emits single-piece builds (one base or one factory per legal placement). To compose a multi-piece build (up to `buildBudget` pieces), pass --action with {kind:'build',pieces:[{type,hex},...]} or use `act --build 'base@x,y,z;base@x,y,z;...'`. All pieces must be the same type. Each piece's legality is re-checked sequentially after the previous piece is hypothetically applied — same semantics the heuristic agent uses internally.",
+        },
+        null,
+        2,
+      ),
+    );
   } else {
-    console.log(`Legal actions for P${currentPlayer(state)} (turn ${state.phase.turn}):`);
+    console.log(`Legal actions for P${acting} (turn ${state.phase.turn}). buildBudget=${budget}, controlled iron=${ctl.iron.length}, factories=${ctl.factories.length}.`);
     acts.forEach((a, i) => {
       console.log(`  [${i}] ${formatAction(a)}`);
     });
+    if (budget >= 2) {
+      console.log(``);
+      console.log(`NOTE: this list shows SINGLE-PIECE build options only. With buildBudget=${budget} you can compose up to ${budget} pieces in one round.`);
+      console.log(`  Compose via:  iju act ${path} --build "base@x,y,z;base@x,y,z;..."  (or factory@...; same type for all pieces)`);
+      console.log(`  Or pass the full JSON:  iju act ${path} --action '{"kind":"build","pieces":[{"type":"base","hex":{"x":..,"y":..,"z":..}},...]}'`);
+      console.log(`  The heuristic typically composes multi-piece builds — see what it would compose with: iju hint ${path}`);
+    }
   }
 }
 
@@ -460,10 +531,15 @@ function cmdAct(argv: Argv): void {
   const out = argv.opt("--out", path);
   const indexStr = argv.opt("--index", "");
   const actionStr = argv.opt("--action", "");
+  const buildStr = argv.opt("--build", "");
   const logPathRaw = argv.opt("--log", "");
   const logPath = logPathRaw === "" ? undefined : logPathRaw;
-  if (indexStr === "" && actionStr === "") {
-    throw new Error(`act requires either --index N or --action <json>`);
+  const provided = [indexStr, actionStr, buildStr].filter((s) => s !== "").length;
+  if (provided === 0) {
+    throw new Error(`act requires one of: --index N, --action <json>, or --build "type@x,y,z;type@x,y,z;..."`);
+  }
+  if (provided > 1) {
+    throw new Error(`act takes exactly one of --index / --action / --build (got ${provided})`);
   }
 
   let state = loadState(path);
@@ -479,6 +555,8 @@ function cmdAct(argv: Argv): void {
       throw new Error(`--index ${indexStr} is out of range; legal action count is ${acts.length}`);
     }
     chosen = acts[idx]!;
+  } else if (buildStr !== "") {
+    chosen = parseBuildShortcut(buildStr);
   } else {
     chosen = JSON.parse(actionStr) as Action;
   }
@@ -624,11 +702,18 @@ Subcommands:
   legal FILE [--json]
       List legal actions for the current player.
 
-  act FILE (--index N | --action <json>) [--out FILE2] [--log LOG]
-      Apply an action by legal-list index or by JSON. Auto-plays opponents next.
-      --log LOG appends a JSONL {ts, event:"act", ...} line per call — the full
-      trajectory of a game is "grep . LOG" (each line = one of your moves + the
-      opponents' responses + status after).
+  act FILE (--index N | --action <json> | --build "type@x,y,z;...") [--out FILE2] [--log LOG]
+      Apply an action by legal-list index, by raw JSON, or by the --build shortcut.
+      --build "base@0,0,0;base@1,-1,0;base@2,-2,0" composes a multi-piece build
+        action (all pieces same type, up to buildBudget pieces).
+      The CLI auto-plays opponents after your move, until your next turn or game end.
+      --log LOG appends a JSONL {ts, event:"act", ...} line per call.
+
+  Multi-piece builds: legalActions only emits SINGLE-piece options, so
+  "iju legal" lists each placement individually. When your buildBudget >= 2,
+  YOU compose the multi-piece action via --build or --action JSON. The
+  heuristic agent composes greedy multi-piece builds internally — use
+  "iju hint FILE" to see what composition it would pick.
 
   hint FILE [--json]
       Show what the perimeter-aware heuristic would do for the current player.
