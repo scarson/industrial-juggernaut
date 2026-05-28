@@ -3,9 +3,32 @@
 
 import { distance, key } from "../geometry/cube";
 import { convexHull, hexInHull, hullArea } from "../geometry/hull";
-import type { GameState, Hex, PlayerId } from "./types";
+import type { Base, BaseType, GameState, Hex, PlayerId, RuleConfig } from "./types";
+import { baseTypeOf } from "./types";
 
 const PERIMETER_BASE_COUNT = 4;
+
+/**
+ * Per-type control radius (Tactical Depth Phase 2). When
+ * `RuleConfig.baseTypesEnabled` is true, each base radiates per its type:
+ *   - forge:        config.radius              (default)
+ *   - watchtower:   config.radius + 2          (perimeter-extender)
+ *   - outpost:      max(2, config.radius - 2)  (cheap spreader)
+ * When the flag is false, every base radiates `config.radius` regardless of
+ * its type (the existing bit-for-bit behavior).
+ */
+export function radiusFor(config: RuleConfig, type: BaseType): number {
+  if (!config.baseTypesEnabled) return config.radius;
+  switch (type) {
+    case "forge":      return config.radius;
+    case "watchtower": return config.radius + 2;
+    case "outpost":    return Math.max(2, config.radius - 2);
+  }
+}
+
+function baseRadius(config: RuleConfig, b: Base): number {
+  return radiusFor(config, baseTypeOf(b));
+}
 
 export interface Control {
   hexes: Set<string>;
@@ -52,12 +75,12 @@ export function control(state: GameState, player: PlayerId): Control {
       if (hexInHull(h, hull)) hexes.add(key(h));
     }
   } else {
-    // RADIATING: union of radius-disks around each base, intersected with the
-    // board (spec §7) — a board hex is controlled iff it lies within
-    // `config.radius` (cube distance) of at least one of the player's bases.
-    const radius = state.config.radius;
+    // RADIATING: union of per-base radius-disks intersected with the board (spec §7).
+    // A board hex is controlled iff it lies within the base's TYPE radius (Phase 2:
+    // when `baseTypesEnabled`, watchtower=radius+2, outpost=max(2,radius-2);
+    // when false every base uses `config.radius`).
     for (const h of state.board.hexes) {
-      if (myBases.some((base) => distance(base.hex, h) <= radius)) hexes.add(key(h));
+      if (myBases.some((base) => distance(base.hex, h) <= baseRadius(state.config, base))) hexes.add(key(h));
     }
   }
 
