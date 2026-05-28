@@ -4,6 +4,7 @@
 import { resolve } from "node:path";
 import { defaultConfig, type RuleConfig } from "../engine/config";
 import { runH2H } from "./lookahead2-h2h-runner";
+import type { NamedAgentSpec } from "./run-parallel";
 
 const CONFIG_C: RuleConfig = {
   ...defaultConfig(),
@@ -23,8 +24,10 @@ void runH2H({
   config: CONFIG_C,
   agents: [
     { name: "lookahead2", spec: { kind: "lookahead2" } },
-    { name: "heuristic", spec: { kind: "heuristic" } },
-  ],
+    { name: "heuristic-A", spec: { kind: "heuristic" } },
+    { name: "heuristic-B", spec: { kind: "heuristic" } },
+    { name: "heuristic-C", spec: { kind: "heuristic" } },
+  ] as NamedAgentSpec[],
   jsonlPath: resolve(process.cwd(), "docs/sweeps/data/2026-05-29-lookahead2-vs-heuristic-c-4p.jsonl"),
   markdownPath: resolve(process.cwd(), "docs/2026-05-29-lookahead2-vs-heuristic-c-4p.md"),
 }).catch((e: unknown) => {
