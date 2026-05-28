@@ -272,5 +272,12 @@ export function applyAction(state: GameState, action: Action): { state: GameStat
       return { state, events: [] };
     case "attack":
       return applyAttack(state, currentPlayer(state), action.attacks);
+    case "ally":
+    case "break-alliance":
+      // Phase 1 stub: the action TYPES are wired through but the application semantics ship
+      // in Phase 2 and Phase 3 of the alliance-layer plan. legalActions does NOT emit these
+      // actions until those phases land, so this branch should never run in normal play.
+      // Throwing here ensures the gap is loud if anything bypasses the legality gate.
+      throw new Error(`applyAction: alliance action '${action.kind}' is not yet implemented (alliance plan phase 2/3)`);
   }
 }

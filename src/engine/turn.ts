@@ -77,6 +77,7 @@ export function setupGame(
       alliance: [id],
       eliminated: false,
       victoryStreak: 0,
+      allianceCooldownTurns: 0,
     });
   }
 

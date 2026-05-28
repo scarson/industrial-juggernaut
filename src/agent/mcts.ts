@@ -232,6 +232,10 @@ export function actionKey(action: Action): string {
         .join("|");
       return `attack:${decls}`;
     }
+    case "ally":
+      return `ally:${action.target}`;
+    case "break-alliance":
+      return `break-alliance:${action.target}`;
   }
 }
 

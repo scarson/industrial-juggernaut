@@ -39,6 +39,12 @@ export type Player = {
    * many consecutive holds before iron victory fires). Updated by `advanceRound` at the turn boundary.
    */
   victoryStreak: number;
+  /**
+   * Alliance-layer cooldown: when > 0, the player CANNOT enter new alliances (`ally` action is illegal).
+   * Set to 1 by a `break-alliance` action (success OR failure path); decremented at each turn rollover
+   * by `advanceRound`. Default 0 means no cooldown active.
+   */
+  allianceCooldownTurns: number;
 };
 
 export type Phase = {
@@ -64,7 +70,9 @@ export type GameState = {
 export type Action =
   | { kind: "build"; pieces: { type: "factory" | "base"; hex: Hex }[] } // one type only per round
   | { kind: "attack"; attacks: AttackDecl[] } // 1+ (multi-attack)
-  | { kind: "pass" }; // see Section 8 note
+  | { kind: "pass" } // see Section 8 note
+  | { kind: "ally"; target: PlayerId } // mutual alliance commitment (alliance layer; gated by config.alliancesEnabled)
+  | { kind: "break-alliance"; target: PlayerId }; // attempt to leave an existing alliance (weighted 2/3 success; cooldown either way)
 
 export type AttackDecl = { target: Hex; attackers: Hex[]; defender: Hex }; // attackers: 3..6 bases
 

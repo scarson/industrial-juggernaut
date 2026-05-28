@@ -247,8 +247,8 @@ describe("turn-order rule (2P): iron-weighted first-player draw", () => {
       bases,
       factories: [],
       players: [
-        { id: 0, basesInHand: cfg.baseLimit - 1, alliance: [0], eliminated: false, victoryStreak: 0 },
-        { id: 1, basesInHand: cfg.baseLimit - 1, alliance: [1], eliminated: false, victoryStreak: 0 },
+        { id: 0, basesInHand: cfg.baseLimit - 1, alliance: [0], eliminated: false, victoryStreak: 0, allianceCooldownTurns: 0 },
+        { id: 1, basesInHand: cfg.baseLimit - 1, alliance: [1], eliminated: false, victoryStreak: 0, allianceCooldownTurns: 0 },
       ],
       phase: { turn: 2, order: [0, 1], indexInOrder: 1 }, // completed turn 2
       factorySupply: cfg.factorySupply,
@@ -292,8 +292,8 @@ describe("turn-order rule (2P): iron-weighted first-player draw", () => {
       bases,
       factories: [],
       players: [
-        { id: 0, basesInHand: cfg.baseLimit - 1, alliance: [0], eliminated: false, victoryStreak: 0 },
-        { id: 1, basesInHand: cfg.baseLimit - 1, alliance: [1], eliminated: false, victoryStreak: 0 },
+        { id: 0, basesInHand: cfg.baseLimit - 1, alliance: [0], eliminated: false, victoryStreak: 0, allianceCooldownTurns: 0 },
+        { id: 1, basesInHand: cfg.baseLimit - 1, alliance: [1], eliminated: false, victoryStreak: 0, allianceCooldownTurns: 0 },
       ],
       phase: { turn: 2, order: [0, 1], indexInOrder: 1 },
       factorySupply: cfg.factorySupply,

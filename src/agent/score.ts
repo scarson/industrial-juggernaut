@@ -67,6 +67,13 @@ export function scoreMove(
       return scoreBuild(state, player, move, weights);
     case "attack":
       return scoreAttack(state, player, move, weights);
+    case "ally":
+    case "break-alliance":
+      // Alliance actions are not yet scored — alliance-aware heuristics are deferred to
+      // a follow-up. Score as 0 so they're never preferred over a "real" move; under the
+      // current heuristic agent these actions only appear when `alliancesEnabled` is set,
+      // and the agent will treat them as neutral moves.
+      return 0;
   }
 }
 

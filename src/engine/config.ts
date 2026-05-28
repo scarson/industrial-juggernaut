@@ -29,6 +29,20 @@ export interface RuleConfig {
    * Per-player streak; resets to 0 when below threshold.
    */
   victoryIronHoldRounds: number;
+  /**
+   * Alliance layer master toggle. When false (default), the `ally` and `break-alliance` action
+   * types are never legal and the engine behavior is bit-identical to the pre-alliance baseline.
+   * When true, players can ally (mutual iron sharing for victory + non-aggression) and break
+   * alliances via the configured break mechanic. Anti-gang-up safeguard: see `allianceVictoryDelta`.
+   */
+  alliancesEnabled: boolean;
+  /**
+   * Anti-coalition victory-threshold scaling (Sam's anti-gang-up safeguard). A coalition of size N
+   * must reach `victoryThreshold + (N - 1) * allianceVictoryDelta` iron to win by iron. Tunable;
+   * default 4 is the initial-sweep midpoint and should be re-examined against alliance comparison
+   * data. Has no effect when coalitions are size 1 (no alliances active).
+   */
+  allianceVictoryDelta: number;
 }
 export const defaultConfig = (): RuleConfig => ({
   radius: 5, placeRange: 5, attackRange: 6, baseLimit: 12,
@@ -40,4 +54,6 @@ export const defaultConfig = (): RuleConfig => ({
   victoryIronRequiresPerimeter: false,
   noIronRequiresPerimeter: false,
   victoryIronHoldRounds: 1,
+  alliancesEnabled: false,
+  allianceVictoryDelta: 4,
 });

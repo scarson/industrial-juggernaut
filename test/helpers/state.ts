@@ -59,6 +59,7 @@ export function mkState(opts: MkStateOpts): GameState {
       alliance: [id as PlayerId],
       eliminated: false,
       victoryStreak: 0,
+      allianceCooldownTurns: 0,
     };
   });
 

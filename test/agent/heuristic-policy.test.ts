@@ -27,6 +27,10 @@ function actionKey(a: Action): string {
           .map((d) => `${key(d.target)};${d.attackers.map(key).sort().join(",")};${key(d.defender)}`)
           .join("/")
       );
+    case "ally":
+      return `ally:${a.target}`;
+    case "break-alliance":
+      return `break-alliance:${a.target}`;
   }
 }
 
