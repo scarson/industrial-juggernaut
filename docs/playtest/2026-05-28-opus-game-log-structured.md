@@ -148,3 +148,23 @@
 - For seeds where I go first turn 1 (game 3 pattern): I should ALSO use composed builds. My T1.R1 was single-piece for 7 iron; turn 2 needs to be multi-piece. But P1 typically goes first turn 2 if their iron ≥ mine.
 - **GENERALIZED WINNING PATTERN:** Get to a position where on some turn I have budget ≥3 AND I go first that turn AND the position allows a 5-base perimeter enclosing 10 iron.
 
+### Game 6 (seed 1005)
+
+**Strategy hypothesis before play:** Same iron setup as game 5 — P1 went first, 8 iron; I have 1 iron. Apply game 5 strategy: build (-1,1,0) for 7 iron (heuristic hint), then hope to win turn-2 order draw and execute composed-build win.
+
+**Trajectory:**
+- T1.R0 (P1, pre-turn): built (1,-1,0). P1=8 iron.
+- T1.R1 (P0): built (-1,1,0). P0 → 7 iron.
+- T2.R0: **P1 went first** (random draw on 7 vs 8 favored P1 this seed).
+- T2.R0 (P1): built 4-base perimeter — (-3,3,0), (-5,1,4), (5,-1,-4), (-4,6,-2). Iron victory.
+
+**Outcome:** LOST. Same matchup as game 5 but unlucky turn-2 draw.
+
+**What I learned:**
+- The turn-2 iron-weighted draw at 7 vs 8 is approximately 47% me / 53% P1. Game 5 won the coin flip; game 6 lost it.
+- **This confirms the structural pattern:** if I can match the player-state requirements (≥7 iron T1, P1 at 8), my win rate is ≈45-50% conditional on the seed. The remaining games will reveal whether this scales.
+
+**Strategy update for next game:**
+- Same opening (max-iron base on T1.R1). Hope for luck.
+- Alternative consideration: can I PROVOKE the iron-weighted draw to favor me? If I have ≥9 iron at end of T1, I might be heavily favored. To get 9 iron, I'd need a single placement capturing 8+ iron. Have not seen such an opportunity yet in seeds 1000-1005.
+
