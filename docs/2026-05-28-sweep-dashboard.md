@@ -1,6 +1,6 @@
 # Sweep Dashboard
 
-**Date:** generated 2026-05-28T15:10:07.810Z. **Source:** every JSONL under `docs/sweeps/data/`.
+**Date:** generated 2026-05-28T15:27:59.064Z. **Source:** every JSONL under `docs/sweeps/data/`.
 
 Run `npx tsx src/sweep/dashboard.ts` to refresh.
 
@@ -8,7 +8,7 @@ Run `npx tsx src/sweep/dashboard.ts` to refresh.
 
 | File | Records |
 | --- | ---: |
-| `2026-05-28-alliance-deltas-aware.jsonl` | 4 |
+| `2026-05-28-alliance-deltas-aware.jsonl` | 750 |
 | `2026-05-28-alliance-deltas.jsonl` | 750 |
 | `2026-05-28-alliance-weights.jsonl` | 250 |
 | `2026-05-28-mcts-300-on-c.jsonl` | 28 |
@@ -50,11 +50,15 @@ Run `npx tsx src/sweep/dashboard.ts` to refresh.
 
 ### 2026-05-28-alliance-deltas-aware.jsonl
 
-**Records:** 4
+**Records:** 750
 
 | variant | games | iron | last-std | none | median t | iron-vic | victory bar |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `alliances OFF (baseline)` | 4 | 4 | 0 | 0 | 2.0 | 100.0% | `████████████████████` |
+| `alliances OFF (baseline)` | 150 | 150 | 0 | 0 | 2.0 | 100.0% | `████████████████████` |
+| `alliances ON, delta=2` | 150 | 139 | 11 | 0 | 2.0 | 92.7% | `███████████████████·` |
+| `alliances ON, delta=3` | 150 | 139 | 11 | 0 | 2.0 | 92.7% | `███████████████████·` |
+| `alliances ON, delta=4 (default)` | 150 | 137 | 13 | 0 | 2.0 | 91.3% | `██████████████████··` |
+| `alliances ON, delta=5` | 150 | 134 | 16 | 0 | 2.0 | 89.3% | `██████████████████··` |
 
 ### 2026-05-28-alliance-weights.jsonl
 

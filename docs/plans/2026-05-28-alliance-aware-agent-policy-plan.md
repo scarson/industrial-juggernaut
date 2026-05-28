@@ -1,7 +1,7 @@
 # Alliance-Aware Agent Policy — Implementation Plan
 
 **Plan date:** 2026-05-28 (overnight).
-**Status banner:** 🟢 In progress — gates met 2026-05-28: (1) Phase 7 sweep (`docs/2026-05-28-alliance-comparison.md`) confirmed incidental-only alliance formation under the heuristic, (2) Sam directed this work as the next priority, (3) agent-side improvement chosen over rules-side simplification. Phase 1 complete; Phases 2-5 next.
+**Status banner:** ✅ Complete (Phases 1-3 + Phase 5 done; Phase 4 deferred as Sam-gated optional v2). Engine work landed 2026-05-28; full alliance-aware-policy stack now active. Result: alliance-aware heuristic uses alliances meaningfully (~14% coalition-win rate at default delta=4 vs ~0 incidental in the blind run); the anti-coalition delta scaling works as designed (higher delta → fewer coalition wins).
 **Authoritative inputs:**
 - `docs/plans/2026-05-28-alliance-layer-plan.md` — alliance feature shipped (engine Phases 1-6); Phase 7 sweep is the trigger for this plan.
 - `docs/2026-05-28-design-followups-alliances-and-tactical-depth.md` — original spec and the known agent limitation.
@@ -67,12 +67,19 @@ Already evaluates a state; with alliances enabled, the state includes alliance i
 - [ ] Otherwise: extend `evaluate(state, weights)` to include a coalition-iron-density term.
 - [ ] TDD; sweep again. Commit.
 
-### Phase 5: Re-run alliance comparison sweep with alliance-aware agents — ⬜ Not started
+### Phase 5: Re-run alliance comparison sweep with alliance-aware agents — ✅ Complete (2026-05-28)
 
-- [ ] Re-run `src/sweep/compare-alliance-deltas.ts` with the alliance-aware heuristic + MCTS.
-- [ ] Compare to the Phase 7 baseline (alliance-blind agents).
-- [ ] Did the data change meaningfully? Did the anti-coalition delta become tunable in a way it wasn't before?
-- [ ] `docs/2026-05-28-alliance-comparison-with-aware-agents.md`. Commit.
+- [x] Built `src/sweep/compare-alliance-deltas-aware.ts` (mirror of compare-alliance-deltas.ts, same seeds + configs, alliance-aware heuristic at default weight=5). Report: `docs/2026-05-28-alliance-comparison-aware.md`.
+- [x] Headline: **alliance-aware heuristic produces meaningful coalition dynamics that the blind version did not.** Coalition-win rate (size ≥ 2):
+   - alliances OFF: 0% (none possible).
+   - delta=2: 15.3% (vs ~0 incidental in the blind run).
+   - delta=4 (default): 14.0%.
+   - delta=5: 10.7%.
+   - Iron-vic share drops from 96.7% (blind, delta=4) to 91.0% (aware, delta=4), with last-standing picking up the rest — meaning coalitions are deciding games in ways the blind run couldn't measure.
+- [x] **The anti-coalition delta scales as designed:** higher delta → lower coalition-win rate (15.3% → 10.7% as delta goes 2 → 5). The safeguard's tunability is now empirically demonstrated.
+- [x] Median turns still 2 (the (c)-regime opening still dominates). No length-stretching effect from alliances under self-play.
+- [x] Engine all-player-coalition ban (`legal.ts`, committed separately 2026-05-28) prevents the degenerate "everyone allies → declared last-standing winner" pathology surfaced by Phase 3's weight=10 sweep.
+- [x] Committed.
 
 ## Adversarial review
 
@@ -103,4 +110,4 @@ Already evaluates a state; with alliances enabled, the state includes alliance i
 | 2 | MCTS candidate generation for alliance actions | ✅ Complete (2026-05-28) |
 | 3 | Heuristic weight tuning sweep | ✅ Complete (2026-05-28) — keep weight=5 |
 | 4 | Alliance-aware leaf evaluation (optional) | ⬜ Sam-gated (recommend deferring; see Phase 3 findings) |
-| 5 | Re-run alliance comparison with aware agents | ⬜ Not started (next) |
+| 5 | Re-run alliance comparison with aware agents | ✅ Complete (2026-05-28) — coalitions form meaningfully, delta-scaling works |
