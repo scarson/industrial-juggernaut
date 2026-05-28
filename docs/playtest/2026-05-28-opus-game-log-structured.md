@@ -119,3 +119,32 @@
 - **Question to investigate:** does the heuristic re-route around denial, OR does it pick a smaller hull? If smaller, P1's iron drops, possibly below 10.
 - Alternative: try a MAXIMUM-iron move via a different hex than (-1,1,0). Maybe placing AT an iron hex centrally — but ON an iron hex blocks future factory placement there.
 
+### Game 5 (seed 1004) — **FIRST WIN!**
+
+**Strategy hypothesis before play:** P1 went first, has 8 iron (one fewer than other seeds!). I have 1 iron. Heuristic hint suggests (-2,2,0) — captures 6 neutral + 1 existing = 7 iron. Try this max-iron move; if I happen to get turn-2-round-0 priority (iron-weighted draw, 7 vs 8 is close), I might be able to complete a perimeter first.
+
+**Trajectory:**
+- T1.R0 (P1, pre-turn): built (1,-1,0). P1 iron 8.
+- T1.R1 (P0): built (-2,2,0). My iron 1 → 7.
+- **T2.R0: P0 went first by iron-weighted draw (lucky — 7 vs 8 is close).**
+- T2.R0 (P0): **MAJOR DISCOVERY** — `act --index N` only allows single-piece builds, but `act --action <json>` accepts multi-piece composed builds. The legal-list shows only singles; the engine's `applyAction` accepts composed builds via direct JSON. I composed: build base (2,-2,0), (5,-1,-4), (-2,-2,4) — the heuristic's hint for me. Result: 5-base perimeter encloses 11 iron. **IRON VICTORY P0.**
+
+**Outcome:** WON. P0 iron victory turn 2 round 0. Final: P0=11, P1=8.
+
+**What I learned — MASSIVE INSIGHTS:**
+1. **The CLI's `legal` subcommand only emits SINGLE-piece builds.** Composed multi-piece builds must be supplied via `--action <json>`. This is the crucial mechanic the brief didn't make obvious — I was unable to use my full build budget via `--index N` alone in earlier games. ALL of my prior losses might have been because I treated my turn as 1-piece-per-round, when actually I have 3-piece budgets!
+2. Going second on turn 1 → if P1's iron is JUST 8 (not 9), the iron-weighted draw for turn 2 gives me ≈47% odds of going first. THAT is where the heuristic's perfect-info-no-lookahead strategy collapses.
+3. **The exact-same heuristic-suggested composed build works for me.** The heuristic gave me an optimal 3-base placement maximizing post-state evaluation. I just had to USE it via --action.
+4. **The winning sequence:**
+   - T1.R1: Build a 2nd base that captures 6+ iron (gets me to 7 iron).
+   - T2.R0 (if I win turn order): Build 3 more bases forming a 5-base perimeter. The polygon encloses ≥10 iron.
+5. **This generalizes:** ANY seed where P1 ends turn 1 with 8 iron AND I end turn 1 with ≥6 iron has a ~50% chance of being winnable by me, via the multi-piece-build trick.
+6. **My prior losses re-examined:** in games 3 (1002, where I went first turn 1), my T1.R1 placed 1 base for 7 iron, then T2 was P1's. I never got a T2.R0 multi-piece build chance because P1 won at T2.R0 first.
+
+**Strategy update for next game:**
+- **ALWAYS use `--action <json>` for multi-piece composed builds when budget ≥2.** I was leaving budget on the floor in games 1-4.
+- For seeds where I go second turn 1 (P1 has 9 iron after pre-turn build): probably unwinnable — P1 budget=4, completes turn-1-round-1 perimeter immediately.
+- For seeds where P1 has exactly 8 iron after pre-turn build: I have a chance if I (a) grab 7+ iron with my T1.R1 placement AND (b) win the turn-2 iron-weighted draw.
+- For seeds where I go first turn 1 (game 3 pattern): I should ALSO use composed builds. My T1.R1 was single-piece for 7 iron; turn 2 needs to be multi-piece. But P1 typically goes first turn 2 if their iron ≥ mine.
+- **GENERALIZED WINNING PATTERN:** Get to a position where on some turn I have budget ≥3 AND I go first that turn AND the position allows a 5-base perimeter enclosing 10 iron.
+
