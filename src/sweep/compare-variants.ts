@@ -9,7 +9,11 @@ import { roundRobinParallel } from "./run-parallel";
 import { defaultConfig, type RuleConfig } from "../engine/config";
 import { defaultHealthThresholds, isHealthy } from "./health";
 import { elapsedS, fmtMetrics } from "./format";
+import { appendResultAndCommit } from "./incremental-results";
+import { workerCount } from "./worker-count";
 import type { SweepMetrics } from "./metrics";
+
+const INCREMENTAL_PATH = resolve(process.cwd(), "docs/sweeps/data/2026-05-28-compare-variants.jsonl");
 
 /** Variants under test — each is `defaultConfig() + boardSize:96 + the variant's flag overrides`. */
 interface Variant {
@@ -62,7 +66,7 @@ const MCTS_HEALTH_GAMES = 12;
 const MCTS_HEALTH_COUNTS = [2, 3];
 const H2H_GAMES = 16;
 const BASE_SEED = 5_000n;
-const WORKERS = 4;
+const WORKERS = workerCount();
 const OUT_PATH = resolve(process.cwd(), "docs/2026-05-28-rules-variants-comparison.md");
 
 interface VariantResult {
@@ -171,7 +175,12 @@ async function runVariant(variant: Variant, pool: GamePool, t0: number): Promise
         agentSpec: { kind: "mcts", iterations: MCTS_ITERS },
         onGame: (done, total, nPlayers, result) => {
           const w = result.winnerOrCoalition.length === 0 ? "none" : result.winnerOrCoalition.join("+");
-          console.log(`    [${variant.label} mcts ${done}/${total}] ${nPlayers}P -> t=${result.turns} ${result.victoryType} w=${w} (${elapsedS(t0)})`);
+          const summary = `${variant.label} mcts ${nPlayers}P t=${result.turns} ${result.victoryType} w=${w}`;
+          console.log(`    [${variant.label} mcts ${done}/${total}] ${summary} (${elapsedS(t0)})`);
+          appendResultAndCommit(INCREMENTAL_PATH, {
+            data: { phase: "mcts-health", variant: variant.label, done, total, nPlayers, turns: result.turns, victoryType: result.victoryType, winner: result.winnerOrCoalition, hitTurnCap: result.hitTurnCap, elapsedSec: (Date.now() - t0) / 1000 },
+            meta: { label: "compare-variants", done, total, summary },
+          });
         },
       },
       pool,
@@ -199,7 +208,12 @@ async function runVariant(variant: Variant, pool: GamePool, t0: number): Promise
         turnCap: MCTS_TURN_CAP,
         onGame: (done, total, _pc, result) => {
           const w = result.winnerOrCoalition.length === 0 ? "none" : result.winnerOrCoalition.join("+");
-          console.log(`    [${variant.label} h2h ${done}/${total}] t=${result.turns} ${result.victoryType} w=${w} (${elapsedS(t0)})`);
+          const summary = `${variant.label} h2h t=${result.turns} ${result.victoryType} w=${w}`;
+          console.log(`    [${variant.label} h2h ${done}/${total}] ${summary} (${elapsedS(t0)})`);
+          appendResultAndCommit(INCREMENTAL_PATH, {
+            data: { phase: "h2h", variant: variant.label, done, total, nPlayers: 2, turns: result.turns, victoryType: result.victoryType, winner: result.winnerOrCoalition, hitTurnCap: result.hitTurnCap, elapsedSec: (Date.now() - t0) / 1000 },
+            meta: { label: "compare-variants", done, total, summary },
+          });
         },
       },
       pool,

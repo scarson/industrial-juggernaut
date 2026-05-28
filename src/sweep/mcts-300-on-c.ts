@@ -9,6 +9,7 @@ import { defaultConfig, type RuleConfig } from "../engine/config";
 import { defaultHealthThresholds, isHealthy } from "./health";
 import { elapsedS, fmtMetrics } from "./format";
 import { appendResultAndCommit } from "./incremental-results";
+import { workerCount } from "./worker-count";
 import type { SweepMetrics } from "./metrics";
 
 const INCREMENTAL_PATH = resolve(process.cwd(), "docs/sweeps/data/2026-05-28-mcts-300-on-c.jsonl");
@@ -18,7 +19,7 @@ const TURN_CAP = 60;
 const HEALTH_GAMES = 12;
 const HEALTH_COUNTS = [2, 3];
 const H2H_GAMES = 16;
-const WORKERS = 4;
+const WORKERS = workerCount();
 const OUT_PATH = resolve(process.cwd(), "docs/2026-05-28-mcts-300-on-c.md");
 
 /** Variant (c)'s best cell from the comparison run. */

@@ -17,6 +17,10 @@ declare module "node:url" {
   export function fileURLToPath(url: string | URL): string;
 }
 
+declare module "node:os" {
+  export function cpus(): Array<{ model: string; speed: number }>;
+}
+
 declare module "node:readline" {
   export interface Interface {
     on(event: "line", cb: (line: string) => void): Interface;

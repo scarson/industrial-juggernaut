@@ -1,6 +1,7 @@
 // ABOUTME: profile-turn-complexity — instruments a played-out game and logs legalActions count + elapsed time per round.
 // ABOUTME: Answers "are late-game decisions forced (legal-actions shrinks) or expanding (combinatorial growth in attacks)?" — disambiguator for the long-game-engagement question.
 
+import { resolve } from "node:path";
 import { generateBoard } from "../board/generate";
 import { setupGame, advanceRound, currentPlayer } from "../engine/turn";
 import { status } from "../engine/status";
@@ -12,8 +13,11 @@ import { mctsAgent, defaultMctsParams } from "../agent/mcts-agent";
 import { heuristicAgent } from "../agent/heuristic-agent";
 import { defaultConfig, type RuleConfig } from "../engine/config";
 import { seed } from "../rng/pcg";
+import { appendResultAndCommit } from "./incremental-results";
 import type { Agent } from "../agent/agent";
 import type { GameState } from "../engine/types";
+
+const INCREMENTAL_PATH = resolve(process.cwd(), "docs/sweeps/data/2026-05-28-profile-turn-complexity.jsonl");
 
 interface RoundLog {
   turn: number;
@@ -115,6 +119,24 @@ function summarize(label: string, result: ReturnType<typeof playInstrumentedGame
   }
 }
 
+/** Run one instrumented game; print the summary; persist the full rounds-log to JSONL + commit+push (BAL-2). */
+function runScenarioAndPersist(label: string, spec: RunSpec, scenarioIndex: number, totalScenarios: number): void {
+  const result = playInstrumentedGame(spec);
+  summarize(label, result);
+  const summary = `${label}: finalTurns=${result.finalTurns} victoryType=${result.victoryType}`;
+  appendResultAndCommit(INCREMENTAL_PATH, {
+    data: {
+      scenario: label,
+      spec: { label: spec.label, nPlayers: spec.nPlayers, gameSeed: spec.gameSeed.toString(), turnCap: spec.turnCap, config: spec.config },
+      finalTurns: result.finalTurns,
+      victoryType: result.victoryType,
+      winner: result.winner,
+      rounds: result.rounds,
+    },
+    meta: { label: "profile-turn-complexity", done: scenarioIndex, total: totalScenarios, summary },
+  });
+}
+
 async function main(): Promise<void> {
   // The variant-(c) config that produced 12-turn MCTS games in the comparison run.
   const cfgC: RuleConfig = { ...defaultConfig(), boardSize: 96, radius: 2, ironCount: 14, victoryThreshold: 10, noIronRequiresPerimeter: true };
@@ -125,34 +147,34 @@ async function main(): Promise<void> {
   const heur = heuristicAgent();
 
   // 1. Variant (c), 2P all-MCTS — the long-game scenario we're worried about.
-  summarize("Variant (c) 2P all-MCTS — long-game scenario", playInstrumentedGame({
+  runScenarioAndPersist("Variant (c) 2P all-MCTS — long-game scenario", {
     label: "c-mcts",
     config: cfgC,
     nPlayers: 2,
     gameSeed: 5_000n + 5n, // a seed that yielded a multi-turn game in the comparison run
     turnCap: 60,
     agentFor: () => mcts100,
-  }));
+  }, 1, 3);
 
   // 2. Variant (c), 2P MCTS-vs-heuristic — most of these are t=2 iron wins per the comparison.
-  summarize("Variant (c) 2P MCTS(seat0) vs heuristic(seat1)", playInstrumentedGame({
+  runScenarioAndPersist("Variant (c) 2P MCTS(seat0) vs heuristic(seat1)", {
     label: "c-vs-heur",
     config: cfgC,
     nPlayers: 2,
     gameSeed: 5_000n,
     turnCap: 60,
     agentFor: (p) => (p === 0 ? mcts100 : heur),
-  }));
+  }, 2, 3);
 
   // 3. Baseline 2P all-MCTS — the turn-1 collapse scenario.
-  summarize("Baseline 2P all-MCTS — turn-1 collapse scenario", playInstrumentedGame({
+  runScenarioAndPersist("Baseline 2P all-MCTS — turn-1 collapse scenario", {
     label: "baseline-mcts",
     config: cfgBaseline,
     nPlayers: 2,
     gameSeed: 5_000n,
     turnCap: 60,
     agentFor: () => mcts100,
-  }));
+  }, 3, 3);
 }
 
 void main().catch((err: unknown) => {

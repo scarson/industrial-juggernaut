@@ -8,8 +8,12 @@ import { runConfigParallel, findBalancedConfigParallel } from "./run-parallel";
 import { defaultConfig, type RuleConfig } from "../engine/config";
 import { defaultHealthThresholds, isHealthy } from "./health";
 import { elapsedS, fmtMetrics, fmtConfig } from "./format";
+import { appendResultAndCommit } from "./incremental-results";
+import { workerCount } from "./worker-count";
 import type { SweepMetrics } from "./metrics";
 import type { GridEntry } from "./orchestrate";
+
+const INCREMENTAL_PATH = resolve(process.cwd(), "docs/sweeps/data/2026-05-28-explore-c-variant.jsonl");
 
 const BASE_SEED = 6_000n;
 const GREEDY_TURN_CAP = 100;
@@ -18,7 +22,7 @@ const MCTS_ITERS = 100;
 const GAMES_PER_CONFIG = 150;
 const MCTS_HEALTH_GAMES = 12;
 const MCTS_HEALTH_COUNTS = [2, 3];
-const WORKERS = 4;
+const WORKERS = workerCount();
 const TOP_N_REVALIDATE = 3;
 const OUT_PATH = resolve(process.cwd(), "docs/2026-05-28-c-variant-deeper.md");
 
@@ -118,7 +122,12 @@ async function main(): Promise<void> {
             agentSpec: { kind: "mcts", iterations: MCTS_ITERS },
             onGame: (done, total, nPlayers, result) => {
               const w = result.winnerOrCoalition.length === 0 ? "none" : result.winnerOrCoalition.join("+");
-              console.log(`    [${done}/${total}] ${nPlayers}P -> t=${result.turns} ${result.victoryType} w=${w} (${elapsedS(t0)})`);
+              const summary = `${fmtConfig(entry.config)} ${nPlayers}P t=${result.turns} ${result.victoryType} w=${w}`;
+              console.log(`    [${done}/${total}] ${summary} (${elapsedS(t0)})`);
+              appendResultAndCommit(INCREMENTAL_PATH, {
+                data: { phase: "mcts-revalidate", config: entry.config, done, total, nPlayers, turns: result.turns, victoryType: result.victoryType, winner: result.winnerOrCoalition, hitTurnCap: result.hitTurnCap, elapsedSec: (Date.now() - t0) / 1000 },
+                meta: { label: "explore-c-variant", done, total, summary },
+              });
             },
           },
           pool,

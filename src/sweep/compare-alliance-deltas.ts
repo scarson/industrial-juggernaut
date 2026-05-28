@@ -8,6 +8,7 @@ import { runConfigParallel } from "./run-parallel";
 import { defaultConfig, type RuleConfig } from "../engine/config";
 import { elapsedS, fmtMetrics } from "./format";
 import { appendResultAndCommit } from "./incremental-results";
+import { workerCount } from "./worker-count";
 import type { SweepMetrics } from "./metrics";
 
 const INCREMENTAL_PATH = resolve(process.cwd(), "docs/sweeps/data/2026-05-28-alliance-deltas.jsonl");
@@ -15,7 +16,7 @@ const INCREMENTAL_PATH = resolve(process.cwd(), "docs/sweeps/data/2026-05-28-all
 const BASE_SEED = 8_000n;
 const TURN_CAP = 60;
 const GAMES = 150;
-const WORKERS = 4;
+const WORKERS = workerCount();
 const PLAYER_COUNTS = [3, 4]; // alliances need >= 3 players to matter
 const OUT_PATH = resolve(process.cwd(), "docs/2026-05-28-alliance-comparison.md");
 
