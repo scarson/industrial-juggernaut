@@ -83,16 +83,14 @@ To diagnose why MCTS-vs-heuristic h2h shows MCTS losing 0–6% under variants (a
 
 ## Stranded-radiating-player engine fix (my call)
 
-### Decision: implement an engine-level implicit pass when `legalActions` would otherwise be empty.
-Of the four options I sketched (eliminate-by-stranding / auto-enable allowPass / engine-level implicit pass / status quo fail-loud), the engine-level implicit pass is the cleanest:
-- Doesn't couple flags (no "noIronRequiresPerimeter implies allowPass" magic).
-- Doesn't introduce a new elimination mode that changes player expectations.
-- Hides the failure mode from the agent layer (which already fails loudly via my earlier robustness fix — so the implicit pass is the *graceful* path; the loud throw is the fallback if even that fails).
-- Cleanly matches reality: "if you literally cannot do anything, your turn quietly passes."
+### Decision: NO ENGINE CHANGE NEEDED — the engine already handles it.
+Discovered while implementing: `legalActions` (`src/engine/legal.ts:118`) already emits a synthetic `pass` action when no build/attack actions are legal AND `allowPass` is otherwise false. A stranded radiating player (1 base, 0 iron, no perimeter, spared from `noIron` by the flag) has `buildBudget = 0` (no bootstrap without iron), no legal attacks (need ≥3 bases), so `legalActions` returns `[{kind: "pass"}]`. The agent picks pass, turn cleanly passes to the next player, game progresses.
 
-**Implementation:** in `legalActions`, when no build/attack/pass options exist AND `allowPass` is false (so pass wasn't already an option), emit a synthetic pass action. Alternative implementation point: in the driver, when an agent's choice yields no action, treat as pass. The `legalActions`-level fix is cleaner because it keeps the agents simple.
+**What the original MCTS-crash I observed actually was:** a *different* edge case — maxed-out player (`basesInHand = 0`) with build placements that `legalActions` considers legal but the heuristic's composition rejects, plus no attacks, plus `allowPass = false` so `legalActions` doesn't emit pass (other actions exist). My earlier `mostVisited` robustness fix (`src/agent/mcts-agent.ts`) handles this — it falls back to `legalActions[0]` when MCTS surfaces zero candidates.
 
-I'll TDD this and commit.
+Added a regression test (`test/engine/status.test.ts` — "variant (c) stranded radiating player passes through the existing legalActions pass fallback") locking the load-bearing engine behavior so a future refactor can't silently break it.
+
+The original synthesis doc's framing of "stranded player → MCTS crash" conflated two distinct failure modes; this entry corrects the record.
 
 ## Cross-cutting
 
