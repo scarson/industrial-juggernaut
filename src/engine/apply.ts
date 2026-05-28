@@ -273,11 +273,37 @@ export function applyAction(state: GameState, action: Action): { state: GameStat
     case "attack":
       return applyAttack(state, currentPlayer(state), action.attacks);
     case "ally":
+      return applyAlly(state, currentPlayer(state), action.target);
     case "break-alliance":
-      // Phase 1 stub: the action TYPES are wired through but the application semantics ship
-      // in Phase 2 and Phase 3 of the alliance-layer plan. legalActions does NOT emit these
-      // actions until those phases land, so this branch should never run in normal play.
-      // Throwing here ensures the gap is loud if anything bypasses the legality gate.
-      throw new Error(`applyAction: alliance action '${action.kind}' is not yet implemented (alliance plan phase 2/3)`);
+      // Phase 3 of the alliance plan — coin-flip-with-cooldown semantics. Not yet implemented.
+      throw new Error(`applyAction: 'break-alliance' is not yet implemented (alliance plan phase 3)`);
   }
+}
+
+/**
+ * Apply an `ally` action: mutually add each player to the other's alliance array, and decrement
+ * the actor's basesInHand by 1 as the commit cost. Idempotent — if the players are already
+ * mutually allied, the alliance arrays are unchanged (no duplicate ids). Throws when alliances
+ * are not enabled by config — that is a defense-in-depth check; legalActions already enforces
+ * the gate.
+ */
+function applyAlly(state: GameState, actor: PlayerId, target: PlayerId): { state: GameState; events: GameEvent[] } {
+  if (!state.config.alliancesEnabled) {
+    throw new Error(`applyAlly: alliancesEnabled is false; ally action is not allowed`);
+  }
+  if (actor === target) {
+    throw new Error(`applyAlly: actor and target must differ (got ${actor})`);
+  }
+  const players = state.players.map((p) => {
+    if (p.id === actor) {
+      const next = p.alliance.includes(target) ? p.alliance : [...p.alliance, target];
+      return { ...p, alliance: next, basesInHand: p.basesInHand - 1 };
+    }
+    if (p.id === target) {
+      const next = p.alliance.includes(actor) ? p.alliance : [...p.alliance, actor];
+      return { ...p, alliance: next };
+    }
+    return p;
+  });
+  return { state: { ...state, players }, events: [] };
 }

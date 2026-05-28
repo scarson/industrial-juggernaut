@@ -114,6 +114,23 @@ export function legalActions(state: GameState): Action[] {
     }
   }
 
+  // 2b. ALLY — alliance layer Phase 2 (default off via alliancesEnabled).
+  //   Legal iff: alliancesEnabled is true; actor has basesInHand >= 1 (commit cost); actor has no
+  //   active allianceCooldownTurns; target is a different LIVE player that is not already in actor's
+  //   alliance array. Emitted in id-ascending target order for determinism.
+  if (state.config.alliancesEnabled) {
+    const actor = state.players[player]!;
+    if (actor.basesInHand >= 1 && actor.allianceCooldownTurns === 0) {
+      const alreadyAllied = new Set(actor.alliance);
+      for (const other of state.players) {
+        if (other.id === player) continue;
+        if (other.eliminated) continue;
+        if (alreadyAllied.has(other.id)) continue;
+        actions.push({ kind: "ally", target: other.id });
+      }
+    }
+  }
+
   // 3. PASS — when allowed, or when otherwise stuck (so the game always progresses).
   if (state.config.allowPass || actions.length === 0) {
     actions.push({ kind: "pass" });

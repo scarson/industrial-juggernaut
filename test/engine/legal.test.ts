@@ -282,3 +282,82 @@ describe("legalActions — pass", () => {
     expect(() => applyAction(s, pass)).not.toThrow();
   });
 });
+
+describe("alliance layer Phase 2 — `ally` action legality", () => {
+  // Build a baseline 3-player state at setup; alliances disabled by default.
+  function mk(alliancesEnabled = false): GameState {
+    const cfg = { ...defaultConfig(), alliancesEnabled };
+    return mkState({
+      board: 96,
+      basesP0: [hex(0, 0, 0)],
+      basesP1: [hex(20, -20, 0)],
+      basesP2: [hex(0, 20, -20)],
+      iron: [hex(1, -1, 0), hex(20, -19, -1), hex(0, 19, -19)],
+      config: cfg,
+    });
+  }
+
+  it("does NOT emit ally actions when alliancesEnabled is false (default)", () => {
+    const acts = legalActions(mk(false));
+    expect(acts.some((a) => a.kind === "ally")).toBe(false);
+  });
+
+  it("emits one ally action per non-self live player when alliancesEnabled and basesInHand >= 1", () => {
+    const s = mk(true);
+    const acts = legalActions(s);
+    const allies = acts.filter((a) => a.kind === "ally") as Extract<Action, { kind: "ally" }>[];
+    // currentPlayer is 0; targets should be 1 and 2 (not self, both live).
+    expect(allies.length).toBe(2);
+    expect(new Set(allies.map((a) => a.target))).toEqual(new Set([1, 2]));
+  });
+
+  it("does NOT emit ally actions for already-allied targets", () => {
+    let s = mk(true);
+    // Pre-set player 0 and player 1 as allies.
+    s = {
+      ...s,
+      players: s.players.map((p) => {
+        if (p.id === 0) return { ...p, alliance: [0, 1] };
+        if (p.id === 1) return { ...p, alliance: [1, 0] };
+        return p;
+      }),
+    };
+    const acts = legalActions(s);
+    const allies = acts.filter((a) => a.kind === "ally") as Extract<Action, { kind: "ally" }>[];
+    // Only player 2 remains as a valid target.
+    expect(allies.length).toBe(1);
+    expect(allies[0]!.target).toBe(2);
+  });
+
+  it("does NOT emit ally actions when actor has allianceCooldownTurns > 0", () => {
+    let s = mk(true);
+    s = {
+      ...s,
+      players: s.players.map((p) => (p.id === 0 ? { ...p, allianceCooldownTurns: 1 } : p)),
+    };
+    const acts = legalActions(s);
+    expect(acts.some((a) => a.kind === "ally")).toBe(false);
+  });
+
+  it("does NOT emit ally actions when actor has basesInHand === 0 (commit cost requires 1)", () => {
+    let s = mk(true);
+    s = {
+      ...s,
+      players: s.players.map((p) => (p.id === 0 ? { ...p, basesInHand: 0 } : p)),
+    };
+    const acts = legalActions(s);
+    expect(acts.some((a) => a.kind === "ally")).toBe(false);
+  });
+
+  it("does NOT emit ally actions targeting eliminated players", () => {
+    let s = mk(true);
+    s = {
+      ...s,
+      players: s.players.map((p) => (p.id === 2 ? { ...p, eliminated: true } : p)),
+    };
+    const acts = legalActions(s);
+    const allies = acts.filter((a) => a.kind === "ally") as Extract<Action, { kind: "ally" }>[];
+    expect(allies.length).toBe(1);
+    expect(allies[0]!.target).toBe(1);
+  });
+});
