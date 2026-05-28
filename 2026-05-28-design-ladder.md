@@ -20,10 +20,14 @@
 - **Pending:** flip the flag in `defaultConfig()`. Final test-suite implications need a small audit (tests that encode the old behavior may need recalibration to the new norm — "correct, don't loosen").
 - **Companion docs:** `2026-05-28-rules-variants-synthesis.md`, `docs/2026-05-28-gate-recalibration-for-c.md`.
 
-### 2. 🚧 MCTS@300 stress test on (c) — IN FLIGHT
-- **What:** Diagnose whether the variant-(c) gate-2 failure (MCTS@100 lost h2h to heuristic) is search-depth or structural. Running 12 health games + 16 h2h with MCTS at 300 iterations.
-- **Result:** TBD when `docs/2026-05-28-mcts-300-on-c.md` lands.
-- **Implication:** if MCTS@300 wins h2h → MCTS@100 was too weak; bump iterations in arena. If MCTS@300 still loses → heuristic is genuinely near-optimal; further agent improvement needed (alliance-aware policy, learned agent).
+### 2. ✅ MCTS@300 stress test on (c) — COMPLETE; heuristic is near-optimal
+- **What:** Diagnosed whether the variant-(c) gate-2 failure (MCTS@100 lost h2h to heuristic) was search-depth or structural. 12 health games + 16 h2h at MCTS 300 iterations.
+- **Result:** `docs/2026-05-28-mcts-300-on-c.md`. MCTS@300 vs heuristic h2h = **6.3% vs 93.8%** — IDENTICAL to MCTS@100 (Δ -0.0pp). All-MCTS@300 health: 16.7% iron-vic, median 12 turns.
+- **Definitive verdict:** **the perimeter-aware heuristic is genuinely near-optimal on the (c) regime.** Adding search depth doesn't help. This is a STRUCTURAL finding, not a search-budget tuning question.
+- **Implications:**
+  - A6 gate-2 ("MCTS beats greedy ≥ 0.70") in its current form is the wrong instrument for the (c)-modified game. The heuristic is the strong agent.
+  - The stronger-agent MCTS plan (`docs/plans/2026-05-27-stronger-agent-mcts-plan.md`) is now waiting on a Sam decision: re-anchor gate-2 to a weaker baseline / build alliance-aware policy / re-think gate-2 entirely. See plan's 2026-05-28 update.
+  - Alliance dynamics (3+P) might still reveal an MCTS-vs-heuristic gap — the 2P h2h doesn't exercise the coalition-reasoning axis. Worth probing after the alliance Phase 7 sweep.
 
 ### 3. ⏸ Alliance layer — `alliancesEnabled` + `allianceVictoryDelta` — ENGINE SHIPPED (Phases 1-6), PHASE 7 SWEEP QUEUED
 - **What:** Medium-strength alliances (iron sharing + non-aggression). `ally` action (basesInHand cost 1). `break-alliance` action (weighted 2/3 success, cooldown either way). Anti-coalition victory threshold scales by `allianceVictoryDelta` × `(coalitionSize − 1)`.

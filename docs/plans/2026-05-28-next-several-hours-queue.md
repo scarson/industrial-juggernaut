@@ -28,8 +28,8 @@ The order below isn't arbitrary. Five perspectives I considered:
 | A1 | Wider grid (c) deeper validation | ⚠️ PARTIAL — completed cell #1 (12 MCTS games, all multi-turn last-standing, 0 iron-vic on bs96/r2/iron14/vt10); crashed silently mid-cell-#2; no formal report. Sufficient signal not to rerun. | (none — comparison-run data + cell #1 is enough) |
 | A2 | Refine alliance spec — coin-flip-break + tunable delta | ✅ Done (subsumed by alliance plan) | `docs/plans/2026-05-28-alliance-layer-plan.md` |
 | A3 | Spec gate recalibration for (c) regime | ✅ Done | `docs/2026-05-28-gate-recalibration-for-c.md` |
-| A4 | Run profile script (legal-actions per turn) | 🚧 QUEUED — script ready `src/sweep/profile-turn-complexity.ts`; launches after MCTS@300 finishes | TBD |
-| A5 | Run MCTS@300 stress test on (c) | 🚧 RUNNING in background | `docs/2026-05-28-mcts-300-on-c.md` (auto-generated on completion) |
+| A4 | Run profile script (legal-actions per turn) | 🚧 QUEUED — chained behind alliance Phase 7 via `npx tsx src/sweep/run-queued-sweeps.ts` | TBD |
+| A5 | Run MCTS@300 stress test on (c) | ✅ DONE (~2 hours wall-clock; 28 games; per-game commits via BAL-2 pattern) | `docs/2026-05-28-mcts-300-on-c.md` — verdict: heuristic near-optimal on (c) regime (h2h 6.3% MCTS vs 93.8% heuristic at @100 AND @300) |
 
 ## Phase B — Alliance layer
 
@@ -37,7 +37,7 @@ The order below isn't arbitrary. Five perspectives I considered:
 |---|---|---|---|
 | B1 | Plan alliance implementation | ✅ Done | `docs/plans/2026-05-28-alliance-layer-plan.md` |
 | B2 | Execute Phases 1-6 (TDD per phase, commits) | ✅ Done | engine code + tests; 196 engine tests green |
-| B3 | Phase 7: Comparison sweep — alliances on vs off, multiple deltas | 🚧 SCRIPT READY (`src/sweep/compare-alliance-deltas.ts`); not launched (waiting for MCTS@300) | `docs/2026-05-28-alliance-comparison.md` (will be generated when launched) |
+| B3 | Phase 7: Comparison sweep — alliances on vs off, multiple deltas | 🚧 READY — launch via `npx tsx src/sweep/run-queued-sweeps.ts` (orchestrator chains B3 + A4 + dashboard) | `docs/2026-05-28-alliance-comparison.md` (will be generated) |
 | B4 | Synthesis of alliance findings | ⬜ Waits for B3 | TBD |
 
 ## Phase C — Lighter design specs

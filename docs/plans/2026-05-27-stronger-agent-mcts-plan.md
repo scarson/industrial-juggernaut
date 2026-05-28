@@ -57,7 +57,20 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** ⏸ PAUSED at A5.1 — A1–A4 + A5.1 shipped (heuristic, MCTS core+agent, Elo arena; 314 tests green). A5.2/A6 (robustness + trustworthiness gates) DEFERRED pending a balanced multi-turn game config, because the game is currently decided at setup/turn-1 and no single hand-picked knob fixes it (see Discoveries). Per Sam's "A-to-unblock-B" decision (refined): the balance-sweep harness (its own spec/plan) is now the active track and its first deliverable is a data-driven balanced config; this MCTS milestone resumes once that lands.
+**Overall:** ⏸ PAUSED at A5.1 — A1–A4 + A5.1 shipped (heuristic, MCTS core+agent, Elo arena). A5.2/A6 deferred; now blocked on a Sam decision about gate (2)'s reframing — see 2026-05-28 update below.
+
+**2026-05-28 update — gate (2) status revealed.** With variant (c) `noIronRequiresPerimeter: true` providing a usable balanced config under MCTS (multi-turn games, iron victory revived from 0 → 17-25%), we ran arena h2h matchups to probe gate (2) "MCTS beats greedy ≥ 0.70". Result on the (c)-modified game (`docs/2026-05-28-mcts-300-on-c.md`):
+- **MCTS@100 vs heuristic h2h: 6.3% vs 93.8%** (comparison-run data, `docs/2026-05-28-rules-variants-comparison.md`).
+- **MCTS@300 vs heuristic h2h: 6.3% vs 93.8%** (3× search depth, identical outcome — Δ -0.0 percentage points).
+
+Definitive structural finding: **the perimeter-aware heuristic is genuinely near-optimal on the (c) regime; adding MCTS search depth doesn't help.** A6 gate (2) is therefore failing not because MCTS is too weak (search-depth-wise) but because the heuristic — designed with perimeter-awareness — has approximate access to the same strategic structure MCTS would find via lookahead.
+
+Options for A5.2/A6 resumption (Sam-gated):
+1. **Re-anchor gate (2)** to a weaker baseline (e.g., the old archetype-greedy without perimeter awareness) so MCTS has something to beat. The current heuristic IS the strong agent.
+2. **Build alliance-aware policy** (`docs/plans/2026-05-28-alliance-aware-agent-policy-plan.md`) — heuristic-near-optimal holds on 2P; with alliance dynamics (3+P) the picture may differ.
+3. **Re-think gate (2) entirely** — if heuristic is the strong agent, "trustworthiness" reduces to "is heuristic robust to exploiters?" (gate 4) rather than "does MCTS add value over heuristic?" (gate 2).
+
+A5.2 (robustness + exploiter probe) remains meaningful under any of these. A6 gate (2) needs Sam's direction.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|

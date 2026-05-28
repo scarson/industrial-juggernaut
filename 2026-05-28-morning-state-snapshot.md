@@ -9,8 +9,11 @@
 - **Gate recalibration for MCTS regime implemented** as `mctsHealthThresholds()` — the relaxed thresholds appropriate for evaluating under strong agents (variant (c) regime).
 - **All three variant flags (a/b/c) from the earlier comparison experiment** remain shipped (engine-implemented) from yesterday — still default-off; variant (c) is the one you greenlit for adoption.
 
-**Compute in flight:**
-- **MCTS@300 stress test on variant (c)** is running (after a restart — see BAL-2 below). Per-game data committed at `docs/sweeps/data/2026-05-28-mcts-300-on-c.jsonl` AS each game finishes, so if the container restarts again we can resume from the data instead of losing the whole run. End-of-run report still at `docs/2026-05-28-mcts-300-on-c.md`. Tests whether MCTS@100's h2h loss to heuristic was a search-depth issue or structural.
+**MCTS@300 verdict (the headline result):**
+- `docs/2026-05-28-mcts-300-on-c.md` — final.
+- **MCTS@300 vs heuristic h2h: 6.3% vs 93.8%** (identical to MCTS@100; Δ -0.0pp).
+- **All-MCTS@300 health: 16.7% iron-vic, median 12 turns** (vs MCTS@100's 25%; small-sample noise).
+- **Definitive verdict:** the perimeter-aware heuristic is genuinely near-optimal on the variant-(c) regime. Stronger search doesn't help. This is structural — A6 gate-2 in its current form is the wrong instrument. Three options for moving forward (Sam-gated; see `docs/plans/2026-05-27-stronger-agent-mcts-plan.md` 2026-05-28 update): re-anchor gate-2 to a weaker baseline / build alliance-aware policy / re-think gate-2 entirely.
 
 **Operational fixes shipped today (in response to a real loss event):**
 - **BAL-2 — per-game commit+push for long sweeps.** First MCTS@300 attempt ran ~70 min, container restarted, ALL the data was lost (script wrote its report only at end-of-run). Fixed: `src/sweep/incremental-results.ts` (`appendResultAndCommit`) — JSONL append + git commit + git push synchronously, per game. Retrofitted into ALL sweep scripts (mcts-300-on-c, compare-variants, compare-alliance-deltas, explore-c-variant, profile-turn-complexity, revalidate, main, calibrate). Pitfall BAL-2 documents the rule + the lived loss. ~0.5-2s per-game commit overhead; negligible vs MCTS games, larger vs fast heuristic games (acceptable trade).
