@@ -107,7 +107,11 @@ async function runVariant(variant: Variant, pool: GamePool, t0: number): Promise
     pool,
   );
 
-  // Pick the best cell: a healthy one if found, else the highest-ranked nearest-miss.
+  // Pick the best cell. Priority: (1) a config that passes all 7 health gates (gridResult.recommended);
+  // (2) the ranked nearest-miss list (populated only with healthy configs by selectBalanced — so usually
+  // (1) is the only path here); (3) FALLBACK: the grid entry that fails the FEWEST gates, tie-broken by
+  // highest ironVictoryFraction. The fallback is important — variants like (a)/P3 may have NO cell
+  // passing the (greedy-tuned) gate yet still be the variant most worth MCTS-revalidating.
   let bestCell: RuleConfig | null = null;
   let bestCellWasHealthy = false;
   let bestCellGreedyMetrics: SweepMetrics | null = null;
@@ -120,6 +124,21 @@ async function runVariant(variant: Variant, pool: GamePool, t0: number): Promise
     const top = gridResult.ranked[0]!;
     bestCell = top.config;
     bestCellGreedyMetrics = top.metrics;
+  } else {
+    // No healthy or ranked cell — fall back to the grid's least-failing feasible cell.
+    type Entry = { config: RuleConfig; metrics: SweepMetrics; failCount: number };
+    const candidates: Entry[] = [];
+    for (const g of gridResult.grid) {
+      if (g.metrics === null) continue;
+      candidates.push({ config: g.config, metrics: g.metrics, failCount: g.health.reasons.length });
+    }
+    if (candidates.length > 0) {
+      candidates.sort((a, b) => a.failCount - b.failCount || b.metrics.ironVictoryFraction - a.metrics.ironVictoryFraction);
+      const top = candidates[0]!;
+      bestCell = top.config;
+      bestCellGreedyMetrics = top.metrics;
+      console.log(`  fallback: no greedy-healthy cell; picked nearest-miss (fails ${top.failCount} gate(s), ironVic=${top.metrics.ironVictoryFraction.toFixed(2)})`);
+    }
   }
   if (bestCell === null) {
     console.log(`  no feasible cell — skipping MCTS revalidation.`);
@@ -137,46 +156,62 @@ async function runVariant(variant: Variant, pool: GamePool, t0: number): Promise
   }
   console.log(`  best cell: r=${bestCell.radius} iron=${bestCell.ironCount} vt=${bestCell.victoryThreshold} ${bestCellWasHealthy ? "(HEALTHY under greedy)" : "(nearest miss)"}`);
 
-  // --- MCTS revalidation of the best cell ---
+  // --- MCTS revalidation of the best cell — guarded so a per-game crash doesn't abort the whole run ---
   console.log(`-- MCTS revalidation: ${MCTS_HEALTH_GAMES} games, counts ${MCTS_HEALTH_COUNTS.join(",")}, turnCap ${MCTS_TURN_CAP}, ${MCTS_ITERS}-iter --`);
-  const mctsMetrics = await runConfigParallel(
-    bestCell,
-    {
-      games: MCTS_HEALTH_GAMES,
-      turnCap: MCTS_TURN_CAP,
-      baseSeed: BASE_SEED,
-      playerCounts: MCTS_HEALTH_COUNTS,
-      agentSpec: { kind: "mcts", iterations: MCTS_ITERS },
-      onGame: (done, total, nPlayers, result) => {
-        const w = result.winnerOrCoalition.length === 0 ? "none" : result.winnerOrCoalition.join("+");
-        console.log(`    [${variant.label} mcts ${done}/${total}] ${nPlayers}P -> t=${result.turns} ${result.victoryType} w=${w} (${elapsedS(t0)})`);
+  let mctsMetrics: SweepMetrics | null = null;
+  let mctsWasHealthy: boolean | null = null;
+  try {
+    mctsMetrics = await runConfigParallel(
+      bestCell,
+      {
+        games: MCTS_HEALTH_GAMES,
+        turnCap: MCTS_TURN_CAP,
+        baseSeed: BASE_SEED,
+        playerCounts: MCTS_HEALTH_COUNTS,
+        agentSpec: { kind: "mcts", iterations: MCTS_ITERS },
+        onGame: (done, total, nPlayers, result) => {
+          const w = result.winnerOrCoalition.length === 0 ? "none" : result.winnerOrCoalition.join("+");
+          console.log(`    [${variant.label} mcts ${done}/${total}] ${nPlayers}P -> t=${result.turns} ${result.victoryType} w=${w} (${elapsedS(t0)})`);
+        },
       },
-    },
-    pool,
-  );
-  const mctsVerdict = isHealthy(mctsMetrics, thresholds);
+      pool,
+    );
+    mctsWasHealthy = isHealthy(mctsMetrics, thresholds).pass;
+  } catch (err) {
+    console.error(`  [${variant.label}] MCTS revalidation FAILED: ${err instanceof Error ? err.message : String(err)} — recording partial data and continuing.`);
+  }
 
-  // --- 2P MCTS-vs-heuristic head-to-head on the best cell ---
+  // --- 2P MCTS-vs-heuristic head-to-head on the best cell — also guarded ---
   console.log(`-- gate-2 head-to-head: ${H2H_GAMES} 2P games, MCTS vs heuristic --`);
   const agents: NamedAgentSpec[] = [
     { name: "mcts", spec: { kind: "mcts", iterations: MCTS_ITERS } },
     { name: "heuristic", spec: { kind: "heuristic" } },
   ];
-  const rr = await roundRobinParallel(
-    agents,
-    {
-      playerCounts: [2],
-      gamesPerMatchup: H2H_GAMES,
-      seed: BASE_SEED,
-      config: bestCell,
-      turnCap: MCTS_TURN_CAP,
-      onGame: (done, total, _pc, result) => {
-        const w = result.winnerOrCoalition.length === 0 ? "none" : result.winnerOrCoalition.join("+");
-        console.log(`    [${variant.label} h2h ${done}/${total}] t=${result.turns} ${result.victoryType} w=${w} (${elapsedS(t0)})`);
+  let h2h: { mctsWinRate: number; heuristicWinRate: number; decisive: number } | null = null;
+  try {
+    const rr = await roundRobinParallel(
+      agents,
+      {
+        playerCounts: [2],
+        gamesPerMatchup: H2H_GAMES,
+        seed: BASE_SEED,
+        config: bestCell,
+        turnCap: MCTS_TURN_CAP,
+        onGame: (done, total, _pc, result) => {
+          const w = result.winnerOrCoalition.length === 0 ? "none" : result.winnerOrCoalition.join("+");
+          console.log(`    [${variant.label} h2h ${done}/${total}] t=${result.turns} ${result.victoryType} w=${w} (${elapsedS(t0)})`);
+        },
       },
-    },
-    pool,
-  );
+      pool,
+    );
+    h2h = {
+      mctsWinRate: rr.winRates["mcts"] ?? 0,
+      heuristicWinRate: rr.winRates["heuristic"] ?? 0,
+      decisive: (rr.headToHead["mcts"]?.["heuristic"] ?? 0) + (rr.headToHead["heuristic"]?.["mcts"] ?? 0),
+    };
+  } catch (err) {
+    console.error(`  [${variant.label}] head-to-head FAILED: ${err instanceof Error ? err.message : String(err)} — recording partial data and continuing.`);
+  }
 
   return {
     variant,
@@ -185,12 +220,8 @@ async function runVariant(variant: Variant, pool: GamePool, t0: number): Promise
     bestCellWasHealthy,
     bestCellGreedyMetrics,
     mctsMetrics,
-    mctsWasHealthy: mctsVerdict.pass,
-    h2h: {
-      mctsWinRate: rr.winRates["mcts"] ?? 0,
-      heuristicWinRate: rr.winRates["heuristic"] ?? 0,
-      decisive: (rr.headToHead["mcts"]?.["heuristic"] ?? 0) + (rr.headToHead["heuristic"]?.["mcts"] ?? 0),
-    },
+    mctsWasHealthy,
+    h2h,
     elapsedSec: (Date.now() - tStart) / 1000,
   };
 }
@@ -273,8 +304,23 @@ async function main(): Promise<void> {
   try {
     const results: VariantResult[] = [];
     for (const variant of VARIANTS) {
-      const r = await runVariant(variant, pool, t0);
-      results.push(r);
+      try {
+        const r = await runVariant(variant, pool, t0);
+        results.push(r);
+      } catch (err) {
+        console.error(`\n!!! Variant ${variant.label} crashed entirely: ${err instanceof Error ? err.message : String(err)} — recording placeholder and continuing.`);
+        results.push({
+          variant,
+          baseConfig: { ...defaultConfig(), ...BASE_CONFIG_OVERRIDES, ...variant.flags },
+          bestCell: null,
+          bestCellWasHealthy: false,
+          bestCellGreedyMetrics: null,
+          mctsMetrics: null,
+          mctsWasHealthy: null,
+          h2h: null,
+          elapsedSec: 0,
+        });
+      }
     }
     console.log(`\nAll variants done in ${elapsedS(t0)}. Writing report.`);
     writeReport(results);
