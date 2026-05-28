@@ -9,7 +9,7 @@ import { roundRobinParallel } from "./run-parallel";
 import { defaultConfig, type RuleConfig } from "../engine/config";
 import { defaultHealthThresholds, isHealthy } from "./health";
 import { elapsedS, fmtMetrics } from "./format";
-import { appendResultAndCommit } from "./incremental-results";
+import { appendResultAndCommit, commitFileAndPush } from "./incremental-results";
 import { workerCount } from "./worker-count";
 import type { SweepMetrics } from "./metrics";
 
@@ -306,6 +306,7 @@ function writeReport(results: VariantResult[]): void {
   const md = lines.join("\n") + "\n";
   mkdirSync(dirname(OUT_PATH), { recursive: true });
   writeFileSync(OUT_PATH, md, "utf8");
+  commitFileAndPush(OUT_PATH, `report: ${OUT_PATH.split("/").pop()}`);
   console.log(`\nReport written to ${OUT_PATH}`);
 }
 

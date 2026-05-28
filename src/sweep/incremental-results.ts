@@ -37,6 +37,26 @@ export interface IncrementalRecord {
  *
  * Caller MUST be in the project repo's working tree (cwd somewhere under it).
  */
+/**
+ * Stage, commit, and push a single FILE (not a JSONL append) with a custom commit message.
+ * Used for the end-of-run report each sweep script writes — same data-safety reason as the
+ * per-game append (BAL-2): without this, the report file lives in the working tree but isn't
+ * committed; a container restart between writeFileSync and the next manual commit loses it.
+ *
+ * Same failure semantics as appendResultAndCommit — log, don't throw.
+ */
+export function commitFileAndPush(path: string, commitMessage: string): void {
+  try {
+    execSync(`git add ${JSON.stringify(path)}`, { stdio: ["ignore", "ignore", "pipe"] });
+    execSync(`git commit --quiet -m ${JSON.stringify(commitMessage)}`, { stdio: ["ignore", "ignore", "pipe"] });
+    execSync(`git push --quiet origin HEAD`, { stdio: ["ignore", "ignore", "pipe"] });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    // eslint-disable-next-line no-console
+    console.warn(`commitFileAndPush: git step failed for ${path} (${message}); file is on disk locally.`);
+  }
+}
+
 export function appendResultAndCommit(path: string, record: IncrementalRecord): void {
   // 1. Ensure dir exists; append the JSON line. JSONL = one JSON object per line.
   mkdirSync(dirname(path), { recursive: true });

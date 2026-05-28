@@ -7,7 +7,7 @@ import { findBalancedConfig, balanceSweep, selectBalanced, type GridEntry } from
 import { report } from "./report";
 import { defaultHealthThresholds, isHealthy } from "./health";
 import { fmtConfig, fmtConfigFull, fmtMetrics, elapsedS } from "./format";
-import { appendResultAndCommit } from "./incremental-results";
+import { appendResultAndCommit, commitFileAndPush } from "./incremental-results";
 import { defaultConfig, type RuleConfig } from "../engine/config";
 
 const INCREMENTAL_PATH = resolve(process.cwd(), "docs/sweeps/data/main-sweep.jsonl");
@@ -229,6 +229,7 @@ function main(): void {
 
   mkdirSync(dirname(OUT_PATH), { recursive: true });
   writeFileSync(OUT_PATH, md, "utf8");
+  commitFileAndPush(OUT_PATH, `report: ${OUT_PATH.split("/").pop()}`);
 
   const elapsed = ((Date.now() - t0) / 1000 / 60).toFixed(1);
   console.log(`\n=== Done in ${elapsed} min ===`);

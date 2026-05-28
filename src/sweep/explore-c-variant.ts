@@ -8,7 +8,7 @@ import { runConfigParallel, findBalancedConfigParallel } from "./run-parallel";
 import { defaultConfig, type RuleConfig } from "../engine/config";
 import { defaultHealthThresholds, isHealthy } from "./health";
 import { elapsedS, fmtMetrics, fmtConfig } from "./format";
-import { appendResultAndCommit } from "./incremental-results";
+import { appendResultAndCommit, commitFileAndPush } from "./incremental-results";
 import { workerCount } from "./worker-count";
 import type { SweepMetrics } from "./metrics";
 import type { GridEntry } from "./orchestrate";
@@ -216,6 +216,7 @@ async function main(): Promise<void> {
     const md = lines.join("\n") + "\n";
     mkdirSync(dirname(OUT_PATH), { recursive: true });
     writeFileSync(OUT_PATH, md, "utf8");
+  commitFileAndPush(OUT_PATH, `report: ${OUT_PATH.split("/").pop()}`);
     console.log(`\nAll done in ${elapsedS(t0)}. Report: ${OUT_PATH}`);
   } finally {
     pool.close();
