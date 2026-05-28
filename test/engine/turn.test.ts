@@ -373,3 +373,45 @@ describe("advanceRound — variant (b)/P2 victoryStreak update at turn rollover"
     expect(next.players[0]!.victoryStreak).toBe(0); // unchanged
   });
 });
+
+describe("advanceRound — alliance Phase 5: allianceCooldownTurns decrement at rollover", () => {
+  it("decrements each non-eliminated player's cooldown by 1 (floor at 0) at the rollover", () => {
+    const s0 = mkState({ board: 96, basesP0: [hex(0, 0, 0)], basesP1: [hex(20, -20, 0)], iron: [hex(1, -1, 0), hex(20, -19, -1)] });
+    const s = {
+      ...s0,
+      phase: { ...s0.phase, indexInOrder: s0.phase.order.length - 1 },
+      players: s0.players.map((p) => {
+        if (p.id === 0) return { ...p, allianceCooldownTurns: 2 };
+        if (p.id === 1) return { ...p, allianceCooldownTurns: 0 };
+        return p;
+      }),
+    } as GameState;
+    const next = advanceRound(s);
+    expect(next.phase.turn).toBe(s.phase.turn + 1); // rollover happened
+    expect(next.players[0]!.allianceCooldownTurns).toBe(1);
+    expect(next.players[1]!.allianceCooldownTurns).toBe(0); // floor at 0
+  });
+
+  it("does NOT change cooldown on within-turn advances (no rollover)", () => {
+    const s0 = mkState({ board: 96, basesP0: [hex(0, 0, 0)], basesP1: [hex(20, -20, 0)], iron: [hex(1, -1, 0), hex(20, -19, -1)] });
+    const s = {
+      ...s0,
+      phase: { ...s0.phase, indexInOrder: 0 },
+      players: s0.players.map((p) => (p.id === 0 ? { ...p, allianceCooldownTurns: 3 } : p)),
+    } as GameState;
+    const next = advanceRound(s);
+    expect(next.phase.turn).toBe(s.phase.turn); // no rollover
+    expect(next.players[0]!.allianceCooldownTurns).toBe(3); // unchanged
+  });
+
+  it("does NOT change cooldown for eliminated players", () => {
+    const s0 = mkState({ board: 96, basesP0: [hex(0, 0, 0)], basesP1: [hex(20, -20, 0)], iron: [hex(1, -1, 0), hex(20, -19, -1)] });
+    const s = {
+      ...s0,
+      phase: { ...s0.phase, indexInOrder: s0.phase.order.length - 1 },
+      players: s0.players.map((p) => (p.id === 0 ? { ...p, allianceCooldownTurns: 2, eliminated: true } : p)),
+    } as GameState;
+    const next = advanceRound(s);
+    expect(next.players[0]!.allianceCooldownTurns).toBe(2); // unchanged (eliminated)
+  });
+});

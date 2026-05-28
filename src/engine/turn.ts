@@ -240,7 +240,12 @@ export function advanceRound(state: GameState): GameState {
   const players: Player[] = state.players.map((p) =>
     p.eliminated
       ? p
-      : { ...p, victoryStreak: meetingThreshold.has(p.id) ? p.victoryStreak + 1 : 0 },
+      : {
+          ...p,
+          victoryStreak: meetingThreshold.has(p.id) ? p.victoryStreak + 1 : 0,
+          // Alliance Phase 5: decrement cooldown by 1, floored at 0.
+          allianceCooldownTurns: Math.max(0, p.allianceCooldownTurns - 1),
+        },
   );
 
   return {
