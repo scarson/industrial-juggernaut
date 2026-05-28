@@ -10,6 +10,7 @@ import {
 } from "./mcts";
 import type { Agent } from "./agent";
 import { nextUint32, seed } from "../rng/pcg";
+import { legalActions } from "../engine/legal";
 import type { Action, GameState, PlayerId } from "../engine/types";
 
 /**
@@ -85,7 +86,27 @@ export function chooseActionMCTS(
   const searchRng = seed(BigInt(draw.value) ^ MCTS_SEARCH_RNG_SALT);
 
   const { rootStats } = runMcts(state, player, params, searchRng);
-  const action = mostVisited(rootStats);
+  // Defensive fallback (see test "robustness to no-candidate states"): if the search
+  // surfaced ZERO candidates at the root — possible in late maxed-out states or for
+  // stranded radiating players under `noIronRequiresPerimeter` — `mostVisited` would
+  // dereference `rootStats[0]` (undefined) and crash with the obscure
+  // "Cannot read properties of undefined (reading 'action')". Instead, fall back to
+  // `legalActions(state)[0]` (degraded but functional) — and only if that is ALSO
+  // empty do we throw, with a clear diagnostic the caller can record.
+  let action: Action;
+  if (rootStats.length > 0) {
+    action = mostVisited(rootStats);
+  } else {
+    const legal = legalActions(state);
+    if (legal.length === 0) {
+      throw new Error(
+        `MCTS agent: no legal action available for player ${player} at turn ${state.phase.turn} ` +
+          `(MCTS surfaced 0 candidates AND legalActions returned empty — likely a stranded radiating ` +
+          `player under noIronRequiresPerimeter, or a maxed-out late-game state with allowPass=false).`,
+      );
+    }
+    action = legal[0]!;
+  }
 
   return { action, state: { ...state, rngState: draw.state } };
 }

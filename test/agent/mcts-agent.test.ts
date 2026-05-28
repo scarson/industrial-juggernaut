@@ -15,6 +15,8 @@ import { chooseAction } from "../../src/agent/greedy";
 import { applyAction } from "../../src/engine/apply";
 import { nextUint32, seed } from "../../src/rng/pcg";
 import { mkState } from "../helpers/state";
+import { legalActions } from "../../src/engine/legal";
+import { defaultConfig } from "../../src/engine/config";
 import { control } from "../../src/engine/control";
 import { convexHull, hullArea } from "../../src/geometry/hull";
 import type { Action, GameState } from "../../src/engine/types";
@@ -187,6 +189,50 @@ describe("mctsAgent", () => {
     for (const agent of agents) {
       const { action } = agent(state, 0);
       expect(() => applyAction(state, action)).not.toThrow();
+    }
+  });
+});
+
+describe("chooseActionMCTS — robustness to no-candidate states (regression for the comparison-experiment crash)", () => {
+  // The bug surfaced as "Cannot read properties of undefined (reading 'action')"
+  // when MCTS surfaced zero candidates at the root — mostVisited dereferenced
+  // rootStats[0] (undefined) and then `.action`. Triggered in long late-game
+  // states and in stranded radiating players under noIronRequiresPerimeter=true.
+  // The fix: when rootStats is empty, fall back to legalActions(state)[0] if any
+  // (degraded but functional play), else throw a CLEAR diagnostic error.
+
+  it("never throws the obscure 'undefined .action' error — either returns a legal action or throws a CLEAR diagnostic", () => {
+    // Stranded-ish radiating player: only 1 base, 0 controlled iron, no factories,
+    // spared from noIron by the flag. legalActions may still return a base-placement
+    // (placement doesn't cost resources), so the agent should still return a legal
+    // action — but the test guarantees no undefined-property crash regardless.
+    const cfg = { ...defaultConfig(), noIronRequiresPerimeter: true };
+    const s = mkState({
+      board: 96,
+      basesP0: [hex(0, 0, 0)],
+      basesP1: [hex(30, -30, 0)],
+      iron: [hex(30, -29, -1)],
+      config: cfg,
+    });
+
+    let result: { action: Action; state: GameState } | null = null;
+    let thrown: unknown = null;
+    try {
+      result = chooseActionMCTS(s, 0, fastParams());
+    } catch (err) {
+      thrown = err;
+    }
+
+    if (thrown !== null) {
+      // If it throws, the message must be CLEAR (not the obscure undefined-property string).
+      const msg = thrown instanceof Error ? thrown.message : String(thrown);
+      expect(msg).not.toMatch(/Cannot read properties of undefined \(reading 'action'\)/);
+      expect(msg).toMatch(/no.*legal.*action|no.*candidate/i);
+    } else {
+      // If it returns, the action must be legal — confirming a graceful fallback.
+      expect(result).not.toBeNull();
+      const legal = legalActions(s);
+      expect(legal.some((a) => actionKey(a) === actionKey(result!.action))).toBe(true);
     }
   });
 });

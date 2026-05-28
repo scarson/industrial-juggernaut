@@ -458,12 +458,22 @@ export function samplePolicy(
     candidates.push({ action: pass, typeValue: evaluate(state)[player]! });
   }
 
-  // Fallback: legalActions always yields >= 1 action, so `candidates` could only be
-  // empty if every build composition failed AND there was no attack AND no pass —
-  // which cannot happen (pass is emitted whenever nothing else is). Guard anyway.
+  // Fallback: legalActions normally yields >= 1 action, so `candidates` would only be
+  // empty if every build composition failed AND there was no attack AND no pass. With
+  // the variant-(a)/(c) `noIronRequiresPerimeter` flag (stranded radiating players)
+  // and certain maxed-out late-game states with `allowPass: false`, this CAN now
+  // happen. Previously the `acts[0]!` access silently returned `{action: undefined}`
+  // and propagated the undefined into the engine; now we throw a CLEAR diagnostic
+  // for the caller to record (parallel to the chooseActionMCTS guard).
   if (candidates.length === 0) {
-    const only = acts[0]!;
-    return { action: only, rng: nextFloat(curRng).state };
+    if (acts.length === 0) {
+      throw new Error(
+        `heuristic samplePolicy: no legal action available for player ${player} at turn ${state.phase.turn} ` +
+          `(no builds/attacks/pass — likely a stranded radiating player under noIronRequiresPerimeter, ` +
+          `or a maxed-out late-game state with allowPass=false).`,
+      );
+    }
+    return { action: acts[0]!, rng: nextFloat(curRng).state };
   }
 
   // 2. Choose the round-type by softmax over type values.
