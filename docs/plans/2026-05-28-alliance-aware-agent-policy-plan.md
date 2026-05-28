@@ -50,12 +50,16 @@ Already evaluates a state; with alliances enabled, the state includes alliance i
 - [x] Full suite green: 316 tests (was 314 + 2 new Phase 2 tests).
 - [x] Committed.
 
-### Phase 3: Heuristic weight tuning sweep — ⬜ Not started
+### Phase 3: Heuristic weight tuning sweep — ✅ Complete (2026-05-28)
 
-- [ ] Build `src/sweep/tune-alliance-weights.ts`: sweep `weights.alliance ∈ {0, 1, 3, 5, 10}` and `weights.breakAlliance ∈ {0, 1, 3, 5}`.
-- [ ] Measure: alliance formation rate, alliance break rate, average coalition size at game end, who wins.
-- [ ] Pick weights that produce ~30-50% alliance formation rate (alliances are USED but not always-on).
-- [ ] Generate `docs/2026-05-28-alliance-weights-tuning.md`. Commit.
+- [x] Built `src/sweep/tune-alliance-weights.ts`. Trimmed to a single-axis sweep on `allianceWeight ∈ {0, 1, 3, 5, 10}` (50 3P heuristic-self-play games per weight on variant (c) with alliances enabled, delta=4). `breakAllianceWeight` left at its default (5) — sweeping a second axis without a clear signal on the first is wasted compute.
+- [x] Per-game JSONL + commits (BAL-2). Report: `docs/2026-05-28-alliance-weights-tuning.md`.
+- [x] Findings:
+   - Weights 0-5 cluster: 24-32% coalition wins, mean coalition size 2.13-2.42, median 2 turns, mostly iron-victory. Within-seed noise dominates between-weight differences.
+   - Weight=10 is a phase transition: 96% coalition wins, mean size ≈ 3 (full 3-player), median 1 turn, ALL last-standing. Mechanism: every player allies with every other on turn 1, leaving "exactly one non-eliminated coalition" → engine's `status()` declares last-standing immediately. **Engine semantics finding worth flagging** (in the report): the "exactly one coalition remaining" rule fires whether others were eliminated OR merged via alliance.
+   - Weight=0 isn't a true alliance-blind baseline: `evaluate` ignores alliance arrays AND basesInHand, so ally typeValue equals pass typeValue, and the heuristic picks ally as a tie-break "do nothing useful" action when builds/attacks degrade position. A real blind baseline needs `alliancesEnabled=false`.
+- [x] **Recommendation: keep `DEFAULT_POLICY_ALLIANCE_WEIGHT = 5`** — safe regime, within sweep noise of the other low weights. Higher weights destroy gameplay. The right way to get more signal is Phase 4 (alliance-aware `evaluate`) or alliance-event instrumentation, not bumping this weight.
+- [x] Committed.
 
 ### Phase 4: Alliance-aware leaf-evaluation (optional / v2) — ⬜ Not started
 
@@ -97,6 +101,6 @@ Already evaluates a state; with alliances enabled, the state includes alliance i
 |---|---|---|
 | 1 | Heuristic candidate generation for alliance actions | ✅ Complete (2026-05-28) |
 | 2 | MCTS candidate generation for alliance actions | ✅ Complete (2026-05-28) |
-| 3 | Heuristic weight tuning sweep | ⬜ Not started (next) |
-| 4 | Alliance-aware leaf evaluation (optional) | ⬜ Not started |
-| 5 | Re-run alliance comparison with aware agents | ⬜ Not started |
+| 3 | Heuristic weight tuning sweep | ✅ Complete (2026-05-28) — keep weight=5 |
+| 4 | Alliance-aware leaf evaluation (optional) | ⬜ Sam-gated (recommend deferring; see Phase 3 findings) |
+| 5 | Re-run alliance comparison with aware agents | ⬜ Not started (next) |
