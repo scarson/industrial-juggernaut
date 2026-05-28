@@ -2,7 +2,7 @@
 
 **Plan date:** 2026-05-28 (overnight)
 **Status banner:** ⬜ Not started → 🚧 In progress → ✅ Complete. Phases below carry their own banners.
-**Overall status:** ⬜ Not started
+**Overall status:** 🚧 Engine implementation ✅ (Phases 1-6); Phase 7 comparison sweep ⬜ NOT LAUNCHED (deferred until MCTS@300 stress test completes — no concurrent heavy-compute jobs)
 **Authoritative inputs:**
 - `2026-05-28-design-decisions-from-thought-exercises.md` — Sam's directional decisions (medium-strength, tunable anti-coalition delta, weighted-with-cooldown break mechanic).
 - `2026-05-28-design-followups-alliances-and-tactical-depth.md` §Alliance layer — the original spec brainstorm.
@@ -58,7 +58,7 @@
 
 Each phase ends with: a commit, a status banner update at the top of this plan, and a brief "Discoveries" entry below (if anything surprising surfaced).
 
-### Phase 1: Engine flags + types — ⬜ Not started
+### Phase 1: Engine flags + types — ✅ Complete
 **Goal:** RuleConfig flags + Player field + Action shapes wired through types. No behavior yet.
 
 - [ ] Add `alliancesEnabled: boolean` (default false), `allianceVictoryDelta: number` (default 4) to `RuleConfig` in `src/engine/config.ts`.
@@ -71,7 +71,7 @@ Each phase ends with: a commit, a status banner update at the top of this plan, 
 
 **Test discipline:** no new tests in this phase — all changes are pure type/default additions. The full suite serving as a regression net is the verification.
 
-### Phase 2: `ally` action — ⬜ Not started
+### Phase 2: `ally` action — ✅ Complete
 **Goal:** TDD the ally action through `legalActions` + `applyAction`.
 
 - [ ] Write failing test in `test/engine/legal.test.ts`: when `alliancesEnabled: true` and player has `basesInHand >= 1`, `legalActions` includes one `ally` action per non-self, non-allied, live player.
@@ -87,7 +87,7 @@ Each phase ends with: a commit, a status banner update at the top of this plan, 
 
 **Discoveries placeholder:** *(filled in after the phase)*
 
-### Phase 3: `break-alliance` action with weighted-with-cooldown — ⬜ Not started
+### Phase 3: `break-alliance` action with weighted-with-cooldown — ✅ Complete
 **Goal:** TDD the break action — both success and failure paths — with the 2/3-success weighted roll and cooldown semantics.
 
 - [ ] Write failing tests in `test/engine/legal.test.ts`: break action is legal iff (alliancesEnabled, currently mutually allied, both live, no cooldown).
@@ -102,7 +102,7 @@ Each phase ends with: a commit, a status banner update at the top of this plan, 
 
 **Discoveries placeholder:** *(filled in after the phase)*
 
-### Phase 4: Anti-coalition victory threshold — ⬜ Not started
+### Phase 4: Anti-coalition victory threshold — ✅ Complete
 **Goal:** Status check scales the iron threshold with coalition size.
 
 - [ ] Write failing test in `test/engine/status.test.ts`: a 2-player coalition with `coalitionVictoryIron == victoryThreshold` does NOT win when `allianceVictoryDelta > 0` (needs threshold + delta).
@@ -115,7 +115,7 @@ Each phase ends with: a commit, a status banner update at the top of this plan, 
 
 **Discoveries placeholder:** *(filled in after the phase)*
 
-### Phase 5: Cooldown decrement at turn rollover — ⬜ Not started
+### Phase 5: Cooldown decrement at turn rollover — ✅ Complete
 **Goal:** `allianceCooldownTurns` decrements once per turn, just like `victoryStreak` updates.
 
 - [ ] Write failing test in `test/engine/turn.test.ts`: after `advanceRound` rolls a turn (indexInOrder->0), each non-eliminated player's `allianceCooldownTurns` is `max(0, prev - 1)`.
@@ -127,7 +127,7 @@ Each phase ends with: a commit, a status banner update at the top of this plan, 
 
 **Discoveries placeholder:** *(filled in after the phase)*
 
-### Phase 6: Engine smoke + agent acceptance — ⬜ Not started
+### Phase 6: Engine smoke + agent acceptance — ✅ Complete
 **Goal:** confirm the engine works end-to-end with alliances enabled in a played game, and that the existing agents don't crash.
 
 - [ ] Write an integration test in `test/engine/`: 2-player game with `alliancesEnabled: true` and a scripted "ally-on-turn-1" agent — verify the alliance forms, iron-victory uses the scaled threshold, and a break action works.
@@ -137,7 +137,7 @@ Each phase ends with: a commit, a status banner update at the top of this plan, 
 
 **Discoveries placeholder:** *(filled in after the phase)*
 
-### Phase 7: Comparison sweep — ⬜ Not started
+### Phase 7: Comparison sweep — 🚧 Script ready (`src/sweep/compare-alliance-deltas.ts`); NOT LAUNCHED — deferred until MCTS@300 stress test completes (no concurrent heavy-compute jobs)
 **Goal:** measure the *mechanical* effect of alliances at varying deltas. (The strategic effect needs playtest; this phase only verifies mechanics + measures aggregate outcomes.)
 
 - [ ] Write `src/sweep/compare-alliance-deltas.ts` modeled on the existing `compare-variants.ts`:
@@ -184,10 +184,16 @@ Each phase ends with: a commit, a status banner update at the top of this plan, 
 
 | Phase | Title | Status |
 |---|---|---|
-| 1 | Engine flags + types | ⬜ Not started |
-| 2 | `ally` action | ⬜ Not started |
-| 3 | `break-alliance` (weighted-with-cooldown) | ⬜ Not started |
-| 4 | Anti-coalition victory threshold | ⬜ Not started |
-| 5 | Cooldown decrement at turn rollover | ⬜ Not started |
-| 6 | Engine smoke + agent acceptance | ⬜ Not started |
-| 7 | Comparison sweep | ⬜ Not started |
+| 1 | Engine flags + types | ✅ Complete |
+| 2 | `ally` action | ✅ Complete |
+| 3 | `break-alliance` (weighted-with-cooldown) | ✅ Complete |
+| 4 | Anti-coalition victory threshold | ✅ Complete |
+| 5 | Cooldown decrement at turn rollover | ✅ Complete |
+| 6 | Engine smoke + agent acceptance | ✅ Complete |
+| 7 | Comparison sweep | 🚧 Script ready; not launched (waiting for MCTS@300) |
+
+## Discoveries (post-execution)
+
+- **Phase 4 fixture pitfall:** "2-coalition iron-threshold = ongoing" assertion initially failed because a 2-player game with both players in one alliance has `comps.length === 1`, which triggers last-standing as fallback when iron-victory is rejected. Fixed by adding a third live player to the fixture. *Lesson:* alliance-related status tests must keep comps.length >= 2 unless explicitly testing last-standing.
+- **Phase 2 commit cost:** `basesInHand -= 1` works without engine math complications because `applyAction` doesn't check `basesInHand` in any other ally code path. Verified by the smoke test running multi-turn games with alliances enabled.
+- **Heuristic agent compatibility:** agents don't strategically pursue `ally`/`break-alliance`. samplePolicy's fallback (`acts[0]!`) could occasionally return an ally action when no builds/attacks/passes are available, but in normal play this is rare. *Implication for Phase 7:* without an alliance-aware agent, the sweep mostly measures the SAFEGUARD math (threshold scaling), not strategic alliance dynamics. Documented as a known limitation.
