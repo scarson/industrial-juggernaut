@@ -549,3 +549,4 @@
 {"variant":"alliances ON, delta=4 (default)","done":99,"total":150,"nPlayers":3,"turns":2,"victoryType":"iron","winner":[1],"coalitionSize":1,"hitTurnCap":false,"elapsedSec":738.85}
 {"variant":"alliances ON, delta=4 (default)","done":100,"total":150,"nPlayers":4,"turns":2,"victoryType":"iron","winner":[0],"coalitionSize":1,"hitTurnCap":false,"elapsedSec":739.912}
 {"variant":"alliances ON, delta=4 (default)","done":101,"total":150,"nPlayers":3,"turns":2,"victoryType":"iron","winner":[0,2],"coalitionSize":2,"hitTurnCap":false,"elapsedSec":741.024}
+{"variant":"alliances ON, delta=4 (default)","done":102,"total":150,"nPlayers":4,"turns":2,"victoryType":"iron","winner":[0],"coalitionSize":1,"hitTurnCap":false,"elapsedSec":742.273}
