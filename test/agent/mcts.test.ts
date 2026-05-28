@@ -383,6 +383,49 @@ describe("expandNode — candidateMode 'fixed'", () => {
     const hasAttack = node.edges.some((e) => e.action.kind === "attack");
     expect(hasAttack).toBe(true);
   });
+
+  it("opens an ally candidate when alliances are enabled and a non-allied target exists (alliance-aware Phase 2)", () => {
+    const cfg = { ...defaultConfig(), alliancesEnabled: true, allianceVictoryDelta: 1, victoryThreshold: 6 };
+    const state = mkState({
+      board: 96,
+      basesP0: [{ x: 0, y: 0, z: 0 }],
+      basesP1: [{ x: 20, y: -20, z: 0 }],
+      basesP2: [{ x: -20, y: 20, z: 0 }],
+      iron: [{ x: 1, y: -1, z: 0 }, { x: 21, y: -20, z: -1 }, { x: -19, y: 19, z: 0 }],
+      config: cfg,
+    });
+    const params: ExpansionParams = { ...defaultExpansionParams(), candidateMode: "fixed" };
+    const node = makeNode([], 3);
+    node.N = 8;
+    expandNode(node, state, 0, params, seed(3n));
+    const hasAlly = node.edges.some((e) => e.action.kind === "ally");
+    expect(hasAlly).toBe(true);
+  });
+
+  it("opens a break-alliance candidate when the actor already has a live ally (alliance-aware Phase 2)", () => {
+    const cfg = { ...defaultConfig(), alliancesEnabled: true, allianceVictoryDelta: 1, victoryThreshold: 6 };
+    const base = mkState({
+      board: 96,
+      basesP0: [{ x: 0, y: 0, z: 0 }],
+      basesP1: [{ x: 20, y: -20, z: 0 }],
+      basesP2: [{ x: -20, y: 20, z: 0 }],
+      iron: [{ x: 1, y: -1, z: 0 }, { x: 21, y: -20, z: -1 }, { x: -19, y: 19, z: 0 }],
+      config: cfg,
+    });
+    // Manually wire P0 ↔ P1 as a live alliance so break-alliance is legal.
+    const players = base.players.map((p, i) => {
+      if (i === 0) return { ...p, alliance: [0 as const, 1 as const] };
+      if (i === 1) return { ...p, alliance: [1 as const, 0 as const] };
+      return p;
+    });
+    const state = { ...base, players } as GameState;
+    const params: ExpansionParams = { ...defaultExpansionParams(), candidateMode: "fixed" };
+    const node = makeNode([], 3);
+    node.N = 8;
+    expandNode(node, state, 0, params, seed(4n));
+    const hasBreak = node.edges.some((e) => e.action.kind === "break-alliance");
+    expect(hasBreak).toBe(true);
+  });
 });
 
 describe("chanceExpectedValue", () => {

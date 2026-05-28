@@ -384,10 +384,17 @@ function fixedCandidates(state: GameState, player: PlayerId, rng: RngState): { c
     curRng = nextFloat(curRng).state;
   }
 
-  // Representative attacks from move-gen, and pass when offered.
+  // Representative attacks from move-gen, pass when offered, and (when the
+  // alliancesEnabled config flag is on) every legal `ally` / `break-alliance`
+  // target. Adding alliance actions here ensures MCTS can search BOTH ally and
+  // break-alliance edges even when the greedy `samplePolicy` already returned
+  // one of them — the fixed mode opens the full bounded set, not just the
+  // policy's single greedy pick.
   for (const a of legalActions(state)) {
     if (a.kind === "attack") add(a);
     if (a.kind === "pass") add(a);
+    if (a.kind === "ally") add(a);
+    if (a.kind === "break-alliance") add(a);
   }
 
   const prior = actions.length > 0 ? 1 / actions.length : 1;

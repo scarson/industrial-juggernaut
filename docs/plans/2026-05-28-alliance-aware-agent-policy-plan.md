@@ -43,11 +43,12 @@ Already evaluates a state; with alliances enabled, the state includes alliance i
 - [x] Full suite green: 314 tests (was 310 + 4 new). MCTS-vs-greedy SIGNAL unchanged (still 0/1 — alliance-aware ally not relevant in the 2P-no-alliance test).
 - [x] Committed.
 
-### Phase 2: MCTS candidate generation — ⬜ Not started
+### Phase 2: MCTS candidate generation — ✅ Complete (2026-05-28)
 
-- [ ] Write failing test: MCTS in fixed-candidates mode under alliances enabled opens `ally` and `break-alliance` edges in the root.
-- [ ] Implement: extend `fixedCandidates` in `mcts.ts`.
-- [ ] Full suite green. Commit.
+- [x] Failing tests written in `test/agent/mcts.test.ts` (expandNode candidateMode='fixed' block): (a) opens `ally` candidate when alliances enabled + non-allied target exists; (b) opens `break-alliance` candidate when actor already has a live ally. Red phase confirmed (break-alliance test failed because fixedCandidates didn't iterate over alliance actions from legalActions).
+- [x] Implemented in `src/agent/mcts.ts`: `fixedCandidates` now also iterates `legalActions` for `ally` and `break-alliance` kinds and adds them to the deduped candidate set. The PW path uses `samplePolicy` directly (which already includes alliance candidates via Phase 1), so no PW-side change needed.
+- [x] Full suite green: 316 tests (was 314 + 2 new Phase 2 tests).
+- [x] Committed.
 
 ### Phase 3: Heuristic weight tuning sweep — ⬜ Not started
 
@@ -95,7 +96,7 @@ Already evaluates a state; with alliances enabled, the state includes alliance i
 | Phase | Title | Status |
 |---|---|---|
 | 1 | Heuristic candidate generation for alliance actions | ✅ Complete (2026-05-28) |
-| 2 | MCTS candidate generation for alliance actions | ⬜ Not started (next) |
-| 3 | Heuristic weight tuning sweep | ⬜ Not started |
+| 2 | MCTS candidate generation for alliance actions | ✅ Complete (2026-05-28) |
+| 3 | Heuristic weight tuning sweep | ⬜ Not started (next) |
 | 4 | Alliance-aware leaf evaluation (optional) | ⬜ Not started |
 | 5 | Re-run alliance comparison with aware agents | ⬜ Not started |
