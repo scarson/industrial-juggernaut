@@ -359,3 +359,40 @@ describe("variant (a)/(c) — noIronRequiresPerimeter", () => {
     expect(events.some((e) => e.kind === "eliminated" && e.player === 0 && e.cause === "noIron")).toBe(true);
   });
 });
+
+describe("variant (b)/P2 — victoryIronHoldRounds", () => {
+  it("default (holdRounds=1): meeting the threshold wins immediately — current behavior", () => {
+    const s = mkState({ board: 96, basesP0: [hex(0, 0, 0)], basesP1: [hex(30, -30, 0)], iron: TEN_IRON });
+    expect(status(s).kind).toBe("victory");
+  });
+
+  it("holdRounds=2: meeting threshold for the FIRST time (streak=0) does NOT yet win (still ongoing)", () => {
+    const cfg = { ...defaultConfig(), victoryIronHoldRounds: 2 };
+    const s = mkState({ board: 96, basesP0: [hex(0, 0, 0)], basesP1: [hex(30, -30, 0)], iron: TEN_IRON, config: cfg });
+    // Player 0 currently meets threshold but has held it for 0 prior end-of-turns.
+    expect(s.players[0]!.victoryStreak).toBe(0);
+    expect(status(s).kind).toBe("ongoing");
+  });
+
+  it("holdRounds=2: meeting threshold AND streak>=1 (held last end-of-turn) wins iron", () => {
+    const cfg = { ...defaultConfig(), victoryIronHoldRounds: 2 };
+    let s = mkState({ board: 96, basesP0: [hex(0, 0, 0)], basesP1: [hex(30, -30, 0)], iron: TEN_IRON, config: cfg });
+    // Simulate that player 0 held threshold across one end-of-turn already.
+    s = { ...s, players: s.players.map((p) => (p.id === 0 ? { ...p, victoryStreak: 1 } : p)) };
+    const st = status(s);
+    expect(st.kind).toBe("victory");
+    if (st.kind === "victory") {
+      expect(st.reason).toBe("iron");
+      expect(st.players).toEqual([0]);
+    }
+  });
+
+  it("holdRounds=3: streak=1 not yet enough; streak=2 wins", () => {
+    const cfg = { ...defaultConfig(), victoryIronHoldRounds: 3 };
+    let s = mkState({ board: 96, basesP0: [hex(0, 0, 0)], basesP1: [hex(30, -30, 0)], iron: TEN_IRON, config: cfg });
+    s = { ...s, players: s.players.map((p) => (p.id === 0 ? { ...p, victoryStreak: 1 } : p)) };
+    expect(status(s).kind).toBe("ongoing");
+    s = { ...s, players: s.players.map((p) => (p.id === 0 ? { ...p, victoryStreak: 2 } : p)) };
+    expect(status(s).kind).toBe("victory");
+  });
+});

@@ -8,7 +8,14 @@ import { hex, key } from "../../src/geometry/cube";
 import { ringDepthFromEdge } from "../../src/board/shape";
 import { defaultConfig } from "../../src/engine/config";
 import { setupGame, currentPlayer, advanceRound } from "../../src/engine/turn";
+import { mkState } from "../helpers/state";
 import type { Base, GameState } from "../../src/engine/types";
+
+// 10 iron hexes within radius 5 of origin (radiating disk under defaults).
+const TEN_IRON = [
+  hex(1, -1, 0), hex(2, -2, 0), hex(3, -3, 0), hex(4, -4, 0), hex(5, -5, 0),
+  hex(0, 1, -1), hex(0, 2, -2), hex(0, 3, -3), hex(0, 4, -4), hex(0, 5, -5),
+];
 
 const cfg = defaultConfig();
 
@@ -323,5 +330,46 @@ describe("determinism across a rollover", () => {
     };
     const next = advanceRound(s);
     expect(next.rngState).not.toEqual(seed(321n));
+  });
+});
+
+describe("advanceRound — variant (b)/P2 victoryStreak update at turn rollover", () => {
+  it("increments victoryStreak for players whose coalition meets threshold; resets others", () => {
+    // P0 controls 10 iron via TEN_IRON; P1 controls 0 iron (far away).
+    const cfg = defaultConfig();
+    const s0 = mkState({ board: 96, basesP0: [hex(0, 0, 0)], basesP1: [hex(30, -30, 0)], iron: TEN_IRON, config: cfg });
+    // Pre-rollover: streaks at 0.
+    expect(s0.players[0]!.victoryStreak).toBe(0);
+    expect(s0.players[1]!.victoryStreak).toBe(0);
+    // Force the phase to one-before-rollover so a single advanceRound call rolls the turn.
+    const s = { ...s0, phase: { ...s0.phase, indexInOrder: s0.phase.order.length - 1 } } as GameState;
+    const next = advanceRound(s);
+    expect(next.phase.turn).toBe(s.phase.turn + 1); // rollover happened
+    expect(next.players[0]!.victoryStreak).toBe(1);
+    expect(next.players[1]!.victoryStreak).toBe(0);
+  });
+
+  it("resets victoryStreak to 0 when a player's coalition drops below threshold", () => {
+    const cfg = defaultConfig();
+    // Start with P0 not meeting threshold (only 1 iron) but with a non-zero streak from prior turns.
+    const s0 = mkState({ board: 96, basesP0: [hex(0, 0, 0)], basesP1: [hex(30, -30, 0)], iron: [hex(1, -1, 0), hex(30, -29, -1)], config: cfg });
+    const s = {
+      ...s0,
+      phase: { ...s0.phase, indexInOrder: s0.phase.order.length - 1 },
+      players: s0.players.map((p) => (p.id === 0 ? { ...p, victoryStreak: 5 } : p)),
+    } as GameState;
+    const next = advanceRound(s);
+    expect(next.phase.turn).toBe(s.phase.turn + 1);
+    expect(next.players[0]!.victoryStreak).toBe(0);
+  });
+
+  it("does NOT update streaks on within-turn advances (no rollover)", () => {
+    const cfg = defaultConfig();
+    const s0 = mkState({ board: 96, basesP0: [hex(0, 0, 0)], basesP1: [hex(30, -30, 0)], iron: TEN_IRON, config: cfg });
+    const s = { ...s0, phase: { ...s0.phase, indexInOrder: 0 } } as GameState;
+    // indexInOrder is not yet at the last; advanceRound is a within-turn step.
+    const next = advanceRound(s);
+    expect(next.phase.turn).toBe(s.phase.turn); // no rollover
+    expect(next.players[0]!.victoryStreak).toBe(0); // unchanged
   });
 });

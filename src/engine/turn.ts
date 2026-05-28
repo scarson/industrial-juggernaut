@@ -4,6 +4,7 @@
 import { key } from "../geometry/cube";
 import { ringDepthFromEdge } from "../board/shape";
 import { control } from "./control";
+import { coalitions, coalitionVictoryIron } from "./status";
 import { nextInt } from "../rng/pcg";
 import type { RuleConfig } from "./config";
 import type {
@@ -217,9 +218,30 @@ export function advanceRound(state: GameState): GameState {
   const refreshedBases: Base[] = state.bases.map((b) => ({ ...b, state: "fresh" }));
   const { order: newOrder, rng } = drawTurnOrder(state, order);
 
+  // Variant (b)/P2 hold-iron-for-N-rounds: at end-of-turn, advance each player's
+  // victoryStreak based on whether their coalition meets `victoryThreshold` iron
+  // RIGHT NOW (just-completed turn's final state). Players whose coalition meets
+  // threshold get streak++; others reset to 0. This runs unconditionally — when
+  // `victoryIronHoldRounds === 1` (default) the streak is bookkeeping with no
+  // effect on `status()`, so behavior is unchanged.
+  const threshold = state.config.victoryThreshold;
+  const comps = coalitions(state);
+  const meetingThreshold = new Set<PlayerId>();
+  for (const comp of comps) {
+    if (coalitionVictoryIron(state, comp) >= threshold) {
+      for (const id of comp) meetingThreshold.add(id);
+    }
+  }
+  const players: Player[] = state.players.map((p) =>
+    p.eliminated
+      ? p
+      : { ...p, victoryStreak: meetingThreshold.has(p.id) ? p.victoryStreak + 1 : 0 },
+  );
+
   return {
     ...state,
     bases: refreshedBases,
+    players,
     rngState: rng,
     phase: { turn: state.phase.turn + 1, order: newOrder, indexInOrder: 0 },
   };

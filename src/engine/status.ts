@@ -117,10 +117,21 @@ export function status(state: GameState): Status {
 
   // (a) Iron victory — checked BEFORE last-standing (Round-4 refinement).
   // Under variant (a)/P3 (`victoryIronRequiresPerimeter`), only perimeter-held iron counts here.
+  // Under variant (b)/P2 (`victoryIronHoldRounds` > 1), the coalition must additionally have
+  // held the threshold across at least (holdRounds - 1) prior end-of-turn checks — i.e. some
+  // member's `victoryStreak >= holdRounds - 1`. Default holdRounds=1 short-circuits the gate
+  // (instant victory the moment the threshold is met), preserving current behavior.
+  const holdRounds = state.config.victoryIronHoldRounds;
   let best: { players: PlayerId[]; iron: number } | null = null;
   for (const comp of comps) {
     const iron = coalitionVictoryIron(state, comp);
     if (iron < threshold) continue;
+    if (holdRounds > 1) {
+      const coalitionStreak = Math.max(
+        ...comp.map((id) => state.players.find((p) => p.id === id)!.victoryStreak),
+      );
+      if (coalitionStreak < holdRounds - 1) continue;
+    }
     if (
       best === null ||
       iron > best.iron ||
