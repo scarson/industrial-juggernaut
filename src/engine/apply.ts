@@ -1,12 +1,12 @@
 // ABOUTME: applyAction — the engine's pure state-transition function (spec §4/§8).
 // ABOUTME: Task 5.3 implements the build branch; attack lands in Task 5.4. Returns a NEW state, never mutates input.
 
-import { buildBudget, isLegalBasePlacement, isLegalFactoryPlacement } from "./build";
+import { buildBudget, buildBudgetForType, isLegalBasePlacement, isLegalFactoryPlacement } from "./build";
 import { resolveCombat } from "./combat";
 import { distance, key } from "../geometry/cube";
 import { convexHull, hullArea } from "../geometry/hull";
 import { nextFloat } from "../rng/pcg";
-import type { Action, AttackDecl, Base, Factory, GameEvent, GameState, PlayerId } from "./types";
+import type { Action, AttackDecl, Base, BaseType, Factory, GameEvent, GameState, PlayerId } from "./types";
 
 /** The acting player is whoever's round it is. */
 function currentPlayer(state: GameState): PlayerId {
@@ -32,7 +32,7 @@ function maxOrder(bases: Base[]): number {
 function applyBuild(
   state: GameState,
   player: PlayerId,
-  pieces: { type: "factory" | "base"; hex: GameState["board"]["hexes"][number] }[],
+  pieces: { type: "factory" | "base"; hex: GameState["board"]["hexes"][number]; baseType?: BaseType }[],
 ): { state: GameState; events: GameEvent[] } {
   if (pieces.length === 0) {
     throw new Error("applyAction(build): pieces must be non-empty");
@@ -42,7 +42,24 @@ function applyBuild(
     throw new Error("applyAction(build): all pieces must be the same type (one type per round)");
   }
 
-  const budget = buildBudget(state, player);
+  // Per-type build-budget check (Phase 3). For factories, the budget is always the forge-budget
+  // (factories cost 2 resources/piece regardless of base-types-enabled state). For bases under
+  // baseTypesEnabled, the budget depends on the piece subtype (forge=2, watchtower=4, outpost=1).
+  // All pieces must be the same subtype within a single build action — same constraint as the
+  // existing "one type per round" rule, extended to the base subtype dimension.
+  let budget: number;
+  if (type === "factory") {
+    budget = buildBudget(state, player); // forge-equivalent factory budget; cost 2.
+  } else {
+    const subtypes = new Set(pieces.map((p) => p.baseType ?? "forge"));
+    if (subtypes.size > 1) {
+      throw new Error(
+        `applyAction(build): all base pieces in one round must share a baseType (got ${[...subtypes].join(", ")})`,
+      );
+    }
+    const baseSubtype = pieces[0]!.baseType ?? "forge";
+    budget = buildBudgetForType(state, player, baseSubtype);
+  }
   if (pieces.length > budget) {
     throw new Error(
       `applyAction(build): ${pieces.length} pieces exceeds build budget ${budget}`,
@@ -82,7 +99,13 @@ function applyBuild(
         );
       }
       const nextOrder = maxOrder(working.bases) + 1;
-      const base: Base = { owner: player, hex: piece.hex, state: "fresh", order: nextOrder, type: "forge" };
+      const base: Base = {
+        owner: player,
+        hex: piece.hex,
+        state: "fresh",
+        order: nextOrder,
+        type: piece.baseType ?? "forge",
+      };
       const players = working.players.map((p) =>
         p.id === player ? { ...p, basesInHand: p.basesInHand - 1 } : p,
       );

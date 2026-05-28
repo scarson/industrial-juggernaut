@@ -5,9 +5,39 @@ import { distance, key } from "../geometry/cube";
 import { convexHull, hexInHull, hullArea } from "../geometry/hull";
 import { segmentBlocked } from "../geometry/sightline";
 import { control, resourceCount } from "./control";
-import type { Base, GameState, Hex, PlayerId } from "./types";
+import type { Base, BaseType, GameState, Hex, PlayerId } from "./types";
+import type { RuleConfig } from "./config";
 
 const PERIMETER_BASE_COUNT = 4;
+
+/**
+ * Per-base-piece cost in resources (Tactical Depth Phase 3). When
+ * `baseTypesEnabled`, the asymmetric subtypes have different costs:
+ *   - forge:      2 resources / piece (unchanged from pre-Phase-3 semantics)
+ *   - watchtower: 4 resources / piece (twice the cost)
+ *   - outpost:    1 resource  / piece (half the cost)
+ * When the flag is false, ALL base pieces cost 2 regardless of subtype, so
+ * existing callers and fixtures behave identically.
+ *
+ * Factories always cost 2 resources / piece (no per-type variation).
+ */
+export const BASE_PIECE_COST_FORGE = 2;
+const BASE_PIECE_COST_WATCHTOWER = 4;
+const BASE_PIECE_COST_OUTPOST = 1;
+const FACTORY_PIECE_COST = 2;
+
+export function basePieceCost(config: RuleConfig, type: BaseType): number {
+  if (!config.baseTypesEnabled) return BASE_PIECE_COST_FORGE;
+  switch (type) {
+    case "forge":      return BASE_PIECE_COST_FORGE;
+    case "watchtower": return BASE_PIECE_COST_WATCHTOWER;
+    case "outpost":    return BASE_PIECE_COST_OUTPOST;
+  }
+}
+
+export function factoryPieceCost(): number {
+  return FACTORY_PIECE_COST;
+}
 
 /** Bases owned by `player`, in placement order is irrelevant — caller may reorder. */
 function basesOf(state: GameState, player: PlayerId): Base[] {
@@ -61,13 +91,32 @@ function isIron(state: GameState, h: Hex): boolean {
  * exception — a player with fewer than 4 bases controlling >=1 iron and 0
  * factories may build 1 factory even at resource count 1. So the budget is
  * `max(floor(rc/2), bootstrap ? 1 : 0)`.
+ *
+ * Returns the FORGE-base-piece (and factory-piece, same cost) budget — the
+ * legacy single value. Callers that need a per-base-type budget under
+ * `baseTypesEnabled` should use {@link buildBudgetForType}.
  */
 export function buildBudget(state: GameState, player: PlayerId): number {
+  return buildBudgetForType(state, player, "forge");
+}
+
+/**
+ * Per-base-type build budget (Tactical Depth Phase 3). Returns
+ * `max(floor(rc / basePieceCost(config, type)), bootstrap ? 1 : 0)`. With
+ * `baseTypesEnabled=false`, every call returns the legacy `floor(rc/2)`
+ * regardless of `type` — preserving bit-for-bit existing behavior.
+ *
+ * Bootstrap retained: the bootstrap factory carve-out is per the existing
+ * rule (only when <4 bases, ≥1 iron, 0 factories) and applies independently
+ * of base type — the bootstrap covers a factory, not a base.
+ */
+export function buildBudgetForType(state: GameState, player: PlayerId, type: BaseType): number {
   const ctl = control(state, player);
   const rc = ctl.iron.length + ctl.factories.length;
   const baseCount = basesOf(state, player).length;
   const bootstrap = baseCount < PERIMETER_BASE_COUNT && ctl.iron.length >= 1 && ctl.factories.length === 0;
-  return Math.max(Math.floor(rc / 2), bootstrap ? 1 : 0);
+  const cost = basePieceCost(state.config, type);
+  return Math.max(Math.floor(rc / cost), bootstrap ? 1 : 0);
 }
 
 /**

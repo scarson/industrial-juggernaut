@@ -3,8 +3,9 @@
 
 import { distance, key } from "../geometry/cube";
 import { convexHull, hexInHull, hullArea } from "../geometry/hull";
-import type { Base, BaseType, GameState, Hex, PlayerId, RuleConfig } from "./types";
+import type { Base, BaseType, GameState, Hex, PlayerId } from "./types";
 import { baseTypeOf } from "./types";
+import type { RuleConfig } from "./config";
 
 const PERIMETER_BASE_COUNT = 4;
 

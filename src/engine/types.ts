@@ -95,7 +95,15 @@ export type GameState = {
 };
 
 export type Action =
-  | { kind: "build"; pieces: { type: "factory" | "base"; hex: Hex }[] } // one type only per round
+  | {
+      kind: "build";
+      // One PieceKind only per round (all pieces same `type`). Base pieces may
+      // optionally carry a `baseType` — the asymmetric Tactical Depth subtype
+      // (defaults to "forge"). When `RuleConfig.baseTypesEnabled` is false, the
+      // baseType is ignored and treated as "forge" everywhere (bit-for-bit
+      // identical to the pre-Phase-1 semantics).
+      pieces: { type: "factory" | "base"; hex: Hex; baseType?: BaseType }[];
+    }
   | { kind: "attack"; attacks: AttackDecl[] } // 1+ (multi-attack)
   | { kind: "pass" } // see Section 8 note
   | { kind: "ally"; target: PlayerId } // mutual alliance commitment (alliance layer; gated by config.alliancesEnabled)
