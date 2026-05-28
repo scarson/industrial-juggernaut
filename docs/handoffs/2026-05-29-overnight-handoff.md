@@ -29,7 +29,7 @@ So the picture is more nuanced than yesterday's playtest synthesis indicated:
 | A2 sweep (c, 3P, 150 games) | ✅ Complete | **lookahead2 32.7% / heuristic 33.3% / 33.3%.** No advantage. Report: `docs/2026-05-29-lookahead2-vs-heuristic-c-3p.md`. |
 | A3 sweep (c, 4P, 100 games) | ✅ Complete | **lookahead2 25.0% / heuristic 28/29/18%.** No advantage. Report: `docs/2026-05-29-lookahead2-vs-heuristic-c-4p.md`. |
 | A4 sweep (default variant, 2P, 200 games) | 🟢 In-flight | At ~40/200 last check. **This is the critical "is the exploit (c)-specific?" test.** |
-| E grid (longer-game regime) | ⬜ Queued behind A4 | 3 × 3 × 2 cell grid of boardSize × victoryThreshold × ironCount. |
+| E grid (longer-game regime) | ✅ Complete | **No longer-game-but-resolving regime found in 3 × 3 × 2 grid.** Either fast (2-3 turn) iron victories OR turn-cap stalls. Report: `docs/2026-05-29-longer-game-regime-grid.md`. |
 | B1/B2/B3 (MCTS recovery) | ⬜ Queued behind E | MCTS@500/@1000 vs heuristic, and lookahead2 vs MCTS@500. |
 | Tactical Depth Phases 1-4 | ✅ Shipped (engine layer) | `Base.type` + `baseTypesEnabled` + type-aware control + build cost + factory-anchor + watchtower combat. 228/228 engine tests green. Default flag-off path is bit-for-bit identical to pre-change semantics. |
 | Tactical Depth Phases 5-7 | ⬜ Deferred | `legalActions` enumeration of subtypes + agent updates + comparison sweep. Engine layer is ready; agent + CLI surfacing is the next slice. |
@@ -72,9 +72,16 @@ OR — pivot to fixing MCTS structurally based on the lookahead2 finding:
 
 ### 3. (c)-variant default — flip or hold?
 
-The variant decides games in 2 turns; lookahead2 dominates because of this. If you want games where mid-game strategy matters, (c) needs to be tuned toward longer games (the E grid will give us data on this). If you're happy with (c)'s setup-decided 2-turn nature as a strategic game, the heuristic's 1-step argmax is just a known weakness to fix in the agent layer.
+The variant decides games in 2 turns at the default (boardSize=96, vt=10, iron=14). **E grid result:** (c)'s setup-decided nature is STRUCTURAL — across an 18-cell grid of (boardSize × victoryThreshold × ironCount) parameter combinations, NO cell produced "median ≥ 5 turns AND capHit ≤ 20%" (i.e., longer-but-still-resolving games). Every cell was either fast iron-vic (median 2-4 turns) or turn-cap stalls (median 61 = at the 60-turn cap with no victory).
 
-**My recommendation:** wait for the E grid (which auto-flags candidate longer-game configs by median turns ≥ 5 with capHit ≤ 20%). If it finds clean longer-game candidates, we have a balance tuning option. If not, (c) is the right regime and the work is in the agent.
+This means: if you want games where mid-game choices matter, you cannot get them by tuning boardSize/vt/ironCount within the (c) regime. You'd need to change the rules themselves (different victory mechanics, different perimeter rules, multi-resource scoring, etc.).
+
+**Combined with the 2P-specific exploit finding:** in 3P/4P games, the heuristic plays at baseline strength. So the open question is more like:
+- If primary playtest target is 2P, the heuristic IS exploitable — work on the agent (PRNG-aware eval, broader PW) or accept it.
+- If primary playtest target is 3P+, the heuristic is fine.
+- Neither answer requires balancing changes to (c)'s structure.
+
+**My recommendation:** hold (c) as the default. The 2P weakness is an agent problem, not a balance problem. The structural 2-turn nature is a feature of the regime (fast, decisive games), not a defect — UNLESS you want to design for a different gameplay loop. That's a creative design decision, not a balance one.
 
 ## Pointers to all the artifacts
 
