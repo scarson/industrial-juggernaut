@@ -50,3 +50,4 @@
 {"allianceWeight":0,"done":50,"total":50,"nPlayers":3,"turns":2,"victoryType":"iron","winner":[0,1],"coalitionSize":2,"hitTurnCap":false,"elapsedSec":71.586}
 {"allianceWeight":1,"done":1,"total":50,"nPlayers":3,"turns":2,"victoryType":"iron","winner":[2],"coalitionSize":1,"hitTurnCap":false,"elapsedSec":72.845}
 {"allianceWeight":1,"done":2,"total":50,"nPlayers":3,"turns":2,"victoryType":"iron","winner":[1],"coalitionSize":1,"hitTurnCap":false,"elapsedSec":74.281}
+{"allianceWeight":1,"done":3,"total":50,"nPlayers":3,"turns":2,"victoryType":"iron","winner":[1,2],"coalitionSize":2,"hitTurnCap":false,"elapsedSec":75.646}
