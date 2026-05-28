@@ -1,11 +1,15 @@
 // ABOUTME: MCTS re-validation (npx tsx src/sweep/revalidate.ts [--workers N]) — re-checks the calibration's balanced config under strong (MCTS) play.
 // ABOUTME: Part A: does the config stay healthy under all-MCTS play? Part B (gate 2): does MCTS beat the heuristic agent head-to-head? Runs games in parallel via a GamePool.
 
+import { resolve } from "node:path";
 import { isHealthy, defaultHealthThresholds } from "./health";
 import { fmtMetrics, elapsedS } from "./format";
 import { GamePool } from "./pool";
 import { runConfigParallel, roundRobinParallel, type NamedAgentSpec } from "./run-parallel";
+import { appendResultAndCommit } from "./incremental-results";
 import { defaultConfig, type RuleConfig } from "../engine/config";
+
+const INCREMENTAL_PATH = resolve(process.cwd(), "docs/sweeps/data/2026-05-28-revalidate.jsonl");
 
 const BASE_SEED = 1_000n;
 
@@ -72,7 +76,12 @@ async function main(): Promise<void> {
         agentSpec: { kind: "mcts", iterations: MCTS_ITERS },
         onGame: (done, total, nPlayers, result) => {
           const winner = result.winnerOrCoalition.length === 0 ? "none(cap)" : result.winnerOrCoalition.join("+");
-          console.log(`  [game ${done}/${total}] ${nPlayers}P -> turns=${result.turns} ${result.victoryType} winner=${winner} (${elapsedS(t0)})`);
+          const summary = `${nPlayers}P t=${result.turns} ${result.victoryType} w=${winner}`;
+          console.log(`  [game ${done}/${total}] ${summary} (${elapsedS(t0)})`);
+          appendResultAndCommit(INCREMENTAL_PATH, {
+            data: { phase: "health", done, total, nPlayers, turns: result.turns, victoryType: result.victoryType, winner: result.winnerOrCoalition, hitTurnCap: result.hitTurnCap, elapsedSec: (Date.now() - t0) / 1000 },
+            meta: { label: "revalidate-health", done, total, summary },
+          });
         },
       },
       pool,
@@ -99,7 +108,12 @@ async function main(): Promise<void> {
         turnCap: TURN_CAP,
         onGame: (done, total, _pc, result) => {
           const winner = result.winnerOrCoalition.length === 0 ? "none(cap)" : result.winnerOrCoalition.join("+");
-          console.log(`  [h2h ${done}/${total}] turns=${result.turns} ${result.victoryType} winnerSeat=${winner} (${elapsedS(t0)})`);
+          const summary = `2P h2h t=${result.turns} ${result.victoryType} w=${winner}`;
+          console.log(`  [h2h ${done}/${total}] ${summary} (${elapsedS(t0)})`);
+          appendResultAndCommit(INCREMENTAL_PATH, {
+            data: { phase: "h2h", done, total, nPlayers: 2, turns: result.turns, victoryType: result.victoryType, winner: result.winnerOrCoalition, hitTurnCap: result.hitTurnCap, elapsedSec: (Date.now() - t0) / 1000 },
+            meta: { label: "revalidate-h2h", done, total, summary },
+          });
         },
       },
       pool,

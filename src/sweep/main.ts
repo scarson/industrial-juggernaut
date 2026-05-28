@@ -7,7 +7,10 @@ import { findBalancedConfig, balanceSweep, selectBalanced, type GridEntry } from
 import { report } from "./report";
 import { defaultHealthThresholds, isHealthy } from "./health";
 import { fmtConfig, fmtConfigFull, fmtMetrics, elapsedS } from "./format";
+import { appendResultAndCommit } from "./incremental-results";
 import { defaultConfig, type RuleConfig } from "../engine/config";
+
+const INCREMENTAL_PATH = resolve(process.cwd(), "docs/sweeps/data/main-sweep.jsonl");
 
 /**
  * Common-random-numbers base seed for the whole run. A single fixed seed across
@@ -103,13 +106,23 @@ function main(): void {
     thresholds,
     onProgress: (done, total, config, metrics) => {
       if (metrics === null) {
+        const summary = `${fmtConfig(config)} infeasible`;
         console.log(`[${done}/${total}] ${fmtConfig(config)} -> infeasible (${elapsedS(t0)})`);
+        appendResultAndCommit(INCREMENTAL_PATH, {
+          data: { stage: "search", done, total, config, metrics: null, infeasible: true, elapsedSec: (Date.now() - t0) / 1000 },
+          meta: { label: "main-sweep-search", done, total, summary },
+        });
         return;
       }
       const h = isHealthy(metrics, thresholds);
       const prunedTag = isPrunable(config) ? " [pruned: unwinnable]" : "";
       const verdict = h.pass ? "PASS" : `fail(${h.reasons.length})`;
+      const summary = `${fmtConfig(config)} ${verdict}${prunedTag}`;
       console.log(`[${done}/${total}] ${fmtConfig(config)} -> ${fmtMetrics(metrics)} ${verdict}${prunedTag} (${elapsedS(t0)})`);
+      appendResultAndCommit(INCREMENTAL_PATH, {
+        data: { stage: "search", done, total, config, metrics, healthy: h.pass, reasons: h.reasons, pruned: isPrunable(config), elapsedSec: (Date.now() - t0) / 1000 },
+        meta: { label: "main-sweep-search", done, total, summary },
+      });
     },
   });
 
@@ -188,9 +201,14 @@ function main(): void {
     turnCap: REFINE_TURN_CAP,
     baseSeed: BASE_SEED,
     onProgress: (done, total, config, metrics) => {
+      const summary = `OFAT ${fmtConfigFull(config)} ${metrics === null ? "infeasible" : fmtMetrics(metrics)}`;
       console.log(
         `[ofat ${done}/${total}] ${fmtConfigFull(config)} -> ${metrics === null ? "infeasible" : fmtMetrics(metrics)} (${elapsedS(t0)})`,
       );
+      appendResultAndCommit(INCREMENTAL_PATH, {
+        data: { stage: "ofat", done, total, config, metrics, infeasible: metrics === null, elapsedSec: (Date.now() - t0) / 1000 },
+        meta: { label: "main-sweep-ofat", done, total, summary },
+      });
     },
   });
 

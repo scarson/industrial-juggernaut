@@ -7,7 +7,10 @@ import { findBalancedConfig, balanceSweep, selectBalanced, type GridEntry } from
 import { report } from "./report";
 import { defaultHealthThresholds, isHealthy } from "./health";
 import { fmtConfig, fmtConfigFull, fmtMetrics, elapsedS } from "./format";
+import { appendResultAndCommit } from "./incremental-results";
 import { defaultConfig, type RuleConfig } from "../engine/config";
+
+const INCREMENTAL_PATH = resolve(process.cwd(), "docs/sweeps/data/calibrate-sweep.jsonl");
 
 /** CRN base seed (shared across configs so config-to-config differences aren't seed noise). */
 const BASE_SEED = 1_000n;
@@ -67,13 +70,23 @@ function main(): void {
     thresholds,
     onProgress: (done, total, config, metrics) => {
       if (metrics === null) {
+        const summary = `${fmtConfig(config)} infeasible`;
         console.log(`[${done}/${total}] ${fmtConfig(config)} -> infeasible (${elapsedS(t0)})`);
+        appendResultAndCommit(INCREMENTAL_PATH, {
+          data: { stage: "grid", done, total, config, metrics: null, infeasible: true, elapsedSec: (Date.now() - t0) / 1000 },
+          meta: { label: "calibrate-grid", done, total, summary },
+        });
         return;
       }
       const h = isHealthy(metrics, thresholds);
       const prunedTag = isPrunable(config) ? " [pruned: unwinnable]" : "";
       const verdict = h.pass ? "PASS" : `fail(${h.reasons.length}: ${h.reasons.join("; ")})`;
+      const summary = `${fmtConfig(config)} ${h.pass ? "PASS" : `fail(${h.reasons.length})`}${prunedTag}`;
       console.log(`[${done}/${total}] ${fmtConfig(config)} -> ${fmtMetrics(metrics)} ${verdict}${prunedTag} (${elapsedS(t0)})`);
+      appendResultAndCommit(INCREMENTAL_PATH, {
+        data: { stage: "grid", done, total, config, metrics, healthy: h.pass, reasons: h.reasons, pruned: isPrunable(config), elapsedSec: (Date.now() - t0) / 1000 },
+        meta: { label: "calibrate-grid", done, total, summary },
+      });
     },
   });
 
@@ -105,9 +118,14 @@ function main(): void {
     turnCap: TURN_CAP,
     baseSeed: BASE_SEED,
     onProgress: (done, total, config, metrics) => {
+      const summary = `OFAT ${fmtConfigFull(config)} ${metrics === null ? "infeasible" : fmtMetrics(metrics)}`;
       console.log(
         `[ofat ${done}/${total}] ${fmtConfigFull(config)} -> ${metrics === null ? "infeasible" : fmtMetrics(metrics)} (${elapsedS(t0)})`,
       );
+      appendResultAndCommit(INCREMENTAL_PATH, {
+        data: { stage: "ofat", done, total, config, metrics, infeasible: metrics === null, elapsedSec: (Date.now() - t0) / 1000 },
+        meta: { label: "calibrate-ofat", done, total, summary },
+      });
     },
   });
 
