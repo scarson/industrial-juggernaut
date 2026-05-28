@@ -12,3 +12,4 @@
 {"phase":"health","done":12,"total":12,"nPlayers":3,"turns":25,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":5938.009}
 {"phase":"h2h","done":1,"total":16,"nPlayers":2,"turns":1,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":5939.281}
 {"phase":"h2h","done":2,"total":16,"nPlayers":2,"turns":2,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":6022.401}
+{"phase":"h2h","done":3,"total":16,"nPlayers":2,"turns":15,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":6057.354}
