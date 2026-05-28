@@ -44,3 +44,28 @@
 - When I DO have iron reachable, prioritize grabbing it turn 1 with a base placement that's also positioned to ENCLOSE more iron once I add bases 3 and 4.
 - Specifically test L-shape: place 2nd base offset 2 hexes in one direction, 3rd base offset 2 hexes orthogonally, so the 4th base completes a roughly-rectangular perimeter.
 
+### Game 2 (seed 1001)
+
+**Strategy hypothesis before play:** Same corner start (-5,6,-1). P1 second-base at (1,-1,0) centrally. This time I have 1 iron at (-4,4,0) — bootstrap works. Try aggressive overlap: place 2nd base ON P1's iron (0,1,-1) — captures 6 iron via overlap rule AND obstructs P1's perimeter geometry. Hypothesis: forcing P1 to perimeter-around me costs them iron.
+
+**Key discovery before play:** `placeRange` is 5 even though `radius` is 2 in variant c. Brief was slightly misleading — they're separate config fields. I can PLACE up to 5 hexes from any of my bases, even though my TERRITORY only extends radius 2.
+
+**Trajectory:**
+- I built base at (0,1,-1) (heuristic-recommended, also greedy max-iron). My iron jumped 1 → 7 (overlap captures 6 of P1's iron tiles since both <4 bases).
+- P1 immediately responded with budget=4: built 4 bases (-3,3,0), (1,3,-4), (-6,3,3), (-3,6,-3) — completing a massive 6-base perimeter that wraps the center.
+- Final: P0=7 iron, P1=13. P1 iron victory.
+
+**Outcome:** LOST. P1 iron victory turn 2 round 0. P1 had budget 4 from their 8-iron start; my best move (capturing 6 in overlap) wasn't enough to deny their perimeter completion.
+
+**What I learned:**
+- **placeRange ≠ radius**: in variant c, placeRange=5 (default), radius=2. Critical for placing distant bases.
+- The starting position is essentially decided BEFORE my first move: if P1 starts at a central iron-rich hex, their pre-turn build pushes them to ≥8 iron, which gives them turn-1 budget of 4 bases — enough for an instant perimeter win.
+- My max possible single-move iron capture is ~6-7 (via overlap with P1's dense cluster). P1 keeps their 8 PLUS gets MORE via their 4-base perimeter completion. Net: P1 wins.
+- **The heuristic's greedy "grab max iron" recommendation was a TRAP here** — it gave me 7 iron, looked good on eval, but my response just helped P1 complete their dominant perimeter on their first composed-build.
+- **The key parameter for me is P1's iron count at start of my turn-1.** If P1 < 8 iron → P1 budget < 4 → P1 can't complete perimeter turn 1 → I have a turn-2 chance.
+
+**Strategy update for next game:**
+- IF P1 has ≥8 iron after their pre-turn build → likely lost seed, but still try a denial play (place base to SHRINK P1's max perimeter, not max-iron-grab for me).
+- IF P1 has <8 iron after their pre-turn build → I have a real game. Build budget will be limited for both of us.
+- **NEW hypothesis to test:** instead of grabbing P1's iron via overlap, place my base OUTSIDE P1's reach but in a position that ENCLOSES many neutral iron when I add bases 3-4. The heuristic-recommended (greedy) move gives short-term iron but enables P1's perimeter completion.
+
