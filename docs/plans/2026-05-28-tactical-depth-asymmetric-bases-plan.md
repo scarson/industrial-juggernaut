@@ -1,8 +1,8 @@
 # Tactical Depth — Asymmetric Base Types — Implementation Plan
 
 **Plan date:** 2026-05-28 (overnight)
-**Status banner:** ⬜ Not started → 🚧 In progress → ✅ Complete. Phases below carry their own banners.
-**Overall status:** ⬜ Not started — gated on alliance layer validation per Sam's serial sequencing (adopt → validate → next layer).
+**Status banner:** 🚧 In progress — Phases 1-4 (engine) landed 2026-05-28/29 overnight; Phases 5-7 (legalActions enumeration + agent updates + comparison sweep) deferred for Sam's review and prioritization.
+**Overall status:** Engine layer COMPLETE: `BaseType` field, `baseTypesEnabled` flag, type-aware control + build cost + factory-anchor gating + watchtower combat defense. The flag defaults FALSE — zero behavior change at the default. 228/228 engine tests green. The engine is ready to support agent updates (Phase 6) and a full comparison sweep (Phase 7) once Sam greenlights the next slice.
 **Authoritative inputs:**
 - `2026-05-28-design-decisions-from-thought-exercises.md` — Sam's decisions: asymmetric role types (NOT literal RPS cycle); also-in-scope: mid-game events (separate plan).
 - `docs/2026-05-28-terrain-events-spec.md` — companion lever; orthogonal mechanic, separate plan.
