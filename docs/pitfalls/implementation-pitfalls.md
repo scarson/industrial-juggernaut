@@ -26,7 +26,7 @@ This document serves three audiences. Start here, then go directly to the sectio
 |---|---------|---------------------|---------|-----------|
 | 1 | [Geometry & Engine](#section-1-geometry--engine) | Hex math, coordinate projection, PRNG threading, derived state | GEO-1 – GEO-6 | §1.C |
 | — | [Orchestration](#orchestration) | Parallel subagent dispatch and output persistence | ORCH-1 | §Orchestration.C |
-| — | [Balance & Evaluation](#balance--evaluation) | Sweep harness, config health, agent-relative balance | BAL-1 | §Balance.C |
+| — | [Balance & Evaluation](#balance--evaluation) | Sweep harness, config health, agent-relative balance, durable per-game persistence | BAL-1, BAL-2 | §Balance.C |
 | A | [Historical Changelog](#appendix-a-historical-changelog) | Provenance, validation dates, review process meta-observations | — | — |
 | B | [Unified Summary Table](#appendix-b-unified-summary-table) | All pitfalls at a glance, with severity and status | — | — |
 
@@ -151,10 +151,49 @@ Pitfalls specific to the offline balance/agent-evaluation harness (`src/sweep/`,
 
 **Why (lived 2026-05-27):** `b96/r2/iron12/vt12` passed all 7 health criteria under greedy (median 3 turns, ironVictory 0.79) — but under MCTS it ended **6/6 games by `last-standing` elimination, 0% iron victory**. Strong play's dominant line is to **deny the opponent's iron** (radius-2 control disks + scarce iron make denial easy) → `noIron` elimination (`src/engine/status.ts`) → last-standing win, faster than racing to the iron threshold. Greedy never finds this line, so the health gate (tuned on greedy self-play) **certified agent myopia as balance.** The fix is methodological, not a code change: gate under the strongest available agent. See `2026-05-27-balance-rules-analysis.md` §0.1.
 
+### BAL-2: Long-Running Sweeps MUST Commit + Push Per Game
+
+**Trigger:** Any sweep / measurement script that runs more than a handful of games AND writes its report only at the end. In an ephemeral container, every minute of compute that hasn't been committed-and-pushed is at risk of total loss on container restart.
+
+**What you need to do:** Use `appendResultAndCommit` (`src/sweep/incremental-results.ts`) inside every `onGame` callback. Each game's outcome appends a JSONL line to a `docs/sweeps/data/*.jsonl` file AND git-commits-and-pushes it synchronously. Concurrent callers (4 workers' games completing roughly simultaneously) serialize naturally on the parent event loop; the commit/push latency (~0.5–2s) is negligible against minutes-per-game compute.
+
+**Why this rule exists (lived 2026-05-28):** The MCTS@300 stress test (`src/sweep/mcts-300-on-c.ts`) ran for ~70 minutes producing the all-MCTS health check data. The script wrote its report only at the very end. The container restarted before the run finished. **All 70 minutes of compute were lost** — not just the in-flight games. Re-running cost another full block.
+
+**The pattern (for new sweep scripts):**
+```ts
+import { appendResultAndCommit } from "./incremental-results";
+
+const INCREMENTAL_PATH = resolve(process.cwd(), "docs/sweeps/data/your-sweep.jsonl");
+
+// inside onGame:
+onGame: (done, total, n, r) => {
+  const summary = `${n}P t=${r.turns} ${r.victoryType}`;
+  console.log(`  [${done}/${total}] ${summary} (${elapsedS(t0)})`);
+  appendResultAndCommit(INCREMENTAL_PATH, {
+    data: { done, total, nPlayers: n, turns: r.turns, victoryType: r.victoryType, ...etc },
+    meta: { label: "your-sweep", done, total, summary },
+  });
+},
+```
+
+**Trade-offs to be aware of:**
+- Per-game commit adds ~0.5-2s overhead per game. For MCTS games (minutes-per-game) negligible. For fast heuristic games (<1s) the overhead can be larger than the compute. Acceptable trade: the data loss avoided > the overhead added.
+- The final report (the synthesized markdown) is generated at end-of-run as usual, and ALSO committed. If interrupted, the JSONL is the source of truth and the report can be regenerated post-hoc.
+- Push failures (network blip, GitHub flake) are LOGGED, not thrown. The JSONL is still on disk; the next successful commit picks it up. Unrecoverable network outage + container death = data loss between the last good push and the death; unavoidable tail.
+
+**Don't:** write the report only at the end, even if "it's a short run." Container restarts happen unpredictably. The exception (rare): one-off scripts that finish in well under a minute, where the failure mode is recoverable by just re-running.
+
+**Trigger:** Searching `RuleConfig` space for a "balanced" config via `findBalancedConfig`/the health gate, which run under the heuristic/greedy agent by default.
+
+**What you need to do:** Before concluding a config is balanced (let alone adopting it as `defaultConfig`), **re-validate it under MCTS** (`src/sweep/revalidate.ts`). A config that passes the health gate under greedy self-play may collapse under competent play.
+
+**Why (lived 2026-05-27):** `b96/r2/iron12/vt12` passed all 7 health criteria under greedy (median 3 turns, ironVictory 0.79) — but under MCTS it ended **6/6 games by `last-standing` elimination, 0% iron victory**. Strong play's dominant line is to **deny the opponent's iron** (radius-2 control disks + scarce iron make denial easy) → `noIron` elimination (`src/engine/status.ts`) → last-standing win, faster than racing to the iron threshold. Greedy never finds this line, so the health gate (tuned on greedy self-play) **certified agent myopia as balance.** The fix is methodological, not a code change: gate under the strongest available agent. See `2026-05-27-balance-rules-analysis.md` §0.1.
+
 ### Review Checklist
 
 - [ ] **Every "balanced config" claim is backed by an MCTS revalidation, not just greedy self-play** — the greedy health profile can be an artifact of the agent being too weak to find degenerate lines (BAL-1)
 - [ ] **No `defaultConfig` change adopts a config validated only under greedy** (BAL-1)
+- [ ] **Every long-running sweep script writes per-game results to a JSONL file AND commits+pushes them per game** — use `appendResultAndCommit` from `src/sweep/incremental-results.ts` (BAL-2). Container is ephemeral; report-only-at-end loses everything.
 - [ ] **Orchestrator commits subagent artifacts wave-by-wave** — committed files land on the campaign branch before consolidation begins (ORCH-1)
 
 ---
@@ -183,6 +222,7 @@ TODO — add entries as this document evolves.
 | GEO-5 | Perimeter Is Derived, Never Stored | MEDIUM | UNIMPLEMENTED | Geometry & Engine |
 | ORCH-1 | Analysis Dispatches Must Persist Findings | HIGH | VALIDATED | Orchestration |
 | BAL-1 | A Config Is "Balanced" Only Under the Strongest Agent | HIGH | VALIDATED | Balance & Evaluation |
+| BAL-2 | Long-Running Sweeps MUST Commit + Push Per Game | HIGH | VALIDATED | Balance & Evaluation |
 
 Severity levels: `CRITICAL` (production data loss / security), `HIGH` (correctness bug under predictable conditions), `MEDIUM` (correctness bug under edge cases), `LOW` (cleanliness / clarity).
 

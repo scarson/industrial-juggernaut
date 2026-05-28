@@ -4,6 +4,8 @@
 declare module "node:fs" {
   export function mkdirSync(path: string, options?: { recursive?: boolean }): void;
   export function writeFileSync(path: string, data: string, encoding?: string): void;
+  export function appendFileSync(path: string, data: string, encoding?: string): void;
+  export function existsSync(path: string): boolean;
 }
 
 declare module "node:path" {
@@ -38,6 +40,7 @@ declare module "node:child_process" {
     args: string[],
     options?: { stdio?: (string | number | null)[] },
   ): ChildProcess;
+  export function execSync(command: string, options?: { stdio?: string | (string | number | null)[]; encoding?: string; cwd?: string }): string;
 }
 
 declare const process: {

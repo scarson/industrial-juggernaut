@@ -7,7 +7,10 @@ import { GamePool } from "./pool";
 import { runConfigParallel } from "./run-parallel";
 import { defaultConfig, type RuleConfig } from "../engine/config";
 import { elapsedS, fmtMetrics } from "./format";
+import { appendResultAndCommit } from "./incremental-results";
 import type { SweepMetrics } from "./metrics";
+
+const INCREMENTAL_PATH = resolve(process.cwd(), "docs/sweeps/data/2026-05-28-alliance-deltas.jsonl");
 
 const BASE_SEED = 8_000n;
 const TURN_CAP = 60;
@@ -67,10 +70,16 @@ async function runVariant(variant: AllianceVariant, pool: GamePool, t0: number):
         playerCounts: PLAYER_COUNTS,
         agentSpec: { kind: "heuristic" },
         onGame: (done, total, n, r) => {
+          const w = r.winnerOrCoalition.length === 0 ? "none" : r.winnerOrCoalition.join("+");
+          const summary = `${variant.label} ${n}P t=${r.turns} ${r.victoryType} w=${w}`;
           if (done % 25 === 0 || done === total) {
-            const w = r.winnerOrCoalition.length === 0 ? "none" : r.winnerOrCoalition.join("+");
-            console.log(`  [${variant.label} ${done}/${total}] ${n}P -> t=${r.turns} ${r.victoryType} w=${w} (${elapsedS(t0)})`);
+            console.log(`  [${variant.label} ${done}/${total}] ${summary} (${elapsedS(t0)})`);
           }
+          // Per-game commit+push (ephemeral container — must persist as we go, not at the end).
+          appendResultAndCommit(INCREMENTAL_PATH, {
+            data: { variant: variant.label, done, total, nPlayers: n, turns: r.turns, victoryType: r.victoryType, winner: r.winnerOrCoalition, hitTurnCap: r.hitTurnCap, elapsedSec: (Date.now() - t0) / 1000 },
+            meta: { label: "alliance-deltas", done, total, summary },
+          });
         },
       },
       pool,

@@ -8,7 +8,10 @@ import { runConfigParallel, roundRobinParallel, type NamedAgentSpec } from "./ru
 import { defaultConfig, type RuleConfig } from "../engine/config";
 import { defaultHealthThresholds, isHealthy } from "./health";
 import { elapsedS, fmtMetrics } from "./format";
+import { appendResultAndCommit } from "./incremental-results";
 import type { SweepMetrics } from "./metrics";
+
+const INCREMENTAL_PATH = resolve(process.cwd(), "docs/sweeps/data/2026-05-28-mcts-300-on-c.jsonl");
 
 const BASE_SEED = 7_000n;
 const TURN_CAP = 60;
@@ -49,7 +52,12 @@ async function main(): Promise<void> {
           agentSpec: { kind: "mcts", iterations: 300 },
           onGame: (done, total, n, r) => {
             const w = r.winnerOrCoalition.length === 0 ? "none" : r.winnerOrCoalition.join("+");
-            console.log(`  [mcts@300 ${done}/${total}] ${n}P -> t=${r.turns} ${r.victoryType} w=${w} (${elapsedS(t0)})`);
+            const summary = `${n}P t=${r.turns} ${r.victoryType} w=${w}`;
+            console.log(`  [mcts@300 ${done}/${total}] ${summary} (${elapsedS(t0)})`);
+            appendResultAndCommit(INCREMENTAL_PATH, {
+              data: { phase: "health", done, total, nPlayers: n, turns: r.turns, victoryType: r.victoryType, winner: r.winnerOrCoalition, hitTurnCap: r.hitTurnCap, elapsedSec: (Date.now() - t0) / 1000 },
+              meta: { label: "mcts-300-on-c-health", done, total, summary },
+            });
           },
         },
         pool,
@@ -76,7 +84,12 @@ async function main(): Promise<void> {
           turnCap: TURN_CAP,
           onGame: (done, total, _pc, r) => {
             const w = r.winnerOrCoalition.length === 0 ? "none" : r.winnerOrCoalition.join("+");
-            console.log(`  [h2h ${done}/${total}] t=${r.turns} ${r.victoryType} w=${w} (${elapsedS(t0)})`);
+            const summary = `2P h2h t=${r.turns} ${r.victoryType} w=${w}`;
+            console.log(`  [h2h ${done}/${total}] ${summary} (${elapsedS(t0)})`);
+            appendResultAndCommit(INCREMENTAL_PATH, {
+              data: { phase: "h2h", done, total, nPlayers: 2, turns: r.turns, victoryType: r.victoryType, winner: r.winnerOrCoalition, hitTurnCap: r.hitTurnCap, elapsedSec: (Date.now() - t0) / 1000 },
+              meta: { label: "mcts-300-on-c-h2h", done, total, summary },
+            });
           },
         },
         pool,
