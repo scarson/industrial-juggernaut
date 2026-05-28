@@ -228,6 +228,21 @@ const MIN_TEMPERATURE = 1e-9;
  */
 const POLICY_MOVE_WEIGHTS: Weights = { iron: 10, fact: 1, area: 1, aggr: 1, fatigueCost: 0.1 };
 
+/**
+ * Per-iron bonus applied to an ally candidate's typeValue when scoring potential
+ * alliance partners (`samplePolicy`). The product `POLICY_ALLIANCE_WEIGHT × target.iron`
+ * is added on top of the post-apply `evaluate` so the heuristic prefers allying with
+ * partners whose controlled iron meaningfully advances the coalition's progress toward
+ * the (delta-scaled) victory threshold. Tuned in Phase 3 of the alliance-aware-agent-
+ * policy plan; the initial value is a starting point, not load-bearing.
+ *
+ * Symmetric `POLICY_BREAK_ALLIANCE_WEIGHT` penalizes breaking off a strong partner —
+ * applied as the per-iron PENALTY on the current ally's controlled iron when scoring
+ * a `break-alliance` candidate.
+ */
+const POLICY_ALLIANCE_WEIGHT = 5;
+const POLICY_BREAK_ALLIANCE_WEIGHT = 5;
+
 /** Max `order` over every base, or -1 when there are none (mirrors apply.ts / score.ts). */
 function maxOrder(bases: Base[]): number {
   let max = -1;
@@ -456,6 +471,30 @@ export function samplePolicy(
   const pass = acts.find((a) => a.kind === "pass");
   if (pass !== undefined) {
     candidates.push({ action: pass, typeValue: evaluate(state)[player]! });
+  }
+
+  // 1d. Alliance actions — one candidate per legal ally / break-alliance target. Gated by
+  // engine state (alliancesEnabled, cooldown, basesInHand, existing alliance set); we delegate
+  // the gating to `legalActions` rather than re-implement it here to avoid drift. Scoring:
+  //  - ally(T): `evaluate(post-apply)[player] + POLICY_ALLIANCE_WEIGHT × control(state, T).iron`
+  //    — prefers strong partners (more iron = more coalition progress). `applyAction(ally)` is
+  //    pure (no rng draw), so we compute the post-state directly without threading the rng.
+  //  - break-alliance(T): `evaluate(state)[player] − POLICY_BREAK_ALLIANCE_WEIGHT × control(state, T).iron`
+  //    — penalizes breaking off a strong ally. We score against the UNCHANGED state because
+  //    `applyAction(break-alliance)` draws a coin flip (2/3 success), and we don't want to burn
+  //    rng inside the scorer; the unchanged-state evaluate is the success branch's near-equivalent
+  //    for the actor's own evaluate (alliance arrays don't affect controlled iron/factories).
+  for (const a of acts) {
+    if (a.kind === "ally") {
+      const post = applyAction(state, a).state;
+      const targetIron = control(state, a.target).iron.length;
+      const typeValue = evaluate(post)[player]! + POLICY_ALLIANCE_WEIGHT * targetIron;
+      candidates.push({ action: a, typeValue });
+    } else if (a.kind === "break-alliance") {
+      const allyIron = control(state, a.target).iron.length;
+      const typeValue = evaluate(state)[player]! - POLICY_BREAK_ALLIANCE_WEIGHT * allyIron;
+      candidates.push({ action: a, typeValue });
+    }
   }
 
   // Fallback: legalActions normally yields >= 1 action, so `candidates` would only be

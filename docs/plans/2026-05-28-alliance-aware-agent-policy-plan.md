@@ -1,7 +1,7 @@
 # Alliance-Aware Agent Policy — Implementation Plan
 
 **Plan date:** 2026-05-28 (overnight).
-**Status banner:** ⬜ Not started — TRIPLE-GATED: (1) alliance Phase 7 sweep data shows agents don't form/break alliances meaningfully, (2) Sam confirms the agent gap is worth closing in sim (vs deferring to playtest), (3) the agent improvement is the right direction (vs the rules-side simplification).
+**Status banner:** 🟢 In progress — gates met 2026-05-28: (1) Phase 7 sweep (`docs/2026-05-28-alliance-comparison.md`) confirmed incidental-only alliance formation under the heuristic, (2) Sam directed this work as the next priority, (3) agent-side improvement chosen over rules-side simplification. Phase 1 complete; Phases 2-5 next.
 **Authoritative inputs:**
 - `docs/plans/2026-05-28-alliance-layer-plan.md` — alliance feature shipped (engine Phases 1-6); Phase 7 sweep is the trigger for this plan.
 - `docs/2026-05-28-design-followups-alliances-and-tactical-depth.md` — original spec and the known agent limitation.
@@ -32,12 +32,16 @@ Already evaluates a state; with alliances enabled, the state includes alliance i
 
 ## Phases
 
-### Phase 1: Heuristic candidate generation — ⬜ Not started
+### Phase 1: Heuristic candidate generation — ✅ Complete (2026-05-28)
 
-- [ ] Write failing test: under alliances enabled + heuristic agent + a "good ally available" state, the agent picks the ally action with high probability (>= 50% across many seeds).
-- [ ] Implement: extend `samplePolicy` to enumerate alliance candidates. Add to candidate set with computed `typeValue`.
-- [ ] Test: under "no good ally" state (only self-allied), agent doesn't ally.
-- [ ] Full suite green. Commit.
+- [x] Failing test written (`test/agent/heuristic-alliance-aware.test.ts`): under alliances enabled + a "strong vs weak ally" state, the heuristic at temp→0 picks `ally(target=strong)`. Red phase confirmed (build vs ally).
+- [x] Implemented in `src/agent/heuristic.ts`: `samplePolicy` enumerates `ally` and `break-alliance` candidates from `legalActions` (delegating gating so the legality logic isn't duplicated). Scoring:
+   - `ally(T)`: `evaluate(post-apply)[player] + POLICY_ALLIANCE_WEIGHT × control(state, T).iron.length` — prefers strong partners.
+   - `break-alliance(T)`: `evaluate(state)[player] − POLICY_BREAK_ALLIANCE_WEIGHT × control(state, T).iron.length` — penalizes breaking off a strong ally; scored against the unchanged state because `applyAction(break-alliance)` draws rng we don't want to consume in the scorer.
+- [x] Initial weights `POLICY_ALLIANCE_WEIGHT = 5`, `POLICY_BREAK_ALLIANCE_WEIGHT = 5` — starting points, tuned in Phase 3.
+- [x] Negative tests pass: alliances disabled → no ally candidates; actor on cooldown → no ally candidates.
+- [x] Full suite green: 314 tests (was 310 + 4 new). MCTS-vs-greedy SIGNAL unchanged (still 0/1 — alliance-aware ally not relevant in the 2P-no-alliance test).
+- [x] Committed.
 
 ### Phase 2: MCTS candidate generation — ⬜ Not started
 
@@ -90,8 +94,8 @@ Already evaluates a state; with alliances enabled, the state includes alliance i
 
 | Phase | Title | Status |
 |---|---|---|
-| 1 | Heuristic candidate generation for alliance actions | ⬜ Not started (triple-gated) |
-| 2 | MCTS candidate generation for alliance actions | ⬜ Not started |
+| 1 | Heuristic candidate generation for alliance actions | ✅ Complete (2026-05-28) |
+| 2 | MCTS candidate generation for alliance actions | ⬜ Not started (next) |
 | 3 | Heuristic weight tuning sweep | ⬜ Not started |
 | 4 | Alliance-aware leaf evaluation (optional) | ⬜ Not started |
 | 5 | Re-run alliance comparison with aware agents | ⬜ Not started |
