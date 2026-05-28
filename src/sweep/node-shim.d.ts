@@ -54,4 +54,5 @@ declare const process: {
   argv: string[];
   stdin: unknown;
   stdout: { write(chunk: string): void };
+  exit(code?: number): never;
 };
