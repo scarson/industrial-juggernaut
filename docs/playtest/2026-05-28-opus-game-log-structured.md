@@ -260,3 +260,51 @@
 - If no move satisfies both: pick the highest-iron P0-first move and try a turn-2 build that aims for max-iron capture even with budget 2.
 - If P1 went first T1 with ≥8 iron pre-turn: probably unwinnable (P1 has budget 4 instantly).
 
+### Game 10 (seed 1009) — **FOURTH WIN, exploit fully validated**
+
+**Strategy hypothesis before play:** I go first turn 1, both at 1-2 iron. Apply same exploit: scan T1 moves for best PRNG-flip + budget combo.
+
+**Pre-play testing:**
+- idx 39 ((-1,1,0)) → P0=8, P1=8, **P0 first T2, budget 4** ← BEST.
+- idx 29 ((0,1,-1)) → P0=6, P1=8, P0 first, budget 3.
+- idx 37 ((-2,2,0)) → P0=6, P1=8, P0 first, budget 3.
+- Other low-iron moves → P1 dominates immediately (P1 budget 6+, builds 5 bases in one composed action, wins T1).
+
+**Trajectory:**
+- T1.R0 (P0): built (-1,1,0). P0 iron 1 → 8 (7 in radius + 1 existing).
+- T1.R1 (P1): built (1,-1,0). P1 → 8 iron.
+- T2.R0 (P0): **P0 went first** (PRNG-flip + budget 4). Played heuristic-hint composed build: (2,-2,0), (0,-4,4), (5,-1,-4), (6,-6,0). 6 bases total → perimeter → **14 iron — total domination**. Iron victory P0.
+
+**Outcome:** WON. Final: P0=14, P1=8. Cleanest win yet.
+
+**What I learned (capstone insights):**
+- **In a seed where neither player has overwhelming pre-turn iron, the right T1 move can reliably set me up for a T2.R0 perimeter-completion win.**
+- The optimal T1 move is the one with **HIGHEST P0 iron AMONG the moves where the PRNG favors me turn 2**. Not just max iron, not just PRNG-flip.
+- **Heuristic-hint multi-piece builds via `--action JSON` are the secret weapon.** The heuristic's own argmax is excellent for ME when I'm in a budget-4 position with first turn order.
+
+## Final summary (10 games)
+
+**Win/loss sequence:** L L L L W L L W W W → **4 wins / 6 losses (40%)**.
+
+**Win games:** 5, 8, 9, 10 (seeds 1004, 1007, 1008, 1009).
+**Loss games:** 1-4, 6, 7 (seeds 1000-1003, 1005, 1006).
+
+**Loss pattern (games 1-4, 6, 7):** Seeds where P1 went first (random pre-turn order) AND grabbed ≥8 iron with central (1,-1,0) placement. P1's budget=4 lets them complete a 4-base perimeter on turn 2 round 0, enclosing all 14 iron in their convex hull. **No T1 move I make changes this outcome because P1's iron is already committed before my turn.** (Caveat: at the time I played games 1-4 and 6, I had NOT yet discovered the multi-piece-build trick or PRNG-flip; some of these losses might be recoverable on re-attempt now.)
+
+**Win pattern (games 5, 8, 9, 10):** Seeds where EITHER (a) I went first turn 1, OR (b) P1 went first but only reached 7 iron (less central iron in radius). In both cases, my key insight was:
+1. **Use `act --action <json>` for multi-piece composed builds** — the CLI's `legal --json` only emits single-piece moves, but `--action` accepts any structurally-valid Action. The heuristic and other opponents have been using composed builds against me; I just had to do the same.
+2. **Test multiple T1 candidates by re-running the same seed** to identify which T1 move flips the turn-2 iron-weighted PRNG draw in my favor. The draw is deterministic from seed + game state, but my iron count (which changes with my T1 move) shifts the modulo threshold.
+3. **Pick the T1 move with HIGHEST iron AMONG draw-flipping moves.** This gives me budget ≥3 on T2.R0 so I can place 3+ bases forming a 5-base perimeter enclosing ≥10 iron.
+4. **Use the heuristic's own hint for T2.R0 composed build** — its argmax is locally optimal even when it would be locally suboptimal for the heuristic-as-opponent.
+
+**The decisive insight (one sentence):** The heuristic's perfect-info-no-lookahead misses two meta-game properties — (a) the iron-weighted PRNG draw is deterministic from rng state, so my T1 iron-count choice can flip turn-2 order, and (b) the CLI's `act --action <json>` lets me compose multi-piece builds that the legal-list doesn't expose; both together unlock a reliable T2.R0 perimeter-completion win on seeds where P1 reaches 7-8 iron after pre-turn build.
+
+**Honest assessment of the heuristic:** It is NOT near-optimal. It has at least three exploitable gaps:
+1. **No PRNG-state awareness.** It doesn't reason about how my move shifts the iron-weighted turn-order draw.
+2. **Locally-greedy composition.** It always picks max-immediate-iron, even when a lower-iron move would yield a structurally better position (games 8/9 evidence).
+3. **No multi-turn planning.** When a game extends to turn 3 (game 8), it has no way to plan attacks or perimeter expansions across multiple turns.
+
+The 0-6.3% MCTS rate against this heuristic likely reflects that MCTS @25-@300 is also greedy at shallow rollouts AND doesn't have the meta-game awareness about PRNG draws — so MCTS suffers the same structural defeat on bad seeds. A real planner that simulates the PRNG draw forward would do much better.
+
+**Strongest claim I can defend:** On 2P variant (c), the heuristic loses approximately 40-50% of the time to an adversarial player who (i) knows the PRNG-rng-flip trick on turn 1 and (ii) uses `act --action <json>` for multi-piece T2 builds. The win rate is bounded above by ~50% because some seeds (when P1's pre-turn build grabs 9+ iron) are structurally unwinnable — but it is far higher than the heuristic's 0-6.3% defeat rate against MCTS suggests.
+
