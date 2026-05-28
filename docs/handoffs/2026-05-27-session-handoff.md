@@ -2,18 +2,19 @@
 
 > Checkpoint of a long autonomous session that went from design docs → a complete M1 rules engine → a stronger-agent (MCTS) build → a balance-sweep harness. The session is NOT ending; this is a durable checkpoint. Points at the canonical artifacts (specs/plans/reports) rather than duplicating them.
 
-## Headline state (updated 2026-05-28, after the rules-variants experiment + alliance implementation)
+## Headline state (updated 2026-05-28 after MCTS@300 landed; checkpoint per Sam's instruction)
 - **Branch:** `claude/document-game-design-VpqqB` (all work; the only dev branch).
-- **Tip:** see `git log -1` (alliance Phase 1-6 + design specs all pushed). `origin/main` is at `72944bb` (PR #10). The branch is now FAR ahead of main with: parallel infra; variant (a)/(b)/(c) flag implementations; alliance layer flags + actions + threshold scaling + cooldown; smoke tests; many design specs.
-- **Tests:** full suite green — **196 engine tests** + broader suite all passing, strict `tsc` clean. (Re-run full suite once MCTS@300 finishes.)
-- **THE balance picture (2026-05-28):**
-  1. **Variant (c) `noIronRequiresPerimeter: true` is the load-bearing fix** — comparison sweep (`docs/2026-05-28-rules-variants-comparison.md`, `2026-05-28-rules-variants-synthesis.md`) showed it changes MCTS games from 12/12 turn-1 last-standing to 25% iron-vic, median t=12.5. Variant (a) P3 adds the victory-iron-perimeter change on top but gives no measurable improvement.
-  2. **Sam has greenlit variant (c) adoption** with **recalibrated health gates** (spec'd in `docs/2026-05-28-gate-recalibration-for-c.md` — NOT YET IMPLEMENTED, just spec).
-  3. **MCTS@300 stress test is RUNNING** (`docs/2026-05-28-mcts-300-on-c.md` will be generated). Tests whether gate-2 failure (MCTS losing h2h to heuristic on (c) at @100) is search-depth or structural.
-  4. **The 2P-elimination concern is largely resolved**, but **wall-clock for 12-turn games at 2-3 hours is rejected** — Sam wants 60-120 min target. The legal-action-count profile (queued, deferred for compute reasons) will inform whether late turns are forced (faster) or expanding (slower).
-- **Alliance layer Phases 1-6 IMPLEMENTED (engine done):** `RuleConfig.alliancesEnabled` flag (default off); `ally`/`break-alliance` actions; anti-coalition victory threshold scaling (`allianceVictoryDelta`, default 4, tunable); weighted-with-cooldown break mechanic (2/3 success); `Player.allianceCooldownTurns` decremented at turn rollover. Tests + smoke acceptance committed. Phase 7 comparison sweep script ready but NOT launched (waiting for MCTS@300 to free cores).
-- **Design specs queued for Sam (Q&A captured in `2026-05-28-design-decisions-from-thought-exercises.md`):** concession mechanic + asset-handling; neutral defending bases for 2P; board-terrain-manipulation events; Opus-as-agent proxy. All Sam-gated; none implemented.
-- **PRs:** #2,#5,#6,#7,#8,#9,#10 all merged to `main` with **normal merge commits**. No PR open. The 2026-05-28 work (alliance layer, variants, specs) is NOT yet PR'd to main.
+- **Tip:** see `git log -1` — ~70 commits ahead of `origin/main` (still at `72944bb`/PR #10). The branch now carries: parallel infra; variant (a)/(b)/(c) flag implementations; full alliance-layer engine (Phases 1-6 of `docs/plans/2026-05-28-alliance-layer-plan.md`); BAL-2 incremental commit infrastructure (`src/sweep/incremental-results.ts`); per-environment `workerCount()`; sweep dashboard; MCTS@300 result; 5 implementation plans and many design specs.
+- **Tests:** 298 tests green on the subset suite (engine + sweep + eval + driver). Full suite (including MCTS tests) hasn't been re-run since MCTS@300 freed the cores — see priority #1 below.
+- **THE headline finding (lands today):** MCTS@300 stress test on variant (c)'s best cell COMPLETED. Read `docs/2026-05-28-mcts-300-on-c.md`. **Verdict: the perimeter-aware heuristic is genuinely near-optimal on the (c) regime.** MCTS@300 h2h vs heuristic = 6.3% vs 93.8% (IDENTICAL to MCTS@100 — Δ -0.0pp). Adding search depth doesn't help. This means A6 gate-2 ("MCTS beats greedy ≥ 0.70") in its current form is the wrong instrument; needs a Sam-gated reframe (re-anchor / build alliance-aware policy / re-think gate-2). Detailed routing in `docs/plans/2026-05-27-stronger-agent-mcts-plan.md` 2026-05-28 update.
+- **THE balance picture (still operative):**
+  1. **Variant (c) `noIronRequiresPerimeter: true` is the load-bearing fix.** Comparison sweep (`docs/2026-05-28-rules-variants-comparison.md`, `2026-05-28-rules-variants-synthesis.md`) showed it changes MCTS games from 12/12 turn-1 last-standing to ~25% iron-vic, median t≈12. Variant (a) P3 adds the victory-iron-perimeter change on top but gives no measurable improvement.
+  2. **Sam has greenlit variant (c) adoption** with **recalibrated health gates** (`docs/2026-05-28-gate-recalibration-for-c.md`; `mctsHealthThresholds()` SHIPPED in `src/sweep/health.ts`, not yet adopted as default by sweeps).
+  3. **Wall-clock concern:** Sam rejected 2-3hr heavy-strategy positioning; targets 60-120min. The legal-action-count profile (queued) is the disambiguator for whether 12-turn games are forced (faster late) or expanding (slower late).
+- **Alliance layer Phases 1-6 IMPLEMENTED (engine done):** `RuleConfig.alliancesEnabled` flag (default off); `ally`/`break-alliance` actions; anti-coalition victory threshold scaling (`allianceVictoryDelta`, default 4, tunable); weighted-with-cooldown break (2/3 success); cooldown decrement at turn rollover. Tests + smoke acceptance committed. Phase 7 comparison sweep script ready; chains via `npx tsx src/sweep/run-queued-sweeps.ts`.
+- **Design specs/plans queued for Sam (Q&A captured in `2026-05-28-design-decisions-from-thought-exercises.md`):** concession + asset-handling; neutral 2P bases; board-terrain manipulation; tactical depth (asymmetric base types); alliance-aware agent policy; Opus-as-agent proxy. All Sam-gated; none implemented.
+- **Operational infrastructure SHIPPED today (lived a data-loss event):** BAL-2 (`appendResultAndCommit` + `commitFileAndPush`) for per-game + per-report persistence — `src/sweep/incremental-results.ts`; pitfall BAL-2 documents the rule + the lived loss. `workerCount()` for environment portability. Sweep dashboard (`docs/2026-05-28-sweep-dashboard.md`). Regenerator (`src/sweep/regenerate-mcts-300-report.ts`) for recovery. Post-MCTS@300 orchestrator (`src/sweep/run-queued-sweeps.ts`).
+- **PRs:** #2,#5,#6,#7,#8,#9,#10 all merged to `main` with normal merge commits. No PR currently open. PR strategy doc (`docs/plans/2026-05-28-pr-merge-strategy.md`) recommends 3-PR chunking.
 
 ## Canonical artifacts (the real source of truth — read these, don't trust this doc's summary over them)
 - **Design docs (root):** `2026-05-18-design-critique.md`, `2026-05-18-code-representation-options.md` (all-TS-on-Cloudflare decision), `2026-05-27-agent-roadmap.md` (Part 2 = the strong-agent vision).
@@ -97,34 +98,41 @@
 - ✅ **Sweep progress logging — DONE** (overnight, commit `5d84f40`): `onProgress` (per-config) on `sweepGrid`/`findBalancedConfig`/`balanceSweep` + `onGame` (per-game) on `runConfig`/`roundRobin`; `main.ts`/`calibrate.ts`/`revalidate.ts` log live.
 - **(skipped, noted) NTH-1** parallel-retrofit `calibrate.ts`/`main.ts` to `findBalancedConfigParallel` — low value now (scripts already ran; future work calls the parallel fns directly). **NTH-4** dedupe the duplicated `cartesian` (run.ts vs orchestrate.ts) — skipped: a clean fix needs a new module to avoid a run↔orchestrate import cycle; not worth it for 12 lines. Both are pick-up-anytime cleanups, not blockers.
 
-## Priority queue (updated 2026-05-28; numbered, with dependencies)
+## Priority queue (updated post-MCTS@300; numbered, with dependencies)
 
-**Done (overnight to morning):**
+**Done (this session):**
 1. ✅ Parallel infra + determinism + variant (a)/(b)/(c) flag implementations + comparison sweep + synthesis.
 2. ✅ Variant (c) verified as the load-bearing fix (`docs/2026-05-28-rules-variants-synthesis.md`).
-3. ✅ Design specs queued for Sam: gate recalibration, concession, neutral 2P bases, terrain events, Opus proxy.
-4. ✅ Alliance layer Phases 1-6 (engine fully implemented; smoke tests pass).
-5. ✅ Alliance Phase 7 sweep script written (`src/sweep/compare-alliance-deltas.ts`).
+3. ✅ Alliance layer Phases 1-6 (engine fully implemented; smoke tests pass; 196 engine tests green).
+4. ✅ Alliance Phase 7 sweep script written + per-game commit wired.
+5. ✅ Gate recalibration implemented (`mctsHealthThresholds()` + `maxLeadVolatility` in `src/sweep/health.ts`); spec at `docs/2026-05-28-gate-recalibration-for-c.md`. NOT yet ADOPTED by default sweeps.
+6. ✅ **MCTS@300 stress test COMPLETE** (`docs/2026-05-28-mcts-300-on-c.md`) — definitive verdict: heuristic near-optimal on (c) regime; search depth doesn't help; gate-2 needs reframing.
+7. ✅ BAL-2 incremental commit infrastructure shipped — per-game + per-report git persistence; pitfall documented; retrofitted into ALL 8 sweep scripts.
+8. ✅ `workerCount()` helper for environment portability (the 4-vCPU saturation conclusion doesn't generalize to 10-core hosts).
+9. ✅ Sweep dashboard (`docs/2026-05-28-sweep-dashboard.md`) + regenerator + post-MCTS@300 orchestrator (`src/sweep/run-queued-sweeps.ts`).
+10. ✅ Design specs/plans queued for Sam: gate recalibration, concession, neutral 2P bases, terrain blocks, tactical depth, alliance-aware policy, Opus proxy.
 
-**In flight:**
-6. 🚧 **MCTS@300 stress test on variant (c)** (`src/sweep/mcts-300-on-c.ts`, output `docs/2026-05-28-mcts-300-on-c.md`). Disambiguates whether the comparison-run gate-2 failure (MCTS@100 lost h2h to heuristic) is search-depth or structural. Estimated 1-2 hours wall-clock; check `tail` of the task output.
+**Ready to launch (single command, no contention):**
+11. **`npx tsx src/sweep/run-queued-sweeps.ts`** — chains: alliance Phase 7 delta comparison → profile-turn-complexity → dashboard refresh. Estimated ~30-90 min wall-clock. All sweeps now use BAL-2 commits, so an interrupt only loses the in-flight game, not the whole run.
 
-**Queued (do after MCTS@300 finishes):**
-7. **Launch alliance Phase 7 sweep** — `npx tsx src/sweep/compare-alliance-deltas.ts`. Generates `docs/2026-05-28-alliance-comparison.md`. Measures mechanical effect of varying `allianceVictoryDelta` ∈ {2,3,4,5}.
-8. **Run the legal-action-count profile** — `npx tsx src/sweep/profile-turn-complexity.ts`. Generates per-turn legalActions counts to answer the "are 12-turn games still tractable wall-clock?" question.
+**Blocked on Sam (each is a discrete decision; ordered by my recommendation):**
+12. **Adopt variant (c) as default** — flip `noIronRequiresPerimeter: true` in `defaultConfig()`. Sam's directional answer is YES with recalibrated gates; final code change pending one more affirmation. Note: many tests encode the old behavior and may need updating ("correct, don't loosen").
+13. **Pick a gate-2 reframe direction.** MCTS@300 verdict says heuristic is the strong agent on (c). Three options in `docs/plans/2026-05-27-stronger-agent-mcts-plan.md` 2026-05-28 update:
+   a. Re-anchor gate-2 to a weaker baseline (e.g., greedy without perimeter-awareness).
+   b. Build alliance-aware policy (`docs/plans/2026-05-28-alliance-aware-agent-policy-plan.md`) — heuristic-near-optimal holds at 2P; alliance-rich 3+P may differ.
+   c. Re-think gate-2 entirely — heuristic-is-the-strong-agent reduces trustworthiness to "is heuristic robust to exploiters" (gate 4).
+14. **Greenlight a queued design plan** — alliances are now built (engine); next in serial sequencing is tactical depth (asymmetric base types) per the design ladder. Plan at `docs/plans/2026-05-28-tactical-depth-asymmetric-bases-plan.md`.
+15. **PR+merge the branch to main.** Big diff; PR strategy at `docs/plans/2026-05-28-pr-merge-strategy.md` recommends 3-PR chunking. `Review` classification given engine surface-area additions.
 
-**Blocked on Sam (each is a discrete decision):**
-9. **Adopt variant (c) as default** — flip `noIronRequiresPerimeter: true` in `defaultConfig()`. Sam's directional answer is YES with recalibrated gates; final code change pending one more affirmation.
-10. **Implement gate recalibration** (`docs/2026-05-28-gate-recalibration-for-c.md`) — add `mctsHealthThresholds()` factory with relaxed numbers for the (c) regime. ~30 min of code work; ready when Sam signs off on the proposed thresholds.
-11. **Greenlight other design specs** — concession mechanic, neutral 2P bases, board-terrain events, Opus proxy. All specs ready; implementation gated on Sam's "yes, implement" per the adopt-validate-then-add sequencing.
-12. **PR+merge** the branch to main. Big diff (alliance layer + variant flags + parallel infra + many specs). Likely `Review` classification given engine surface-area additions.
+**Hygiene tasks (low-blocker, do alongside #11):**
+16. **Re-run the FULL test suite including MCTS tests** — subset (engine/sweep/eval/driver) is at 298 green; full suite hasn't run since MCTS@300 freed cores. ~3 minutes.
 
-**Far-future (still gated, status unchanged):**
-13. MCTS trustworthiness gates A5.2/A6 — blocked until variant (c) is formally adopted + MCTS@300 result confirms agent strength is adequate.
-14. Learned-agent (AlphaZero) plan — double-gated behind #13.
+**Far-future (still gated, structure unchanged):**
+17. MCTS trustworthiness gates A5.2/A6 — blocked on Sam's gate-2-reframe decision (#13).
+18. Learned-agent (AlphaZero) plan — double-gated behind #17.
 
-## Continuation prompt (paste-ready for a fresh agent)
-> You are continuing an autonomous build of Industrial Juggernaut on branch `claude/document-game-design-VpqqB`. Read `docs/handoffs/2026-05-27-session-handoff.md` first (headline + priority queue), then `2026-05-28-design-decisions-from-thought-exercises.md` (Sam's directional decisions — authoritative). Today's state: the engine work for variants (a)/(b)/(c) AND the alliance layer (Phases 1-6) is DONE and committed; the MCTS@300 stress test on variant (c) is currently running; alliance Phase 7 (delta-comparison sweep) is queued and ready to launch once MCTS@300 frees the cores. Sam has greenlit variant (c) adoption with recalibrated gates (spec'd, not yet implemented), and queued design specs (concession, neutral 2P bases, terrain events, Opus proxy) for his later decision. **Next concrete autonomous task:** when MCTS@300 finishes, (a) launch `npx tsx src/sweep/compare-alliance-deltas.ts`, (b) run `npx tsx src/sweep/profile-turn-complexity.ts`, (c) compile results into a comprehensive morning brief. **Do NOT change `defaultConfig` and do NOT implement new rules mechanics without Sam's explicit re-greenlight.** Operate per the guardrails: serial sequencing (adopt-validate-then-add); one heavy compute job at a time; parallel-run determinism is invariant; commit+push per logical unit; refer to things in plain English (no question codes) in chat. Plans are in `docs/plans/`; the alliance plan in particular reflects current phase status. Engine tests at 196 green.
+## Continuation prompt (paste-ready for a fresh agent — post-MCTS@300)
+> You are continuing an autonomous build of Industrial Juggernaut on branch `claude/document-game-design-VpqqB`. Start with: this handoff (`docs/handoffs/2026-05-27-session-handoff.md` — read headline + priority queue); `2026-05-28-design-decisions-from-thought-exercises.md` (Sam's directional decisions — authoritative); `docs/2026-05-28-mcts-300-on-c.md` (the just-landed verdict: heuristic is near-optimal on the (c) regime; MCTS search depth doesn't help — gate-2 in its current form is the wrong instrument). **State:** engine work for variants (a)/(b)/(c) + alliance layer (Phases 1-6) is DONE; MCTS@300 stress test COMPLETE; alliance Phase 7 + profile-turn-complexity are launchable in one command via `npx tsx src/sweep/run-queued-sweeps.ts`. **Operational fact:** BAL-2 per-game commit infrastructure is live — all sweep scripts persist JSONL + git-push as games complete; container restart no longer loses runs. **Next concrete autonomous step:** launch the orchestrator above; while it runs, do not start other heavy compute (one job at a time on 4 vCPU). **Sam-gated items (do NOT touch without explicit greenlight):** flipping `defaultConfig` (Sam directionally yes for variant (c), but the final flip awaits one more affirmation); implementing tactical depth / concession / neutral 2P / terrain blocks / alliance-aware policy (all specced + planned; Sam's call which); choosing gate-2 reframe (`docs/plans/2026-05-27-stronger-agent-mcts-plan.md` 2026-05-28 update lists three options); PR+merge to main. Operate per guardrails: serial sequencing (adopt-validate-then-add); one heavy compute job at a time; parallel-run determinism is invariant; commit+push per logical unit (BAL-2); plain English in chat (no question codes). Dashboard: `npx tsx src/sweep/dashboard.ts`. Full test suite re-run pending — engine + sweep + eval + driver subset at 298 green.
 
 ## Adversarial review log (handoff skill Phase 4)
 - **Round 1 (naive fresh agent):** added the "canonical artifacts" + "read these, don't trust the summary" framing and glossary-ish guardrails so a cold agent can orient; spelled out the double-gating of the learned agent. (2 fixes)
@@ -144,3 +152,21 @@
 - **R5 (loss-averse):** swept for transcript-only items — the `noIron`+radius-2 design note, the NTH-1/NTH-4 skip rationale, the pkill-orphaned-workers recovery, and the engine-review "no bugs" conclusion are all now in durable artifacts. (verified)
 - **R6 — session-specific: "stale-optimism / autonomy-boundary auditor."** This session's defining risk is that a LOT of prose asserted "balanceable / adopt the config" before the late overturn — a skimming agent could act on stale optimism, or autonomously implement a Sam-gated rules change. Scanned every "adopt"/"balanceable" mention: the headline, central question, priority #2, seam #3, and continuation prompt all now carry the "fails under MCTS / Sam-gated / do NOT adopt" guard, and the superseded S5 "History" block + §0 carry explicit SUPERSEDED banners. Found + fixed a duplicated `### History` heading. (3 fixes)
 - **Final pass:** re-ran R1–R6; remaining items are the live tip SHA in the headline (filled at the final commit) and zero further material findings.
+
+### Checkpoint handoff re-review (2026-05-28 post-MCTS@300, per Sam's "use the handoff skill as a checkpoint")
+- **R1 (naive fresh agent):** the headline opens with "MCTS@300 stress test on variant (c)'s best cell COMPLETED" and the operative verdict (heuristic near-optimal, 6.3% vs 93.8%, Δ -0.0pp). A cold agent reading just the headline knows what landed and where to read more. The continuation prompt names the orchestrator command + the gate-2-reframe options doc by path. (verified)
+- **R2 (recency-bias audit):** mid-session BAL-2 work and `workerCount` portability are easy to under-document in a "today the MCTS landed" headline. The headline now explicitly enumerates the BAL-2 infrastructure, dashboard, regenerator, and orchestrator. The CPU utilization finding (env-specific caveat) is referenced from the design ladder. (2 mentions added)
+- **R3 (seam auditor):** key new seams from today —
+  - **Heuristic-near-optimal on (c) ↔ alliance Phase 7 sweep:** the alliance sweep uses heuristic agents, which we now know don't add strategic depth on (c). Phase 7 will measure SAFEGUARD math (anti-coalition threshold) but not strategic alliance richness. Documented in the alliance plan caveats AND the design ladder; the handoff doesn't need to duplicate.
+  - **MCTS plan A5.1→A5.2 transition:** the plan was paused on "balanced config needed"; now blocked on "gate-2 reframe Sam decision" instead. Plan banner updated.
+  - **PR strategy ↔ branch-tip volume:** branch is ~70 commits ahead of main; PR strategy doc still recommends 3-PR chunking; no changes needed there. (verified)
+- **R4 (guardrails):** BAL-2 (per-game + per-report commit-and-push) is the major new operational discipline. Persisted as a pitfall + retrofit across 8 scripts + in this handoff under "Operational infrastructure SHIPPED today." (verified)
+- **R5 (loss-averse):** transcript-only items at risk — (a) the engine-review-of-combat/build/apply finding ("no bugs"); (b) the dashboard's profile-turn-complexity schema handler; (c) the workerCount default change (4 → cpus-1 = 3 on this container). All three are committed in code + commit messages; the workerCount change is also in the CPU utilization finding doc. (verified)
+- **R6 — session-specific: "the verdict surprised; does the docs trail still match?" auditor.** The MCTS@300 verdict (heuristic-near-optimal) was counter to the original gate-2 framing ("MCTS should beat greedy"). Several living artifacts assumed gate-2 was answerable by tuning MCTS budget; now it's a structural finding about heuristic strength. Audit: the stronger-agent MCTS plan banner now has the 2026-05-28 update with the three reframe options; the design ladder lever #2 was updated; the morning-state snapshot was updated; the handoff headline carries the verdict. NOT found stale: rules-variants synthesis (it predates this finding but predicted "heuristic genuinely near-optimal on the (c)-modified game" as one possibility). The pre-playtest prep doc doesn't need updating — it's about playtest, not agent strength. (4 living artifacts updated; 0 stale remaining)
+- **Loop pass:** re-ran R1-R6 after fixes; zero further material findings. The handoff is complete for this checkpoint.
+
+### What's deliberately NOT yet in the handoff
+- Phase 7 alliance sweep results (sweep hasn't been launched).
+- Profile-turn-complexity data (queued behind Phase 7 in the orchestrator).
+- A final full-suite green confirmation including MCTS tests (subset is green at 298; will re-run after the next orchestrator run frees the cores).
+- These three are the SHORT-tail follow-ups; the next session can complete them via `npx tsx src/sweep/run-queued-sweeps.ts` + a full `npx vitest run`.
