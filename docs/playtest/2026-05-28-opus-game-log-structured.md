@@ -168,3 +168,25 @@
 - Same opening (max-iron base on T1.R1). Hope for luck.
 - Alternative consideration: can I PROVOKE the iron-weighted draw to favor me? If I have ≥9 iron at end of T1, I might be heavily favored. To get 9 iron, I'd need a single placement capturing 8+ iron. Have not seen such an opportunity yet in seeds 1000-1005.
 
+### Game 7 (seed 1006)
+
+**Strategy hypothesis before play:** Best seed geometrically — I go first with 2 iron, P1 has 1. 11 neutral iron mostly central. Try (-1,1,0) for max-iron capture (7 total).
+
+**Trajectory:**
+- T1.R0 (P0): built (-1,1,0). My iron 2 → 7.
+- T1.R1 (P1): built (1,-1,0). P1 → 8 iron (1 + 7 from radius).
+- T2.R0: **P1 went first** (8 vs 7 random draw favored P1).
+- T2.R0 (P1): built 4 bases — (-3,2,1), (2,2,-4), (-5,1,4), (-6,6,0). Iron victory.
+
+**Outcome:** LOST. Same iron-weighted draw fail as game 6.
+
+**What I learned:**
+- Going first turn 1 with 2 iron doesn't intrinsically help me. By end of turn 1, P1 catches up via central (1,-1,0) placement. Turn-2 random draw is still 7/15 me, 8/15 P1.
+- **Confirmed: I cannot grab more than 7 iron via single-placement on turn 1.** Max single-base capture is bounded by radius-2 area + overlap with existing.
+- **The iron-weighted draw is the structural barrier to winning consistently.** I need either (a) a 50/50 coin flip (7 vs 8) and win it OR (b) a way to get to ≥ 8 iron T1 (haven't found yet).
+
+**Strategy update for next game:**
+- Stop hoping for the unlikely. Same play. Move on.
+- IDEA worth trying: what if my T1 build is a FACTORY at a strategic position, not a base? Sacrifices iron immediately but boosts T2 budget. Probably doesn't help — but worth one experiment.
+- IDEA: Place 1 base to ALSO be a perimeter corner candidate for me. E.g., place at the SOUTH-EAST extreme of my reach so my eventual T2 polygon spans more iron.
+
