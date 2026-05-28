@@ -95,3 +95,27 @@
   - P1's perimeter corners in winning games have been: (-3,3,0), (5,-1,-4), (-5,1,4), (-3,6,-3), (-3,6,-3). The two closest to my corner: (-3,3,0) and (-3,6,-3). These are within my placeRange 5.
 - **Test in game 4: place at (-3,3,0) (iron-rich AND a P1-perimeter-corner candidate).** This denies P1 that perimeter point AND grabs iron for me. Then turn 2, my goal is a 4-base perimeter that includes max iron.
 
+### Game 4 (seed 1003)
+
+**Strategy hypothesis before play:** P1 went first (pre-turn build (1,-1,0)). P1 already has 9 iron. To "deny" P1's perimeter, I'd want a base in the middle of where their convex hull would go — but a single base inside doesn't break a convex polygon, P1 just routes around. Switched strategy mid-thought: play (-1,1,0) — the central denial spot — to maximize MY iron via 6-tile overlap AND occupy a central hex P1 wants for their perimeter geometry.
+
+**Trajectory:**
+- T1.R0 (P1, pre-turn): built (1,-1,0). P1 iron 9.
+- T1.R1 (P0): built (-1,1,0). My iron 1 → 9 (huge overlap with P1's central cluster — 7 P1-overlap iron + 1 my existing + 1 (-1,1,0) itself).
+- T2.R0 (P1): built 4 bases (-3,3,0), (1,3,-4), (-5,1,4), (-6,6,0). 6 bases → perimeter encloses board. P1 iron → 14.
+
+**Outcome:** LOST. P1 iron victory turn 2 round 0.
+
+**What I learned — MAJOR INSIGHT:**
+- **P1's heuristic ALWAYS picks (1,-1,0) as their 2nd base in seeds I've tested.** It's the dense-iron-cluster magnet — 7-8 iron in radius 2.
+- **Even when I occupy (-1,1,0) and have my base inside the polygon P1 wants to form, P1's polygon is still valid because they place around the OUTSIDE.** My base becomes a "pocket" inside their territory. The iron in that pocket is listed as → P0 but it's also inside P1's perimeter — so P1's `control()` count includes it. **My base inside their polygon doesn't deny them iron — it just becomes a stranded base.** Confirmed: P1 iron=14 in final state means ALL 14 iron count for P1's control even though several are "→ P0" in iron-list.
+- This is a critical mechanical understanding: **the iron-list "→ P_X" ownership is a display artifact; the engine's `control()` counts iron-inside-my-polygon regardless of nominal owner.**
+- **Perimeter denial via single-base occupation does NOT work** — convex hulls just contain me.
+- **For perimeter denial to work, I'd need my base to be OUTSIDE the polygon and on the LINE of the polygon's convex hull** — i.e., placed at a corner of where P1's hull would go.
+- The P1 perimeter corners I've seen across games: (-3,3,0), (-3,6,-3), (-5,1,4), (-6,6,0), (5,-1,-4), (1,3,-4). These are at the edges of the board. They're EXTREME positions.
+
+**Strategy update for next game:**
+- Test EDGE BASE denial: place my base at (-3,6,-3) or similar P1-corner-candidate. This won't grab much iron, but it physically obstructs P1's hull.
+- **Question to investigate:** does the heuristic re-route around denial, OR does it pick a smaller hull? If smaller, P1's iron drops, possibly below 10.
+- Alternative: try a MAXIMUM-iron move via a different hex than (-1,1,0). Maybe placing AT an iron hex centrally — but ON an iron hex blocks future factory placement there.
+
