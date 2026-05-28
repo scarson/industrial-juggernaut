@@ -220,16 +220,20 @@ export function advanceRound(state: GameState): GameState {
   const { order: newOrder, rng } = drawTurnOrder(state, order);
 
   // Variant (b)/P2 hold-iron-for-N-rounds: at end-of-turn, advance each player's
-  // victoryStreak based on whether their coalition meets `victoryThreshold` iron
-  // RIGHT NOW (just-completed turn's final state). Players whose coalition meets
-  // threshold get streak++; others reset to 0. This runs unconditionally — when
-  // `victoryIronHoldRounds === 1` (default) the streak is bookkeeping with no
-  // effect on `status()`, so behavior is unchanged.
+  // victoryStreak based on whether their coalition meets the (alliance-scaled)
+  // `victoryThreshold` iron RIGHT NOW. Players whose coalition meets the scaled
+  // threshold get streak++; others reset to 0. Unconditional bookkeeping — when
+  // `victoryIronHoldRounds === 1` (default) the streak doesn't affect `status()`.
+  // The threshold here mirrors `status()`'s scaling: under alliances enabled, a
+  // coalition of size N requires `threshold + (N - 1) * allianceVictoryDelta` so
+  // the streak only counts "would-be-winning" rounds — not "would-meet-singleton-threshold-but-no-victory" rounds.
   const threshold = state.config.victoryThreshold;
+  const allianceDelta = state.config.alliancesEnabled ? state.config.allianceVictoryDelta : 0;
   const comps = coalitions(state);
   const meetingThreshold = new Set<PlayerId>();
   for (const comp of comps) {
-    if (coalitionVictoryIron(state, comp) >= threshold) {
+    const scaledThreshold = threshold + Math.max(0, comp.length - 1) * allianceDelta;
+    if (coalitionVictoryIron(state, comp) >= scaledThreshold) {
       for (const id of comp) meetingThreshold.add(id);
     }
   }

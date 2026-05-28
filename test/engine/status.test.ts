@@ -418,3 +418,96 @@ describe("variant (c) — stranded radiating player passes through the existing 
     // so the game continues; if all builds/attacks become infeasible, legal.ts line 118 emits pass.
   });
 });
+
+describe("alliance layer Phase 4 — anti-coalition victory threshold scaling", () => {
+  it("a 2-player coalition with iron == victoryThreshold does NOT win when allianceVictoryDelta > 0 (still ongoing — needs a 3rd live player so last-standing doesn't fire as fallback)", () => {
+    // Both p0 and p1 controlling 5 iron each (union 10 = victoryThreshold). Default delta=4 means
+    // a 2-coalition needs threshold + 4 = 14, which they don't have. p2 exists with iron so they're
+    // not eliminated and the game isn't "last-standing" between the allies.
+    const cfg = { ...defaultConfig(), alliancesEnabled: true, victoryThreshold: 10, allianceVictoryDelta: 4 };
+    const ironP0 = TEN_IRON.slice(0, 5);
+    const ironP1 = [hex(40, -40, 0), hex(41, -41, 0), hex(42, -42, 0), hex(43, -43, 0), hex(44, -44, 0)];
+    const ironP2 = [hex(-40, 40, 0), hex(-41, 41, 0)];
+    let s = mkState({
+      board: 96,
+      basesP0: [hex(0, 0, 0)],
+      basesP1: [hex(40, -40, 0)],
+      basesP2: [hex(-40, 40, 0)],
+      iron: [...ironP0, ...ironP1, ...ironP2],
+      config: cfg,
+    });
+    s = withAlliance(s, 0, 1);
+    expect(status(s).kind).toBe("ongoing");
+  });
+
+  it("a 2-player coalition with iron == victoryThreshold + delta DOES win", () => {
+    const cfg = { ...defaultConfig(), alliancesEnabled: true, victoryThreshold: 10, allianceVictoryDelta: 4 };
+    // 7 iron each, 14 total — meets scaled threshold (10 + 4). p2 also live to keep coalitions > 1.
+    const ironP0 = [hex(1, -1, 0), hex(2, -2, 0), hex(3, -3, 0), hex(4, -4, 0), hex(5, -5, 0), hex(0, 1, -1), hex(0, 2, -2)];
+    const ironP1 = [hex(40, -40, 0), hex(41, -41, 0), hex(42, -42, 0), hex(43, -43, 0), hex(44, -44, 0), hex(40, -39, -1), hex(40, -38, -2)];
+    const ironP2 = [hex(-40, 40, 0), hex(-41, 41, 0)];
+    let s = mkState({
+      board: 96,
+      basesP0: [hex(0, 0, 0)],
+      basesP1: [hex(40, -40, 0)],
+      basesP2: [hex(-40, 40, 0)],
+      iron: [...ironP0, ...ironP1, ...ironP2],
+      config: cfg,
+    });
+    s = withAlliance(s, 0, 1);
+    const r = status(s);
+    expect(r.kind).toBe("victory");
+    if (r.kind === "victory") expect(r.reason).toBe("iron");
+  });
+
+  it("a singleton with iron == victoryThreshold STILL wins (no scaling for size-1 coalitions)", () => {
+    const cfg = { ...defaultConfig(), alliancesEnabled: true, victoryThreshold: 10, allianceVictoryDelta: 4 };
+    const s = mkState({ board: 96, basesP0: [hex(0, 0, 0)], basesP1: [hex(30, -30, 0)], iron: TEN_IRON, config: cfg });
+    const r = status(s);
+    expect(r.kind).toBe("victory");
+    if (r.kind === "victory") {
+      expect(r.reason).toBe("iron");
+      expect(r.players).toEqual([0]);
+    }
+  });
+
+  it("scaling is linear in coalition size: a 3-player coalition needs victoryThreshold + 2*delta", () => {
+    const cfg = { ...defaultConfig(), alliancesEnabled: true, victoryThreshold: 6, allianceVictoryDelta: 2 };
+    // 6 iron each across 3 allied players, union 18; scaled threshold = 6 + 2*2 = 10. 18 >= 10 -> win.
+    const ironP0 = TEN_IRON.slice(0, 6);
+    const ironP1 = [hex(40, -40, 0), hex(41, -41, 0), hex(42, -42, 0), hex(43, -43, 0), hex(44, -44, 0), hex(40, -39, -1)];
+    const ironP2 = [hex(0, 40, -40), hex(0, 41, -41), hex(0, 42, -42), hex(0, 43, -43), hex(0, 44, -44), hex(0, 39, -39)];
+    let s = mkState({
+      board: 96,
+      basesP0: [hex(0, 0, 0)],
+      basesP1: [hex(40, -40, 0)],
+      basesP2: [hex(0, 40, -40)],
+      iron: [...ironP0, ...ironP1, ...ironP2],
+      config: cfg,
+    });
+    // Mutual 3-way alliance.
+    s = {
+      ...s,
+      players: s.players.map((p) => ({ ...p, alliance: [0, 1, 2] })),
+    };
+    const r = status(s);
+    expect(r.kind).toBe("victory");
+    if (r.kind === "victory") {
+      expect(r.reason).toBe("iron");
+      expect([...r.players].sort((a, b) => a - b)).toEqual([0, 1, 2]);
+    }
+  });
+
+  it("when alliancesEnabled is false, the scaled threshold is NOT applied (existing coalition test still passes)", () => {
+    // The pre-existing test "coalition iron victory: two allies union to >=10 iron together" uses
+    // 10 iron with the default config (which has alliancesEnabled=false). The scaling MUST NOT
+    // fire — that test stays green. Verify directly: 5+5 iron, 2-coalition, flag off => win.
+    const cfg = { ...defaultConfig(), alliancesEnabled: false, victoryThreshold: 10, allianceVictoryDelta: 4 };
+    const ironP0 = TEN_IRON.slice(0, 5);
+    const ironP1 = [hex(40, -40, 0), hex(41, -41, 0), hex(42, -42, 0), hex(43, -43, 0), hex(44, -44, 0)];
+    let s = mkState({ board: 96, basesP0: [hex(0, 0, 0)], basesP1: [hex(40, -40, 0)], iron: [...ironP0, ...ironP1], config: cfg });
+    s = withAlliance(s, 0, 1);
+    const r = status(s);
+    expect(r.kind).toBe("victory");
+  });
+});

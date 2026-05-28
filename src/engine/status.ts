@@ -121,11 +121,16 @@ export function status(state: GameState): Status {
   // held the threshold across at least (holdRounds - 1) prior end-of-turn checks — i.e. some
   // member's `victoryStreak >= holdRounds - 1`. Default holdRounds=1 short-circuits the gate
   // (instant victory the moment the threshold is met), preserving current behavior.
+  // Under alliance layer (`alliancesEnabled`), the threshold scales with coalition size: a
+  // coalition of size N must reach `threshold + (N - 1) * allianceVictoryDelta` (Sam's
+  // anti-gang-up safeguard). Has no effect on singletons or when alliances are disabled.
   const holdRounds = state.config.victoryIronHoldRounds;
+  const allianceDelta = state.config.alliancesEnabled ? state.config.allianceVictoryDelta : 0;
   let best: { players: PlayerId[]; iron: number } | null = null;
   for (const comp of comps) {
     const iron = coalitionVictoryIron(state, comp);
-    if (iron < threshold) continue;
+    const scaledThreshold = threshold + Math.max(0, comp.length - 1) * allianceDelta;
+    if (iron < scaledThreshold) continue;
     if (holdRounds > 1) {
       const coalitionStreak = Math.max(
         ...comp.map((id) => state.players.find((p) => p.id === id)!.victoryStreak),
