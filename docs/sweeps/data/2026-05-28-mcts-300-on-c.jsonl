@@ -25,3 +25,4 @@
 {"phase":"h2h","done":13,"total":16,"nPlayers":2,"turns":2,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":6462.363}
 {"phase":"h2h","done":14,"total":16,"nPlayers":2,"turns":2,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":6495.971}
 {"phase":"h2h","done":15,"total":16,"nPlayers":2,"turns":2,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":6565.702}
+{"phase":"h2h","done":16,"total":16,"nPlayers":2,"turns":19,"victoryType":"last-standing","winner":[1],"hitTurnCap":false,"elapsedSec":7186.764}
