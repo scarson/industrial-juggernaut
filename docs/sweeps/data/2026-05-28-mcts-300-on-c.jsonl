@@ -8,3 +8,4 @@
 {"phase":"health","done":8,"total":12,"nPlayers":3,"turns":9,"victoryType":"last-standing","winner":[2],"hitTurnCap":false,"elapsedSec":3353.581}
 {"phase":"health","done":9,"total":12,"nPlayers":2,"turns":12,"victoryType":"last-standing","winner":[0],"hitTurnCap":false,"elapsedSec":4609.849}
 {"phase":"health","done":10,"total":12,"nPlayers":2,"turns":17,"victoryType":"last-standing","winner":[1],"hitTurnCap":false,"elapsedSec":5179.533}
+{"phase":"health","done":11,"total":12,"nPlayers":3,"turns":9,"victoryType":"last-standing","winner":[1],"hitTurnCap":false,"elapsedSec":5196.534}
