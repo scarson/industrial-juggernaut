@@ -13,7 +13,7 @@ import type { Archetype } from "../agent/archetypes";
  * agent default (the rest of MctsParams stays at its defaults).
  */
 export type AgentSpec =
-  | { kind: "heuristic" }
+  | { kind: "heuristic"; allianceWeight?: number; breakAllianceWeight?: number }
   | { kind: "greedy"; archetype: Archetype }
   | { kind: "mcts"; iterations?: number };
 
@@ -21,7 +21,10 @@ export type AgentSpec =
 export function buildAgent(spec: AgentSpec): Agent {
   switch (spec.kind) {
     case "heuristic":
-      return heuristicAgent();
+      return heuristicAgent({
+        ...(spec.allianceWeight !== undefined && { allianceWeight: spec.allianceWeight }),
+        ...(spec.breakAllianceWeight !== undefined && { breakAllianceWeight: spec.breakAllianceWeight }),
+      });
     case "greedy":
       return greedyAgent(spec.archetype);
     case "mcts":

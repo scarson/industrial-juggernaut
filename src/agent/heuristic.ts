@@ -229,19 +229,23 @@ const MIN_TEMPERATURE = 1e-9;
 const POLICY_MOVE_WEIGHTS: Weights = { iron: 10, fact: 1, area: 1, aggr: 1, fatigueCost: 0.1 };
 
 /**
- * Per-iron bonus applied to an ally candidate's typeValue when scoring potential
- * alliance partners (`samplePolicy`). The product `POLICY_ALLIANCE_WEIGHT × target.iron`
- * is added on top of the post-apply `evaluate` so the heuristic prefers allying with
- * partners whose controlled iron meaningfully advances the coalition's progress toward
- * the (delta-scaled) victory threshold. Tuned in Phase 3 of the alliance-aware-agent-
- * policy plan; the initial value is a starting point, not load-bearing.
+ * Default per-iron bonus applied to an ally candidate's typeValue when scoring
+ * potential alliance partners (`samplePolicy`). Tunable via `samplePolicy`'s
+ * `policyOpts.allianceWeight` (and threaded through `heuristicAgent`'s
+ * `allianceWeight` param) so a sweep can tune it.
  *
- * Symmetric `POLICY_BREAK_ALLIANCE_WEIGHT` penalizes breaking off a strong partner —
- * applied as the per-iron PENALTY on the current ally's controlled iron when scoring
- * a `break-alliance` candidate.
+ * Symmetric `DEFAULT_BREAK_ALLIANCE_WEIGHT` penalizes breaking off a strong
+ * partner — per-iron PENALTY on the ally's controlled iron when scoring a
+ * `break-alliance` candidate. Also tunable.
  */
-const POLICY_ALLIANCE_WEIGHT = 5;
-const POLICY_BREAK_ALLIANCE_WEIGHT = 5;
+export const DEFAULT_POLICY_ALLIANCE_WEIGHT = 5;
+export const DEFAULT_POLICY_BREAK_ALLIANCE_WEIGHT = 5;
+
+/** Optional tuning knobs for `samplePolicy` that are policy-scoped (not part of `evaluate`'s weights). */
+export interface PolicyOpts {
+  allianceWeight?: number;
+  breakAllianceWeight?: number;
+}
 
 /** Max `order` over every base, or -1 when there are none (mirrors apply.ts / score.ts). */
 function maxOrder(bases: Base[]): number {
@@ -443,7 +447,10 @@ export function samplePolicy(
   player: PlayerId,
   rng: RngState,
   temperature: number,
+  policyOpts?: PolicyOpts,
 ): { action: Action; rng: RngState } {
+  const allianceWeight = policyOpts?.allianceWeight ?? DEFAULT_POLICY_ALLIANCE_WEIGHT;
+  const breakAllianceWeight = policyOpts?.breakAllianceWeight ?? DEFAULT_POLICY_BREAK_ALLIANCE_WEIGHT;
   let curRng = rng;
 
   type Candidate = { action: Action; typeValue: number };
@@ -488,11 +495,11 @@ export function samplePolicy(
     if (a.kind === "ally") {
       const post = applyAction(state, a).state;
       const targetIron = control(state, a.target).iron.length;
-      const typeValue = evaluate(post)[player]! + POLICY_ALLIANCE_WEIGHT * targetIron;
+      const typeValue = evaluate(post)[player]! + allianceWeight * targetIron;
       candidates.push({ action: a, typeValue });
     } else if (a.kind === "break-alliance") {
       const allyIron = control(state, a.target).iron.length;
-      const typeValue = evaluate(state)[player]! - POLICY_BREAK_ALLIANCE_WEIGHT * allyIron;
+      const typeValue = evaluate(state)[player]! - breakAllianceWeight * allyIron;
       candidates.push({ action: a, typeValue });
     }
   }
