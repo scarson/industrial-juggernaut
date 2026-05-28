@@ -21,44 +21,50 @@ The order below isn't arbitrary. Five perspectives I considered:
 - **R2 (premature):** is alliance implementation premature if (c) isn't formally adopted yet? Risk: I implement alliances on top of an unadopted (c). Mitigation: alliances are an additive flag (`alliancesEnabled: false` default); they don't depend on (c). Implementation is independent; ADOPTION (defaulting either on) is what's sequenced. So implementing both in parallel as opt-in flags is fine — just don't make either default.
 - **R3 (over-scope):** the tactical-depth implementation is also greenlit directionally. Should it go in this queue too? Time-wise, probably not all of it. Decision: implement alliances fully; spec tactical-depth as a follow-up plan. Sequenced per Sam's adopt-validate-then-add discipline.
 
-## Phase A — In flight & immediate (compute + light doc, ~1-2 hours)
-
-| # | Item | Status | Compute? | Output |
-|---|---|---|---|---|
-| A1 | Wider grid (c) deeper validation | RUNNING (wider-grid task) | yes (workers busy) | `docs/2026-05-28-c-variant-deeper.md` |
-| A2 | Refine alliance spec — coin-flip-break + tunable delta | TODO | no (compute-free) | append to `2026-05-28-design-followups-alliances-and-tactical-depth.md` |
-| A3 | Spec gate recalibration for (c) regime | TODO | no | new doc `docs/2026-05-28-gate-recalibration-for-c.md` |
-| A4 | Run profile script (legal-actions per turn) | TODO (after A1) | yes (small) | append measured data to `2026-05-28-long-game-engagement-and-randomness.md` |
-| A5 | Run MCTS@300 stress test on (c) | TODO (after A1) | yes (medium) | new doc `docs/2026-05-28-mcts-300-on-c.md` |
-
-A2 and A3 run NOW (compute-free, while A1 is in flight). A4 and A5 run sequentially after A1 finishes.
-
-## Phase B — Alliance layer (the significant implementation phase, ~3-5 hours)
-
-| # | Item | Status | Compute? | Output |
-|---|---|---|---|---|
-| B1 | Plan alliance implementation via `writing-plans-enhanced` skill | TODO (next) | no | new plan in `docs/plans/` |
-| B2 | Execute the plan (TDD, commit per logical unit) | TODO (after B1) | yes (small TDD-test compute) | engine + tests + flag |
-| B3 | Comparison sweep — alliances on vs off, multiple deltas | TODO (after B2) | yes (medium) | new doc `docs/2026-05-28-alliance-comparison.md` |
-| B4 | Synthesis of alliance findings | TODO (after B3) | no | append to comparison doc |
-
-## Phase C — Lighter design specs (compute-free, ~1-2 hours)
-
-| # | Item | Status | Compute? | Output |
-|---|---|---|---|---|
-| C1 | Spec concession mechanic + asset-handling in 3-6P | TODO | no | new doc `docs/2026-05-28-concession-mechanic-spec.md` |
-| C2 | Spec neutral defending bases for 2P | TODO | no | new doc `docs/2026-05-28-neutral-bases-2p-spec.md` |
-| C3 | Spec board-terrain-manipulation events | TODO | no | new doc `docs/2026-05-28-terrain-events-spec.md` |
-| C4 | Spec Opus-vs-MCTS proxy (sized-up) | TODO | no | new doc `docs/2026-05-28-opus-vs-mcts-proxy-spec.md` |
-
-Phase C runs interleaved with Phase B's compute waits.
-
-## Phase D — Wrap-up (~30 min)
+## Phase A — In flight & immediate
 
 | # | Item | Status | Output |
 |---|---|---|---|
-| D1 | Update `docs/handoffs/2026-05-27-session-handoff.md` comprehensively | TODO | refreshed handoff |
-| D2 | Final full test-suite green check | TODO | confirmation |
+| A1 | Wider grid (c) deeper validation | ⚠️ PARTIAL — completed cell #1 (12 MCTS games, all multi-turn last-standing, 0 iron-vic on bs96/r2/iron14/vt10); crashed silently mid-cell-#2; no formal report. Sufficient signal not to rerun. | (none — comparison-run data + cell #1 is enough) |
+| A2 | Refine alliance spec — coin-flip-break + tunable delta | ✅ Done (subsumed by alliance plan) | `docs/plans/2026-05-28-alliance-layer-plan.md` |
+| A3 | Spec gate recalibration for (c) regime | ✅ Done | `docs/2026-05-28-gate-recalibration-for-c.md` |
+| A4 | Run profile script (legal-actions per turn) | 🚧 QUEUED — script ready `src/sweep/profile-turn-complexity.ts`; launches after MCTS@300 finishes | TBD |
+| A5 | Run MCTS@300 stress test on (c) | 🚧 RUNNING in background | `docs/2026-05-28-mcts-300-on-c.md` (auto-generated on completion) |
+
+## Phase B — Alliance layer
+
+| # | Item | Status | Output |
+|---|---|---|---|
+| B1 | Plan alliance implementation | ✅ Done | `docs/plans/2026-05-28-alliance-layer-plan.md` |
+| B2 | Execute Phases 1-6 (TDD per phase, commits) | ✅ Done | engine code + tests; 196 engine tests green |
+| B3 | Phase 7: Comparison sweep — alliances on vs off, multiple deltas | 🚧 SCRIPT READY (`src/sweep/compare-alliance-deltas.ts`); not launched (waiting for MCTS@300) | `docs/2026-05-28-alliance-comparison.md` (will be generated when launched) |
+| B4 | Synthesis of alliance findings | ⬜ Waits for B3 | TBD |
+
+## Phase C — Lighter design specs
+
+| # | Item | Status | Output |
+|---|---|---|---|
+| C1 | Spec concession mechanic + asset-handling in 3-6P | ✅ Done | `docs/2026-05-28-concession-mechanic-spec.md` |
+| C2 | Spec neutral defending bases for 2P | ✅ Done | `docs/2026-05-28-neutral-bases-2p-spec.md` |
+| C3 | Spec board-terrain-manipulation events | ✅ Done | `docs/2026-05-28-terrain-events-spec.md` |
+| C4 | Spec Opus-vs-MCTS proxy (sized-up) | ✅ Done | `docs/2026-05-28-opus-vs-mcts-proxy-spec.md` |
+
+## Phase D — Wrap-up
+
+| # | Item | Status | Output |
+|---|---|---|---|
+| D1 | Update `docs/handoffs/2026-05-27-session-handoff.md` comprehensively | ✅ Done | handoff refreshed for 2026-05-28 state |
+| D2 | Final full test-suite green check | 🚧 Engine+sweep+eval+driver subset RUNNING (skipping MCTS tests due to MCTS@300 compute contention; full check after MCTS@300 done) | TBD |
+
+## What's actually left for the autonomous run
+
+After MCTS@300 (currently in flight) completes:
+1. Launch alliance Phase 7 sweep (B3) — generates the alliance comparison report.
+2. Run the legal-action profile (A4) — appends measured data to the long-game engagement doc.
+3. Final FULL suite green (D2) including MCTS tests.
+4. Generate Sam's morning brief (synthesis of MCTS@300 result + alliance Phase 7 + profile data).
+
+I'll do those in order once compute is free. Estimated additional wall-clock: ~1.5–2 hours from MCTS@300 completion.
 
 ## Operational guardrails (carrying forward)
 
