@@ -1,6 +1,6 @@
 # Sweep Dashboard
 
-**Date:** generated 2026-05-28T12:15:06.942Z. **Source:** every JSONL under `docs/sweeps/data/`.
+**Date:** generated 2026-05-28T12:17:38.363Z. **Source:** every JSONL under `docs/sweeps/data/`.
 
 Run `npx tsx src/sweep/dashboard.ts` to refresh.
 

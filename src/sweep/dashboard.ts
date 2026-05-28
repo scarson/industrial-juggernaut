@@ -135,6 +135,20 @@ function renderSection(filename: string): string {
     const med = median(cast.map((r) => r.turns ?? 0).filter((t) => t > 0));
     lines.push(`**Aggregate:** ${mix.total} games · iron=${mix.iron} · last-standing=${mix.lastStanding} · none=${mix.none} · median turns=${Number.isNaN(med) ? "—" : med.toFixed(1)}`);
     lines.push(`**Iron-vic:** ${(mix.iron / Math.max(1, mix.total) * 100).toFixed(1)}% \`${bar(mix.iron / Math.max(1, mix.total))}\``);
+  } else if (records.some((r) => "scenario" in r && "rounds" in r)) {
+    // profile-turn-complexity schema: per-scenario record with full rounds-log.
+    const cast = records as Array<{ scenario?: string; finalTurns?: number; victoryType?: string; winner?: number[]; rounds?: Array<{ turn: number; legalActionsForActed: number; elapsedMs: number }> }>;
+    lines.push("");
+    lines.push(`| scenario | finalTurns | victoryType | winner | rounds | legal[turn1] | legal[final turn] | ms[turn1] | ms[final turn] |`);
+    lines.push(`| --- | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: |`);
+    for (const r of cast) {
+      const rounds = r.rounds ?? [];
+      const t1 = rounds.find((rr) => rr.turn === 1);
+      const tF = rounds[rounds.length - 1];
+      lines.push(
+        `| \`${r.scenario ?? "?"}\` | ${r.finalTurns ?? "—"} | ${r.victoryType ?? "—"} | [${(r.winner ?? []).join(",")}] | ${rounds.length} | ${t1?.legalActionsForActed ?? "—"} | ${tF?.legalActionsForActed ?? "—"} | ${t1?.elapsedMs ?? "—"} | ${tF?.elapsedMs ?? "—"} |`,
+      );
+    }
   } else if (records.some((r) => "stage" in r)) {
     // Config-stage records (main / calibrate).
     const cast = records as Array<{ stage?: string; healthy?: boolean; infeasible?: boolean; metrics?: { medianTurns?: number; ironVictoryFraction?: number } }>;
