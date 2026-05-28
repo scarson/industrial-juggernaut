@@ -361,3 +361,63 @@ describe("alliance layer Phase 2 — `ally` action legality", () => {
     expect(allies[0]!.target).toBe(1);
   });
 });
+
+describe("alliance layer Phase 3 — `break-alliance` action legality", () => {
+  function mkAllied(): GameState {
+    const cfg = { ...defaultConfig(), alliancesEnabled: true };
+    let s = mkState({
+      board: 96,
+      basesP0: [hex(0, 0, 0)],
+      basesP1: [hex(20, -20, 0)],
+      basesP2: [hex(0, 20, -20)],
+      iron: [hex(1, -1, 0), hex(20, -19, -1), hex(0, 19, -19)],
+      config: cfg,
+    });
+    // Pre-ally p0 and p1.
+    s = {
+      ...s,
+      players: s.players.map((p) => {
+        if (p.id === 0) return { ...p, alliance: [0, 1] };
+        if (p.id === 1) return { ...p, alliance: [1, 0] };
+        return p;
+      }),
+    };
+    return s;
+  }
+
+  it("does NOT emit break-alliance when alliancesEnabled is false", () => {
+    let s = mkAllied();
+    s = { ...s, config: { ...s.config, alliancesEnabled: false } };
+    const acts = legalActions(s);
+    expect(acts.some((a) => a.kind === "break-alliance")).toBe(false);
+  });
+
+  it("emits one break-alliance per current ally for the actor", () => {
+    const s = mkAllied();
+    const acts = legalActions(s);
+    const breaks = acts.filter((a) => a.kind === "break-alliance") as Extract<Action, { kind: "break-alliance" }>[];
+    expect(breaks.length).toBe(1);
+    expect(breaks[0]!.target).toBe(1);
+  });
+
+  it("does NOT emit break-alliance against the SELF entry in the alliance array", () => {
+    const s = mkAllied();
+    const acts = legalActions(s);
+    const breaks = acts.filter((a) => a.kind === "break-alliance") as Extract<Action, { kind: "break-alliance" }>[];
+    expect(breaks.every((b) => b.target !== 0)).toBe(true);
+  });
+
+  it("does NOT emit break-alliance against eliminated allies", () => {
+    let s = mkAllied();
+    s = { ...s, players: s.players.map((p) => (p.id === 1 ? { ...p, eliminated: true } : p)) };
+    const acts = legalActions(s);
+    expect(acts.some((a) => a.kind === "break-alliance")).toBe(false);
+  });
+
+  it("does NOT emit break-alliance when actor has allianceCooldownTurns > 0", () => {
+    let s = mkAllied();
+    s = { ...s, players: s.players.map((p) => (p.id === 0 ? { ...p, allianceCooldownTurns: 1 } : p)) };
+    const acts = legalActions(s);
+    expect(acts.some((a) => a.kind === "break-alliance")).toBe(false);
+  });
+});

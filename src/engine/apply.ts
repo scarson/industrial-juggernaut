@@ -5,6 +5,7 @@ import { buildBudget, isLegalBasePlacement, isLegalFactoryPlacement } from "./bu
 import { resolveCombat } from "./combat";
 import { distance, key } from "../geometry/cube";
 import { convexHull, hullArea } from "../geometry/hull";
+import { nextFloat } from "../rng/pcg";
 import type { Action, AttackDecl, Base, Factory, GameEvent, GameState, PlayerId } from "./types";
 
 /** The acting player is whoever's round it is. */
@@ -275,9 +276,35 @@ export function applyAction(state: GameState, action: Action): { state: GameStat
     case "ally":
       return applyAlly(state, currentPlayer(state), action.target);
     case "break-alliance":
-      // Phase 3 of the alliance plan — coin-flip-with-cooldown semantics. Not yet implemented.
-      throw new Error(`applyAction: 'break-alliance' is not yet implemented (alliance plan phase 3)`);
+      return applyBreakAlliance(state, currentPlayer(state), action.target);
   }
+}
+
+/**
+ * Apply a `break-alliance` action: a weighted coin flip — 2/3 success, 1/3 failure. On SUCCESS,
+ * mutually remove the alliance refs. On FAILURE, the alliance arrays are unchanged. EITHER WAY,
+ * the actor's `allianceCooldownTurns` is set to 1 (the betrayer pays for the attempt regardless
+ * of outcome). Draws ONE float from state.rngState (GEO-3); the advanced rng is threaded into the
+ * returned state. The probability threshold (2/3) is fixed per the alliance design spec.
+ */
+const BREAK_ALLIANCE_SUCCESS_THRESHOLD = 2 / 3;
+function applyBreakAlliance(state: GameState, actor: PlayerId, target: PlayerId): { state: GameState; events: GameEvent[] } {
+  if (!state.config.alliancesEnabled) {
+    throw new Error(`applyBreakAlliance: alliancesEnabled is false; break-alliance action is not allowed`);
+  }
+  const { value: roll, state: rngNext } = nextFloat(state.rngState);
+  const success = roll < BREAK_ALLIANCE_SUCCESS_THRESHOLD;
+  const players = state.players.map((p) => {
+    if (p.id === actor) {
+      const next = success ? p.alliance.filter((id) => id !== target) : p.alliance;
+      return { ...p, alliance: next, allianceCooldownTurns: 1 };
+    }
+    if (p.id === target && success) {
+      return { ...p, alliance: p.alliance.filter((id) => id !== actor) };
+    }
+    return p;
+  });
+  return { state: { ...state, players, rngState: rngNext }, events: [] };
 }
 
 /**

@@ -114,19 +114,26 @@ export function legalActions(state: GameState): Action[] {
     }
   }
 
-  // 2b. ALLY — alliance layer Phase 2 (default off via alliancesEnabled).
-  //   Legal iff: alliancesEnabled is true; actor has basesInHand >= 1 (commit cost); actor has no
-  //   active allianceCooldownTurns; target is a different LIVE player that is not already in actor's
-  //   alliance array. Emitted in id-ascending target order for determinism.
+  // 2b. ALLY + BREAK-ALLIANCE — alliance layer (default off via alliancesEnabled).
   if (state.config.alliancesEnabled) {
     const actor = state.players[player]!;
-    if (actor.basesInHand >= 1 && actor.allianceCooldownTurns === 0) {
-      const alreadyAllied = new Set(actor.alliance);
-      for (const other of state.players) {
-        if (other.id === player) continue;
-        if (other.eliminated) continue;
-        if (alreadyAllied.has(other.id)) continue;
-        actions.push({ kind: "ally", target: other.id });
+    if (actor.allianceCooldownTurns === 0) {
+      // ally — basesInHand >= 1 (commit cost); target is a different LIVE non-allied player.
+      if (actor.basesInHand >= 1) {
+        const alreadyAllied = new Set(actor.alliance);
+        for (const other of state.players) {
+          if (other.id === player) continue;
+          if (other.eliminated) continue;
+          if (alreadyAllied.has(other.id)) continue;
+          actions.push({ kind: "ally", target: other.id });
+        }
+      }
+      // break-alliance — for each ALLY (other than self) that is still live.
+      for (const allyId of actor.alliance) {
+        if (allyId === player) continue;
+        const allyPlayer = state.players[allyId];
+        if (allyPlayer === undefined || allyPlayer.eliminated) continue;
+        actions.push({ kind: "break-alliance", target: allyId });
       }
     }
   }
