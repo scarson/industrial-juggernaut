@@ -111,6 +111,27 @@ The engine is a deterministic rules engine: the same `(seed, action-sequence)` m
 
 ---
 
+## 9. Coalition & Alliance Testing
+
+The engine declares last-standing victory when `coalitions(state).length <= 1`. This makes alliance tests SUBTLE: a 2-player game with both players in one mutual alliance has `comps.length === 1`, and **any test that disables iron-victory (e.g. by being below the scaled threshold) will see last-standing fire instead of "ongoing"** — masking the iron-victory gate logic the test was trying to verify.
+
+- [ ] **Alliance status tests need N+1 live players.** If you're testing that an alliance of size N does NOT trigger iron-victory (e.g. because the anti-coalition delta means the threshold isn't met), include at least ONE more live player NOT in that coalition. Otherwise `comps.length === 1` collapses to last-standing and your test passes for the wrong reason.
+- [ ] **Status-precedence tests should verify the COMPLETE precedence chain.** Iron > last-standing > ongoing. If you're testing iron-victory rejection, also confirm the result isn't `last-standing` — that's the alternative the engine WILL declare.
+- [ ] **Test break-alliance with both rng outcomes.** The 2/3-success break is rng-dependent; tests MUST exercise both the < 2/3 and >= 2/3 branches by selecting seeds with the right first-draw float. (See `apply-break-alliance.test.ts` for the seed-search pattern.)
+- [ ] **Cooldown lifecycle:** break sets cooldown; advanceRound decrements it; ally checks it. A test that exercises only one stage misses interaction bugs.
+
+---
+
+## 10. Agent Robustness Under New Action Shapes
+
+When the action space expands (new variant flags adding `ally`, `break-alliance`, `block-terrain`, etc.), agents that switch on `action.kind` must handle the new shapes — even if they ignore them strategically. The TypeScript compiler catches some via exhaustive-switch errors, but only when the switches return a value. Switches that *don't* return (e.g., side-effect-only branches) silently fall through.
+
+- [ ] **After adding a new Action kind, audit every switch on `action.kind` for completeness.** Search: `grep -rn 'switch (action.kind)' src/`. Add explicit branches even if the branch is `throw "not yet implemented"` (Phase-1-stub style) — that flushes coverage gaps at runtime instead of as silent fall-through.
+- [ ] **Agents must not return `undefined` action.** `samplePolicy` / `chooseActionMCTS` MUST throw a CLEAR error when they would otherwise return undefined (see `mcts-agent.ts` `mostVisited` fallback). The obscure `Cannot read properties of undefined (reading 'action')` crash that surfaced in the rules-variants experiment was exactly this gap.
+- [ ] **Smoke-test agents under new flag combinations.** A simple `runGame` with each new flag enabled, run to completion, asserts the agents don't crash on the expanded action space. Cheap, high-value.
+
+---
+
 ## How to Add a Testing-Pitfall
 
 When a bug reaches production (or staging, or late integration testing) because a test was missing:
