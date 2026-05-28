@@ -2,11 +2,12 @@
 
 > Checkpoint of a long autonomous session that went from design docs → a complete M1 rules engine → a stronger-agent (MCTS) build → a balance-sweep harness. The session is NOT ending; this is a durable checkpoint. Points at the canonical artifacts (specs/plans/reports) rather than duplicating them.
 
-## Headline state (updated 2026-05-28 after MCTS@300 landed; checkpoint per Sam's instruction)
+## Headline state (updated 2026-05-28 after MCTS@300 + alliance Phase 7 + profile + budget comparison landed; checkpoint per Sam's instruction)
 - **Branch:** `claude/document-game-design-VpqqB` (all work; the only dev branch).
-- **Tip:** see `git log -1` — ~70 commits ahead of `origin/main` (still at `72944bb`/PR #10). The branch now carries: parallel infra; variant (a)/(b)/(c) flag implementations; full alliance-layer engine (Phases 1-6 of `docs/plans/2026-05-28-alliance-layer-plan.md`); BAL-2 incremental commit infrastructure (`src/sweep/incremental-results.ts`); per-environment `workerCount()`; sweep dashboard; MCTS@300 result; 5 implementation plans and many design specs.
+- **Tip:** see `git log -1` — ~120+ commits ahead of `origin/main` (still at `72944bb`/PR #10). The branch now carries: parallel infra; variant (a)/(b)/(c) flag implementations; full alliance-layer engine (Phases 1-6 of `docs/plans/2026-05-28-alliance-layer-plan.md`); BAL-2 incremental commit infrastructure (`src/sweep/incremental-results.ts`); per-environment `workerCount()`; sweep dashboard; MCTS@300 result; alliance Phase 7 + profile + MCTS-budget comparison results; 5 implementation plans and many design specs.
 - **Tests:** 298 tests green on the subset suite (engine + sweep + eval + driver). Full suite (including MCTS tests) hasn't been re-run since MCTS@300 freed the cores — see priority #1 below.
-- **THE headline finding (lands today):** MCTS@300 stress test on variant (c)'s best cell COMPLETED. Read `docs/2026-05-28-mcts-300-on-c.md`. **Verdict: the perimeter-aware heuristic is genuinely near-optimal on the (c) regime.** MCTS@300 h2h vs heuristic = 6.3% vs 93.8% (IDENTICAL to MCTS@100 — Δ -0.0pp). Adding search depth doesn't help. This means A6 gate-2 ("MCTS beats greedy ≥ 0.70") in its current form is the wrong instrument; needs a Sam-gated reframe (re-anchor / build alliance-aware policy / re-think gate-2). Detailed routing in `docs/plans/2026-05-27-stronger-agent-mcts-plan.md` 2026-05-28 update.
+- **THE headline finding (definitive now — 4 budgets, 64 games):** Read `docs/2026-05-28-mcts-300-on-c.md` + `docs/2026-05-28-mcts-budgets-on-c.md`. **Verdict: the perimeter-aware heuristic is genuinely near-optimal on the (c) regime, robustly across the full MCTS budget range tested.** MCTS@25 / @50 / @100 (this run, seed 9000) all went **0/16 vs heuristic** — 0.0% win rate, 100% heuristic. MCTS@300 (prior run, seed 7000) went 1/16 = 6.3%. Range across 25-300 budgets: 0-6.3% — statistically indistinguishable at n=16/budget (95% CI ~±25pp on a fair-coin baseline). Adding search depth doesn't help; lowering doesn't hurt (within the matchup tested). This means A6 gate-2 ("MCTS beats greedy ≥ 0.70") in its current form is the wrong instrument; needs a Sam-gated reframe (re-anchor / build alliance-aware policy / re-think gate-2). Detailed routing in `docs/plans/2026-05-27-stronger-agent-mcts-plan.md` 2026-05-28 update.
+- **MCTS arena default — currently @100, candidate to drop to @25 (Sam-gated):** Sam directed default→100 earlier today (was 300); the budget comparison shows @25 is indistinguishable from @100 in MCTS-vs-heuristic and would save ~3.4x compute per sweep (87s vs 292s for 16 games). NOT autonomously changed — only tested in the heuristic matchup; MCTS-vs-MCTS self-play health quality at @25 is untested. See "Surface to Sam" below.
 - **THE balance picture (still operative):**
   1. **Variant (c) `noIronRequiresPerimeter: true` is the load-bearing fix.** Comparison sweep (`docs/2026-05-28-rules-variants-comparison.md`, `2026-05-28-rules-variants-synthesis.md`) showed it changes MCTS games from 12/12 turn-1 last-standing to ~25% iron-vic, median t≈12. Variant (a) P3 adds the victory-iron-perimeter change on top but gives no measurable improvement.
   2. **Sam has greenlit variant (c) adoption** with **recalibrated health gates** (`docs/2026-05-28-gate-recalibration-for-c.md`; `mctsHealthThresholds()` SHIPPED in `src/sweep/health.ts`, not yet adopted as default by sweeps).
@@ -98,38 +99,38 @@
 - ✅ **Sweep progress logging — DONE** (overnight, commit `5d84f40`): `onProgress` (per-config) on `sweepGrid`/`findBalancedConfig`/`balanceSweep` + `onGame` (per-game) on `runConfig`/`roundRobin`; `main.ts`/`calibrate.ts`/`revalidate.ts` log live.
 - **(skipped, noted) NTH-1** parallel-retrofit `calibrate.ts`/`main.ts` to `findBalancedConfigParallel` — low value now (scripts already ran; future work calls the parallel fns directly). **NTH-4** dedupe the duplicated `cartesian` (run.ts vs orchestrate.ts) — skipped: a clean fix needs a new module to avoid a run↔orchestrate import cycle; not worth it for 12 lines. Both are pick-up-anytime cleanups, not blockers.
 
-## Priority queue (updated post-MCTS@300; numbered, with dependencies)
+## Priority queue (updated post-MCTS@300 + alliance Phase 7 + profile + budget comparison; numbered, with dependencies)
 
 **Done (this session):**
 1. ✅ Parallel infra + determinism + variant (a)/(b)/(c) flag implementations + comparison sweep + synthesis.
 2. ✅ Variant (c) verified as the load-bearing fix (`docs/2026-05-28-rules-variants-synthesis.md`).
 3. ✅ Alliance layer Phases 1-6 (engine fully implemented; smoke tests pass; 196 engine tests green).
-4. ✅ Alliance Phase 7 sweep script written + per-game commit wired.
+4. ✅ Alliance Phase 7 sweep COMPLETE (`docs/2026-05-28-alliance-comparison.md`) — heuristic doesn't strategically use alliances; delta 2/3/4 indistinguishable from baseline; delta=5 mildly elevates last-standing. The strategic test still requires an alliance-aware agent (deferred).
 5. ✅ Gate recalibration implemented (`mctsHealthThresholds()` + `maxLeadVolatility` in `src/sweep/health.ts`); spec at `docs/2026-05-28-gate-recalibration-for-c.md`. NOT yet ADOPTED by default sweeps.
-6. ✅ **MCTS@300 stress test COMPLETE** (`docs/2026-05-28-mcts-300-on-c.md`) — definitive verdict: heuristic near-optimal on (c) regime; search depth doesn't help; gate-2 needs reframing.
-7. ✅ BAL-2 incremental commit infrastructure shipped — per-game + per-report git persistence; pitfall documented; retrofitted into ALL 8 sweep scripts.
-8. ✅ `workerCount()` helper for environment portability (the 4-vCPU saturation conclusion doesn't generalize to 10-core hosts).
-9. ✅ Sweep dashboard (`docs/2026-05-28-sweep-dashboard.md`) + regenerator + post-MCTS@300 orchestrator (`src/sweep/run-queued-sweeps.ts`).
-10. ✅ Design specs/plans queued for Sam: gate recalibration, concession, neutral 2P bases, terrain blocks, tactical depth, alliance-aware policy, Opus proxy.
-
-**Ready to launch (single command, no contention):**
-11. **`npx tsx src/sweep/run-queued-sweeps.ts`** — chains: alliance Phase 7 delta comparison → profile-turn-complexity → dashboard refresh. Estimated ~30-90 min wall-clock. All sweeps now use BAL-2 commits, so an interrupt only loses the in-flight game, not the whole run.
+6. ✅ **MCTS@300 stress test COMPLETE** (`docs/2026-05-28-mcts-300-on-c.md`) — verdict: heuristic near-optimal on (c) regime.
+7. ✅ **MCTS budget comparison COMPLETE** (`docs/2026-05-28-mcts-budgets-on-c.md`) — @25/@50/@100 all 0/16 vs heuristic; @300 from prior run 1/16. Search depth doesn't help and lowering doesn't hurt in this matchup. Default still at @100 pending Sam's call to drop further.
+8. ✅ Profile-turn-complexity COMPLETE (`docs/sweeps/data/2026-05-28-profile-turn-complexity.jsonl`) — variant (c) 2P all-MCTS long-game scenario: legalActions 64→130→126→...→99 (expanding then contracting, NOT forced-move narrow); per-turn MCTS@100 cost ~30-50s (single-threaded), so 12-turn games = ~6-12 min wall-clock per MCTS-vs-MCTS game.
+9. ✅ BAL-2 incremental commit infrastructure shipped — per-game + per-report git persistence; pitfall documented; retrofitted into ALL 8 sweep scripts. **The race-pitfall follow-on** (manual `git push` during active sweep fails with "cannot lock ref") was lived, documented in `docs/pitfalls/implementation-pitfalls.md` BAL-2 follow-on, and self-resolves — DO NOT force-push to recover.
+10. ✅ `workerCount()` helper for environment portability (the 4-vCPU saturation conclusion doesn't generalize to 10-core hosts).
+11. ✅ Sweep dashboard (`docs/2026-05-28-sweep-dashboard.md`) + regenerator + post-MCTS@300 orchestrator (`src/sweep/run-queued-sweeps.ts`).
+12. ✅ Design specs/plans queued for Sam: gate recalibration, concession, neutral 2P bases, terrain blocks, tactical depth, alliance-aware policy, Opus proxy.
 
 **Blocked on Sam (each is a discrete decision; ordered by my recommendation):**
-12. **Adopt variant (c) as default** — flip `noIronRequiresPerimeter: true` in `defaultConfig()`. Sam's directional answer is YES with recalibrated gates; final code change pending one more affirmation. Note: many tests encode the old behavior and may need updating ("correct, don't loosen").
-13. **Pick a gate-2 reframe direction.** MCTS@300 verdict says heuristic is the strong agent on (c). Three options in `docs/plans/2026-05-27-stronger-agent-mcts-plan.md` 2026-05-28 update:
+13. **Adopt variant (c) as default** — flip `noIronRequiresPerimeter: true` in `defaultConfig()`. Sam's directional answer is YES with recalibrated gates; final code change pending one more affirmation. Note: many tests encode the old behavior and may need updating ("correct, don't loosen").
+14. **Decide whether to drop arena-default MCTS budget below 100.** Current default is @100 per Sam's directive earlier today. Budget comparison (`docs/2026-05-28-mcts-budgets-on-c.md`) shows @25/@50/@100 ALL go 0/16 vs heuristic on (c), saving 3.4x compute at @25 vs @100. NOT autonomously changed because: (a) only tested in the heuristic matchup, MCTS-vs-MCTS health-check quality at @25 is untested; (b) Sam said "drop to 100" not "as low as possible." Recommend: stay at @100 for now; revisit if compute pressure justifies; if dropping, @50 is the safer middle (1.8x savings, still real search).
+15. **Pick a gate-2 reframe direction.** MCTS budget comparison + MCTS@300 verdict together: heuristic dominates @25-@300 on (c). Three options in `docs/plans/2026-05-27-stronger-agent-mcts-plan.md` 2026-05-28 update:
    a. Re-anchor gate-2 to a weaker baseline (e.g., greedy without perimeter-awareness).
    b. Build alliance-aware policy (`docs/plans/2026-05-28-alliance-aware-agent-policy-plan.md`) — heuristic-near-optimal holds at 2P; alliance-rich 3+P may differ.
    c. Re-think gate-2 entirely — heuristic-is-the-strong-agent reduces trustworthiness to "is heuristic robust to exploiters" (gate 4).
-14. **Greenlight a queued design plan** — alliances are now built (engine); next in serial sequencing is tactical depth (asymmetric base types) per the design ladder. Plan at `docs/plans/2026-05-28-tactical-depth-asymmetric-bases-plan.md`.
-15. **PR+merge the branch to main.** Big diff; PR strategy at `docs/plans/2026-05-28-pr-merge-strategy.md` recommends 3-PR chunking. `Review` classification given engine surface-area additions.
+16. **Greenlight a queued design plan** — alliances are now built (engine); next in serial sequencing is tactical depth (asymmetric base types) per the design ladder. Plan at `docs/plans/2026-05-28-tactical-depth-asymmetric-bases-plan.md`.
+17. **PR+merge the branch to main.** Big diff; PR strategy at `docs/plans/2026-05-28-pr-merge-strategy.md` recommends 3-PR chunking. `Review` classification given engine surface-area additions.
 
-**Hygiene tasks (low-blocker, do alongside #11):**
-16. **Re-run the FULL test suite including MCTS tests** — subset (engine/sweep/eval/driver) is at 298 green; full suite hasn't run since MCTS@300 freed cores. ~3 minutes.
+**Hygiene tasks (low-blocker, do alongside anything):**
+18. **Re-run the FULL test suite including MCTS tests** — subset (engine/sweep/eval/driver) is at 298 green; full suite hasn't run since MCTS@300 freed cores. ~3 minutes.
 
 **Far-future (still gated, structure unchanged):**
-17. MCTS trustworthiness gates A5.2/A6 — blocked on Sam's gate-2-reframe decision (#13).
-18. Learned-agent (AlphaZero) plan — double-gated behind #17.
+19. MCTS trustworthiness gates A5.2/A6 — blocked on Sam's gate-2-reframe decision (#15).
+20. Learned-agent (AlphaZero) plan — double-gated behind #19.
 
 ## Continuation prompt (paste-ready for a fresh agent — post-MCTS@300)
 > You are continuing an autonomous build of Industrial Juggernaut on branch `claude/document-game-design-VpqqB`. Start with: this handoff (`docs/handoffs/2026-05-27-session-handoff.md` — read headline + priority queue); `2026-05-28-design-decisions-from-thought-exercises.md` (Sam's directional decisions — authoritative); `docs/2026-05-28-mcts-300-on-c.md` (the just-landed verdict: heuristic is near-optimal on the (c) regime; MCTS search depth doesn't help — gate-2 in its current form is the wrong instrument). **State:** engine work for variants (a)/(b)/(c) + alliance layer (Phases 1-6) is DONE; MCTS@300 stress test COMPLETE; alliance Phase 7 + profile-turn-complexity are launchable in one command via `npx tsx src/sweep/run-queued-sweeps.ts`. **Operational fact:** BAL-2 per-game commit infrastructure is live — all sweep scripts persist JSONL + git-push as games complete; container restart no longer loses runs. **Next concrete autonomous step:** launch the orchestrator above; while it runs, do not start other heavy compute (one job at a time on 4 vCPU). **Sam-gated items (do NOT touch without explicit greenlight):** flipping `defaultConfig` (Sam directionally yes for variant (c), but the final flip awaits one more affirmation); implementing tactical depth / concession / neutral 2P / terrain blocks / alliance-aware policy (all specced + planned; Sam's call which); choosing gate-2 reframe (`docs/plans/2026-05-27-stronger-agent-mcts-plan.md` 2026-05-28 update lists three options); PR+merge to main. Operate per guardrails: serial sequencing (adopt-validate-then-add); one heavy compute job at a time; parallel-run determinism is invariant; commit+push per logical unit (BAL-2); plain English in chat (no question codes). Dashboard: `npx tsx src/sweep/dashboard.ts`. Full test suite re-run pending — engine + sweep + eval + driver subset at 298 green.
