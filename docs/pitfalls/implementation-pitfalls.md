@@ -183,6 +183,8 @@ onGame: (done, total, n, r) => {
 
 **Don't:** write the report only at the end, even if "it's a short run." Container restarts happen unpredictably. The exception (rare): one-off scripts that finish in well under a minute, where the failure mode is recoverable by just re-running.
 
+**Operational follow-on — race with manual git operations.** While a sweep is running, `appendResultAndCommit` calls `git push` from the parent process per-game (every few seconds in fast sweeps). A manual `git push` during this window will race the worker's push: the remote ref advances between your fetch-state and your push-write, and your push is rejected with `cannot lock ref`. The fix is NOT to fight the race — it's to **let the orchestrator's continuous pushes sweep your local commits up.** A worker's commit is built on top of whatever local HEAD is, so any commit you've made locally rides along on the next successful worker push. If the stop-hook nags about unpushed commits during a sweep, wait 10-30 seconds and re-check; it self-resolves. Do NOT use `git push --force-with-lease` to "fix" this — it's not broken, just transiently behind.
+
 **Trigger:** Searching `RuleConfig` space for a "balanced" config via `findBalancedConfig`/the health gate, which run under the heuristic/greedy agent by default.
 
 **What you need to do:** Before concluding a config is balanced (let alone adopting it as `defaultConfig`), **re-validate it under MCTS** (`src/sweep/revalidate.ts`). A config that passes the health gate under greedy self-play may collapse under competent play.
