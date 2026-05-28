@@ -9,6 +9,26 @@ export interface RuleConfig {
   factorySupply: number; ironCount: number; boardSize: number;
   victoryThreshold: number; brokenPerimeterDeathAtFactories: number;
   allowPass: boolean;
+  /**
+   * Variant (a)/P3: when true, a player's iron counts toward the victory threshold
+   * ONLY when inside their committed perimeter (≥4 non-colinear bases). Radiating iron
+   * still counts toward `resourceCount` (economy/bootstrap). Default false (current behavior).
+   */
+  victoryIronRequiresPerimeter: boolean;
+  /**
+   * Variant (a) companion + variant (c): when true, the `noIron` elimination cause only
+   * fires for players in the PERIMETER control regime (≥4 non-colinear bases). A radiating
+   * player with 0 iron is NOT eliminated — they just can't build anything until they get iron.
+   * Default false (current behavior — noIron fires on any player with ≥1 base and 0 iron).
+   */
+  noIronRequiresPerimeter: boolean;
+  /**
+   * Variant (b)/P2: iron victory requires the coalition to have held ≥`victoryThreshold` iron
+   * across this many consecutive end-of-turn checks. Default 1 = current behavior (one-shot
+   * victory the moment threshold is met). Higher values give the opponent rounds to deny.
+   * Per-player streak; resets to 0 when below threshold.
+   */
+  victoryIronHoldRounds: number;
 }
 export const defaultConfig = (): RuleConfig => ({
   radius: 5, placeRange: 5, attackRange: 6, baseLimit: 12,
@@ -17,4 +37,7 @@ export const defaultConfig = (): RuleConfig => ({
   factorySupply: 36, ironCount: 14, boardSize: 96,
   victoryThreshold: 10, brokenPerimeterDeathAtFactories: 8,
   allowPass: false,
+  victoryIronRequiresPerimeter: false,
+  noIronRequiresPerimeter: false,
+  victoryIronHoldRounds: 1,
 });

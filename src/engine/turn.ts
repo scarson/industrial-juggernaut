@@ -75,6 +75,7 @@ export function setupGame(
       basesInHand: config.baseLimit - 1,
       alliance: [id],
       eliminated: false,
+      victoryStreak: 0,
     });
   }
 

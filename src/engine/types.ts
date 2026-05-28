@@ -33,6 +33,12 @@ export type Player = {
   basesInHand: number; // of 12, how many not yet on board
   alliance: PlayerId[]; // ids in the same coalition (incl. self)
   eliminated: boolean;
+  /**
+   * Consecutive end-of-turn checks at which this player's coalition has held ≥`victoryThreshold` iron.
+   * Drives variant-(b)/P2 `victoryIronHoldRounds` (default 1 = one-shot victory; values >1 require this
+   * many consecutive holds before iron victory fires). Updated by `advanceRound` at the turn boundary.
+   */
+  victoryStreak: number;
 };
 
 export type Phase = {

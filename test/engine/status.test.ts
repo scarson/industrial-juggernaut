@@ -295,3 +295,39 @@ describe("applyEliminations", () => {
     expect(state.bases.some((b) => b.owner === 1)).toBe(true);
   });
 });
+
+describe("variant (a)/P3 — victoryIronRequiresPerimeter", () => {
+  // 4 perimeter bases forming a clear diamond hull around the origin with positive area.
+  const PERIMETER_BASES = [hex(5, -5, 0), hex(-5, 5, 0), hex(0, 5, -5), hex(0, -5, 5)];
+  // 3 iron hexes near the origin, clearly inside the diamond.
+  const IRON_INSIDE = [hex(0, 0, 0), hex(1, -1, 0), hex(-1, 1, 0)];
+
+  it("default (flag false): radiating player meets threshold and wins iron — current behavior", () => {
+    // Single base radiating disk covers 10 iron at radius<=5 (TEN_IRON).
+    const s = mkState({ board: 96, basesP0: [hex(0, 0, 0)], basesP1: [hex(30, -30, 0)], iron: [...TEN_IRON, hex(30, -29, -1)] });
+    const st = status(s);
+    expect(st.kind).toBe("victory");
+    if (st.kind === "victory") {
+      expect(st.reason).toBe("iron");
+      expect(st.players).toEqual([0]);
+    }
+  });
+
+  it("flag true: a RADIATING player's iron does NOT count toward victory (still ongoing)", () => {
+    const cfg = { ...defaultConfig(), victoryIronRequiresPerimeter: true };
+    const s = mkState({ board: 96, basesP0: [hex(0, 0, 0)], basesP1: [hex(30, -30, 0)], iron: [...TEN_IRON, hex(30, -29, -1)], config: cfg });
+    const st = status(s);
+    expect(st.kind).toBe("ongoing");
+  });
+
+  it("flag true: a PERIMETER player whose hull encloses iron DOES win iron victory", () => {
+    const cfg = { ...defaultConfig(), victoryIronRequiresPerimeter: true, victoryThreshold: 3 };
+    const s = mkState({ board: 96, basesP0: PERIMETER_BASES, basesP1: [hex(30, -30, 0)], iron: [...IRON_INSIDE, hex(30, -29, -1)], config: cfg });
+    const st = status(s);
+    expect(st.kind).toBe("victory");
+    if (st.kind === "victory") {
+      expect(st.reason).toBe("iron");
+      expect(st.players).toEqual([0]);
+    }
+  });
+});

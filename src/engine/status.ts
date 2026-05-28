@@ -77,6 +77,24 @@ export function coalitionIron(state: GameState, members: PlayerId[]): number {
   return keys.size;
 }
 
+/**
+ * Iron count that COUNTS TOWARD VICTORY for `members`. Under the default
+ * `victoryIronRequiresPerimeter: false`, identical to {@link coalitionIron} — every
+ * controlled iron hex counts. Under variant (a)/P3 (`true`), only iron held by a
+ * member who is in the PERIMETER regime counts (radiating-only members contribute
+ * NOTHING to victory iron, though their iron still counts for `resourceCount`).
+ */
+export function coalitionVictoryIron(state: GameState, members: PlayerId[]): number {
+  if (!state.config.victoryIronRequiresPerimeter) return coalitionIron(state, members);
+  const keys = new Set<string>();
+  for (const m of members) {
+    const ctl = control(state, m);
+    if (!ctl.perimeter) continue;
+    for (const h of ctl.iron) keys.add(key(h));
+  }
+  return keys.size;
+}
+
 export type Status =
   | { kind: "ongoing" }
   | { kind: "victory"; players: PlayerId[]; reason: "iron" | "last-standing" };
@@ -98,9 +116,10 @@ export function status(state: GameState): Status {
   const threshold = state.config.victoryThreshold;
 
   // (a) Iron victory — checked BEFORE last-standing (Round-4 refinement).
+  // Under variant (a)/P3 (`victoryIronRequiresPerimeter`), only perimeter-held iron counts here.
   let best: { players: PlayerId[]; iron: number } | null = null;
   for (const comp of comps) {
-    const iron = coalitionIron(state, comp);
+    const iron = coalitionVictoryIron(state, comp);
     if (iron < threshold) continue;
     if (
       best === null ||

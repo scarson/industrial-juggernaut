@@ -11,6 +11,13 @@ export interface Control {
   hexes: Set<string>;
   iron: Hex[];
   factories: Hex[];
+  /**
+   * True iff the player is in the PERIMETER regime (≥4 non-colinear bases with positive-area hull).
+   * False under the RADIATING regime (<4 bases, or degenerate/colinear hull → R3 radiating fallback).
+   * Surfaced so callers (e.g. variant-(a)/P3 victory-iron gating, variant-(a)/(c) noIron-perimeter
+   * gating) can branch on regime without re-deriving the hull.
+   */
+  perimeter: boolean;
 }
 
 /**
@@ -57,7 +64,7 @@ export function control(state: GameState, player: PlayerId): Control {
   const iron = state.board.iron.filter((h) => hexes.has(key(h)));
   const factories = state.factories.filter((f) => hexes.has(key(f.hex))).map((f) => f.hex);
 
-  return { hexes, iron, factories };
+  return { hexes, iron, factories, perimeter };
 }
 
 /** Count of controlled resources (iron + factories) — drives the build budget. */

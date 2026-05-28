@@ -58,6 +58,7 @@ export function mkState(opts: MkStateOpts): GameState {
       basesInHand: BASE_LIMIT - onBoard,
       alliance: [id as PlayerId],
       eliminated: false,
+      victoryStreak: 0,
     };
   });
 
