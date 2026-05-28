@@ -1,7 +1,7 @@
 // ABOUTME: Industrial Juggernaut CLI play harness — interactive REPL for humans + scriptable subcommands for agents.
 // ABOUTME: Subcommands: new, show, legal, act, hint, play. State persists in a JSON file; opponents auto-resolve.
 
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, appendFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { generateBoard } from "../board/generate";
 import { defaultConfig, type RuleConfig } from "../engine/config";
@@ -283,6 +283,18 @@ interface SessionMeta {
   mctsIter?: number;
 }
 
+/**
+ * Append a structured JSONL log entry. Each line is a single JSON object with at
+ * minimum `{ts, event}` and event-specific fields. Cheap (no file lock, append-only),
+ * safe for sequential agent use; not safe for concurrent writers (the CLI is one-shot
+ * per invocation, so this is fine).
+ */
+function appendLog(logPath: string | undefined, entry: Record<string, unknown>): void {
+  if (logPath === undefined || logPath === "") return;
+  const enriched = { ts: new Date().toISOString(), ...entry };
+  appendFileSync(logPath, JSON.stringify(enriched) + "\n", "utf8");
+}
+
 function readMeta(path: string): SessionMeta {
   const metaPath = path + ".meta.json";
   if (!existsSync(metaPath)) {
@@ -358,6 +370,7 @@ function cmdNew(argv: Argv): void {
   const mctsIterStr = argv.opt("--mcts-iter", "");
   const mctsIter = mctsIterStr === "" ? undefined : Number(mctsIterStr);
   const out = argv.req("--out");
+  const logPath = argv.opt("--log", "");
 
   const presets = variantPresets();
   const preset = presets[variantName];
@@ -385,6 +398,18 @@ function cmdNew(argv: Argv): void {
   const meta: SessionMeta = { you, opponent, ...(mctsIter !== undefined && { mctsIter }) };
   saveState(out, state);
   saveMeta(out, meta);
+
+  appendLog(logPath === "" ? undefined : logPath, {
+    event: "new",
+    seed: seedN.toString(),
+    nPlayers,
+    variant: variantName,
+    you,
+    opponent,
+    ...(mctsIter !== undefined && { mctsIter }),
+    statePath: out,
+    preTurnOpponentActions: auto.opponentLog.map((e) => ({ player: e.player, action: e.action, display: formatAction(e.action) })),
+  });
 
   console.log(`Created new game (seed=${seedN}, players=${nPlayers}, variant=${variantName}, you=P${you}, opponent=${opponent}${mctsIter !== undefined ? `@${mctsIter}` : ""}).`);
   if (auto.opponentLog.length > 0) {
@@ -435,6 +460,8 @@ function cmdAct(argv: Argv): void {
   const out = argv.opt("--out", path);
   const indexStr = argv.opt("--index", "");
   const actionStr = argv.opt("--action", "");
+  const logPathRaw = argv.opt("--log", "");
+  const logPath = logPathRaw === "" ? undefined : logPathRaw;
   if (indexStr === "" && actionStr === "") {
     throw new Error(`act requires either --index N or --action <json>`);
   }
@@ -442,6 +469,8 @@ function cmdAct(argv: Argv): void {
   let state = loadState(path);
   const meta = readMeta(path);
   const acts = legalActions(state);
+  const turnBefore = state.phase.turn;
+  const playerBefore = currentPlayer(state);
 
   let chosen: Action;
   if (indexStr !== "") {
@@ -469,6 +498,17 @@ function cmdAct(argv: Argv): void {
   const stMid = status(state);
   if (stMid.kind === "victory") {
     saveState(out, state);
+    appendLog(logPath, {
+      event: "act",
+      turnBefore,
+      playerBefore,
+      yourAction: chosen,
+      yourActionDisplay: formatAction(chosen),
+      opponentActions: [],
+      victory: { reason: stMid.reason, winners: [...stMid.players] },
+      youWon: stMid.players.includes(meta.you),
+      turnAfter: state.phase.turn,
+    });
     console.log(`>>> Game over: ${stMid.reason} victory by [${stMid.players.map((p) => `P${p}`).join(", ")}] <<<`);
     return;
   }
@@ -486,6 +526,20 @@ function cmdAct(argv: Argv): void {
     for (const e of auto.opponentLog) console.log(`  P${e.player}: ${formatAction(e.action)}`);
   }
   const stEnd = status(state);
+  const ended = stEnd.kind === "victory" || state.phase.turn > 60;
+  appendLog(logPath, {
+    event: "act",
+    turnBefore,
+    playerBefore,
+    yourAction: chosen,
+    yourActionDisplay: formatAction(chosen),
+    opponentActions: auto.opponentLog.map((e) => ({ player: e.player, action: e.action, display: formatAction(e.action) })),
+    victory: stEnd.kind === "victory" ? { reason: stEnd.reason, winners: [...stEnd.players] } : null,
+    youWon: stEnd.kind === "victory" ? stEnd.players.includes(meta.you) : false,
+    turnAfter: state.phase.turn,
+    hitTurnCap: state.phase.turn > 60,
+    ended,
+  });
   if (stEnd.kind === "victory") {
     console.log(`>>> Game over: ${stEnd.reason} victory by [${stEnd.players.map((p) => `P${p}`).join(", ")}] <<<`);
   } else if (state.phase.turn > 60) {
@@ -559,9 +613,10 @@ class Argv {
 const USAGE = `iju — Industrial Juggernaut play harness
 
 Subcommands:
-  new --seed N --players K [--variant V] [--you P] [--opponent O] [--mcts-iter N] --out FILE
+  new --seed N --players K [--variant V] [--you P] [--opponent O] [--mcts-iter N] [--log LOG] --out FILE
       Create a new game. --variant: default | c | c-alliances (default: c).
       --opponent: heuristic | mcts (default: heuristic). Writes FILE + FILE.meta.json.
+      --log LOG appends a JSONL {ts, event:"new", ...} line to LOG.
 
   show FILE [--json]
       Pretty-print state, or output structured JSON.
@@ -569,8 +624,11 @@ Subcommands:
   legal FILE [--json]
       List legal actions for the current player.
 
-  act FILE (--index N | --action <json>) [--out FILE2]
+  act FILE (--index N | --action <json>) [--out FILE2] [--log LOG]
       Apply an action by legal-list index or by JSON. Auto-plays opponents next.
+      --log LOG appends a JSONL {ts, event:"act", ...} line per call — the full
+      trajectory of a game is "grep . LOG" (each line = one of your moves + the
+      opponents' responses + status after).
 
   hint FILE [--json]
       Show what the perimeter-aware heuristic would do for the current player.
