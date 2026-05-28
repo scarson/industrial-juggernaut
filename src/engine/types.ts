@@ -12,9 +12,36 @@ export type PlayerId = number; // 0..5
 export type PieceKind = "factory" | "base";
 export type BaseState = "fresh" | "fatigued";
 
-export type Base = { owner: PlayerId; hex: Hex; state: BaseState; order: number };
+/**
+ * Asymmetric base type — the Tactical Depth layer (Phase 1+ of
+ * `docs/plans/2026-05-28-tactical-depth-asymmetric-bases-plan.md`). Each type
+ * has different control / build-cost / combat / factory-generation properties
+ * (per the plan's §Spec). Materially considered ONLY when
+ * `RuleConfig.baseTypesEnabled` is true; otherwise every base behaves as
+ * "forge" (the existing default-behavior shape).
+ */
+export type BaseType = "forge" | "watchtower" | "outpost";
+
+export type Base = {
+  owner: PlayerId;
+  hex: Hex;
+  state: BaseState;
+  order: number;
+  /**
+   * The asymmetric base type. Optional for backwards-compatibility with
+   * existing fixtures and serialized states — UNDEFINED is treated as "forge"
+   * everywhere in the engine. New code creating bases SHOULD populate this
+   * field even in the baseTypesEnabled=false default-behavior path.
+   */
+  type?: BaseType;
+};
 // `order` = placement sequence; base with min order is the player's "first/oldest"
 export type Factory = { hex: Hex }; // factories are unowned board state
+
+/** Convenience: get a base's effective type, defaulting `undefined` to `"forge"`. */
+export function baseTypeOf(b: { type?: BaseType }): BaseType {
+  return b.type ?? "forge";
+}
 
 export type Board = {
   hexes: Hex[]; // the oval landmass

@@ -95,7 +95,7 @@ export function setupGame(
   for (let id = 0; id < nPlayers; id++) {
     const idx = Math.floor((id * outer.length) / nPlayers);
     const hexAt = outer[idx] as Board["hexes"][number];
-    bases.push({ owner: id, hex: hexAt, state: "fresh", order: id });
+    bases.push({ owner: id, hex: hexAt, state: "fresh", order: id, type: "forge" });
   }
 
   // Turn 1 order: uniform over all player ids.

@@ -82,7 +82,7 @@ function applyBuild(
         );
       }
       const nextOrder = maxOrder(working.bases) + 1;
-      const base: Base = { owner: player, hex: piece.hex, state: "fresh", order: nextOrder };
+      const base: Base = { owner: player, hex: piece.hex, state: "fresh", order: nextOrder, type: "forge" };
       const players = working.players.map((p) =>
         p.id === player ? { ...p, basesInHand: p.basesInHand - 1 } : p,
       );
@@ -217,7 +217,7 @@ function applyOneAttack(
     if (players[player]!.basesInHand > 0) {
       // Place a fresh replacement base for the acting player on the captured hex.
       const nextOrder = maxOrder(bases) + 1;
-      bases.push({ owner: player, hex: target, state: "fresh", order: nextOrder });
+      bases.push({ owner: player, hex: target, state: "fresh", order: nextOrder, type: "forge" });
       players[player]!.basesInHand -= 1;
       events.push({ kind: "baseReplaced", hex: target, from: opponent, to: player });
     } else {

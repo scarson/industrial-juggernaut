@@ -43,6 +43,14 @@ export interface RuleConfig {
    * data. Has no effect when coalitions are size 1 (no alliances active).
    */
   allianceVictoryDelta: number;
+  /**
+   * Tactical Depth layer (`docs/plans/2026-05-28-tactical-depth-asymmetric-bases-plan.md`).
+   * When true, the asymmetric base types (forge/watchtower/outpost) are materially considered by
+   * control / build / combat / factory generation. Default false preserves the existing
+   * single-type-everywhere behavior bit-for-bit; with the flag off, every base is implicitly a
+   * forge (the current default-behavior shape) regardless of any `Base.type` field set on a fixture.
+   */
+  baseTypesEnabled: boolean;
 }
 export const defaultConfig = (): RuleConfig => ({
   radius: 5, placeRange: 5, attackRange: 6, baseLimit: 12,
@@ -56,4 +64,5 @@ export const defaultConfig = (): RuleConfig => ({
   victoryIronHoldRounds: 1,
   alliancesEnabled: false,
   allianceVictoryDelta: 4,
+  baseTypesEnabled: false,
 });
