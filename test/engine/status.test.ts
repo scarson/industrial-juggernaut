@@ -331,3 +331,31 @@ describe("variant (a)/P3 — victoryIronRequiresPerimeter", () => {
     }
   });
 });
+
+describe("variant (a)/(c) — noIronRequiresPerimeter", () => {
+  it("default (flag false): a radiating player with 1 base and 0 iron is eliminated by noIron — current behavior", () => {
+    // p0 has 1 base; iron is far from p0, so p0 controls 0 iron.
+    const s = mkState({ board: 96, basesP0: [hex(0, 0, 0)], basesP1: [hex(30, -30, 0)], iron: [hex(30, -29, -1)] });
+    const { state, events } = applyEliminations(s, null);
+    expect(state.players[0]!.eliminated).toBe(true);
+    expect(events.some((e) => e.kind === "eliminated" && e.player === 0 && e.cause === "noIron")).toBe(true);
+  });
+
+  it("flag true: a RADIATING player with 0 iron is NOT eliminated by noIron (perimeter gate spares them)", () => {
+    const cfg = { ...defaultConfig(), noIronRequiresPerimeter: true };
+    const s = mkState({ board: 96, basesP0: [hex(0, 0, 0)], basesP1: [hex(30, -30, 0)], iron: [hex(30, -29, -1)], config: cfg });
+    const { state, events } = applyEliminations(s, null);
+    expect(state.players[0]!.eliminated).toBe(false);
+    expect(events.some((e) => e.kind === "eliminated" && e.player === 0)).toBe(false);
+  });
+
+  it("flag true: a PERIMETER player with 0 iron IS still eliminated by noIron (gate doesn't apply)", () => {
+    const cfg = { ...defaultConfig(), noIronRequiresPerimeter: true };
+    // p0 has 4 non-colinear bases forming a perimeter (positive-area hull) far from any iron.
+    const PERIM = [hex(10, -10, 0), hex(-10, 10, 0), hex(0, 10, -10), hex(0, -10, 10)];
+    const s = mkState({ board: 96, basesP0: PERIM, basesP1: [hex(30, -30, 0)], iron: [hex(30, -29, -1)], config: cfg });
+    const { state, events } = applyEliminations(s, null);
+    expect(state.players[0]!.eliminated).toBe(true);
+    expect(events.some((e) => e.kind === "eliminated" && e.player === 0 && e.cause === "noIron")).toBe(true);
+  });
+});

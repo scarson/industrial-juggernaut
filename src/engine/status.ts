@@ -201,7 +201,11 @@ export function applyEliminations(
       decided.push({ id: p.id, cause: "brokenPerimeterAt18Factories" });
       continue;
     }
-    if (ctl.iron.length === 0) {
+    // Under variant (a)/(c) (`noIronRequiresPerimeter`), the `noIron` cause is
+    // gated on PERIMETER regime: a radiating player (<4 bases or degenerate hull)
+    // with 0 iron is spared the elimination. Default false preserves the universal
+    // "≥1 base + 0 iron = noIron" rule.
+    if (ctl.iron.length === 0 && (!state.config.noIronRequiresPerimeter || ctl.perimeter)) {
       decided.push({ id: p.id, cause: "noIron" });
       continue;
     }
