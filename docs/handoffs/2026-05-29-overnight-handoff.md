@@ -4,13 +4,21 @@
 
 ## The headline
 
-**The "heuristic is near-optimal on (c)" conclusion is FALSIFIED with rigorous data.** The deterministic `lookahead2` agent (2-ply minimax with heuristic leaf eval) beats the perimeter-aware heuristic **80.7% across 300 2P games on variant (c)** — directly replicating the Opus playtest finding at scale and against fresh seeds. This means:
+**The "heuristic is near-optimal on (c)" conclusion is FALSIFIED at 2P, but the exploit is 2P-specific.**
 
-1. The structural defect in the heuristic (no T2 lookahead) is real, large, and reproducible.
-2. MCTS @25-@300 winning 0-6.3% on the same regime is a property of MCTS-with-perimeter-heuristic-leaf-eval, not of the regime being near-solved.
-3. The (c)-variant ends in 2 turns most of the time, and 2-step lookahead is sufficient to dominate it.
+- **2P (c), n=300:** lookahead2 wins **80.7%**, heuristic 19.3%. Dominant.
+- **3P (c), n=150:** lookahead2 wins **32.7%**, two heuristic seats win 33.3% / 33.3%. **No advantage** — within sample noise of the 33% per-player baseline.
+- **4P (c), n=100:** lookahead2 wins **25%**, three heuristic seats win 28% / 29% / 18%. **No advantage** — within noise of the 25% per-player baseline.
 
-The implication for the gate-2 reframe is the OPPOSITE of what I concluded yesterday: MCTS doesn't need to be replaced; it needs to be FIXED to do what `lookahead2` does (recognize "weak-immediate, strong-2-step" T1 placements).
+The exploit is **fully 2P-specific.** In 3P+, 2-ply lookahead provides essentially zero benefit over the heuristic's 1-ply argmax. Three likely reasons: (a) the iron-weighted turn-order draw involves more players' iron tokens, making PRNG-flip much less reliable; (b) multi-player dynamics dilute the value of fine-grained 2-ply optimization against any one specific opponent; (c) the 4P games we observed *did* end at t=2 most of the time (just like 2P), so it's not that games are deeper in 3P+ — they're decided at similar speed but the strategic relationship is symmetric across players.
+
+So the picture is more nuanced than yesterday's playtest synthesis indicated:
+
+1. **2P is broken** by 2-ply lookahead — the structural defect in the heuristic is real, large, and reproducible.
+2. **4P doesn't have the same exploit** — once there are multiple opponents, deterministic 2-ply minimax loses its edge (more opponents to predict, more iron tokens in the turn-order draw weight, so the PRNG-flip lever is much harder to engineer).
+3. MCTS @25-@300 winning 0-6.3% in 2P (c) is now explainable: MCTS-with-perimeter-heuristic-leaf-eval is bottlenecked by the heuristic's 1-step argmax in the exact way lookahead2 exploits.
+
+**The implication for the gate-2 reframe:** the heuristic IS beatable in 2P with simple 2-ply search, but the heuristic looks much closer to baseline-strength in 4P. **What does "stronger agent" mean** when the answer depends on player count? Plausible reframe: gate-2 measures agent quality AT THE PLAYER COUNT THAT MATCHES THE TARGET PLAYING GROUP.
 
 ## What landed overnight
 
@@ -18,8 +26,8 @@ The implication for the gate-2 reframe is the OPPOSITE of what I concluded yeste
 |---|---|---|
 | `lookahead2` agent | ✅ Shipped + tested | `chooseActionLookahead2` deterministic, wired into `AgentSpec`. 80.7% h2h vs heuristic on (c) 2P. |
 | A1 sweep (c, 2P, 300 games) | ✅ Complete | **lookahead2 80.7% / heuristic 19.3%.** Report: `docs/2026-05-29-lookahead2-vs-heuristic-c-2p.md`. |
-| A2 sweep (c, 3P, 150 games) | 🟡 Re-running | Original launch failed (orchestrator bug — `roundRobin` needs N named agents for N-player matchup, gave 2). Fix shipped; A2 re-launched. JSONL trickling. |
-| A3 sweep (c, 4P, 100 games) | 🟡 Re-running | Same bug, same fix. Re-launched. |
+| A2 sweep (c, 3P, 150 games) | ✅ Complete | **lookahead2 32.7% / heuristic 33.3% / 33.3%.** No advantage. Report: `docs/2026-05-29-lookahead2-vs-heuristic-c-3p.md`. |
+| A3 sweep (c, 4P, 100 games) | ✅ Complete | **lookahead2 25.0% / heuristic 28/29/18%.** No advantage. Report: `docs/2026-05-29-lookahead2-vs-heuristic-c-4p.md`. |
 | A4 sweep (default variant, 2P, 200 games) | 🟢 In-flight | At ~40/200 last check. **This is the critical "is the exploit (c)-specific?" test.** |
 | E grid (longer-game regime) | ⬜ Queued behind A4 | 3 × 3 × 2 cell grid of boardSize × victoryThreshold × ironCount. |
 | B1/B2/B3 (MCTS recovery) | ⬜ Queued behind E | MCTS@500/@1000 vs heuristic, and lookahead2 vs MCTS@500. |
