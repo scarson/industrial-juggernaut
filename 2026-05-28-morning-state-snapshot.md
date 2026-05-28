@@ -10,7 +10,11 @@
 - **All three variant flags (a/b/c) from the earlier comparison experiment** remain shipped (engine-implemented) from yesterday — still default-off; variant (c) is the one you greenlit for adoption.
 
 **Compute in flight:**
-- **MCTS@300 stress test on variant (c)** is running. Probably needs ~1-1.5 more hours when you wake. Result lands at `docs/2026-05-28-mcts-300-on-c.md`. Tests whether MCTS@100's h2h loss to heuristic was a search-depth issue or structural.
+- **MCTS@300 stress test on variant (c)** is running (after a restart — see BAL-2 below). Per-game data committed at `docs/sweeps/data/2026-05-28-mcts-300-on-c.jsonl` AS each game finishes, so if the container restarts again we can resume from the data instead of losing the whole run. End-of-run report still at `docs/2026-05-28-mcts-300-on-c.md`. Tests whether MCTS@100's h2h loss to heuristic was a search-depth issue or structural.
+
+**Operational fixes shipped today (in response to a real loss event):**
+- **BAL-2 — per-game commit+push for long sweeps.** First MCTS@300 attempt ran ~70 min, container restarted, ALL the data was lost (script wrote its report only at end-of-run). Fixed: `src/sweep/incremental-results.ts` (`appendResultAndCommit`) — JSONL append + git commit + git push synchronously, per game. Retrofitted into ALL sweep scripts (mcts-300-on-c, compare-variants, compare-alliance-deltas, explore-c-variant, profile-turn-complexity, revalidate, main, calibrate). Pitfall BAL-2 documents the rule + the lived loss. ~0.5-2s per-game commit overhead; negligible vs MCTS games, larger vs fast heuristic games (acceptable trade).
+- **Worker count is now portable.** `src/sweep/worker-count.ts` — resolves `--workers N` argv first, then `SWEEP_WORKERS` env, then `os.cpus().length - 1` (floor 1). All sweep scripts use it; on 4-vCPU container picks 3, on a 10-core host picks 9. The CPU utilization finding (`docs/2026-05-28-cpu-utilization-finding.md`) explains why this matters: container saturates 4 cores; bigger hosts have idle slack without it.
 
 **Compute queued:**
 - **Alliance Phase 7 sweep** (`src/sweep/compare-alliance-deltas.ts`) — measures alliance delta effects. Auto-runs when MCTS@300 finishes.
