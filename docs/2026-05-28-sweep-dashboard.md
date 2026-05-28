@@ -1,6 +1,6 @@
 # Sweep Dashboard
 
-**Date:** generated 2026-05-28T13:05:53.551Z. **Source:** every JSONL under `docs/sweeps/data/`.
+**Date:** generated 2026-05-28T13:14:52.361Z. **Source:** every JSONL under `docs/sweeps/data/`.
 
 Run `npx tsx src/sweep/dashboard.ts` to refresh.
 
@@ -8,17 +8,17 @@ Run `npx tsx src/sweep/dashboard.ts` to refresh.
 
 | File | Records |
 | --- | ---: |
-| `2026-05-28-mcts-300-on-c.jsonl` | 27 |
+| `2026-05-28-mcts-300-on-c.jsonl` | 28 |
 
 ## Per-file detail
 
 ### 2026-05-28-mcts-300-on-c.jsonl
 
-**Records:** 27
+**Records:** 28
 
 | phase | games | iron | last-std | none | median t | iron-vic | victory bar |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `h2h` | 15 | 15 | 0 | 0 | 2.0 | 100.0% | `████████████████████` |
+| `h2h` | 16 | 15 | 1 | 0 | 2.0 | 93.8% | `███████████████████·` |
 | `health` | 12 | 2 | 10 | 0 | 12.0 | 16.7% | `███·················` |
 
 ---
