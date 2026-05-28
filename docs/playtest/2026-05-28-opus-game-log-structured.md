@@ -69,3 +69,29 @@
 - IF P1 has <8 iron after their pre-turn build → I have a real game. Build budget will be limited for both of us.
 - **NEW hypothesis to test:** instead of grabbing P1's iron via overlap, place my base OUTSIDE P1's reach but in a position that ENCLOSES many neutral iron when I add bases 3-4. The heuristic-recommended (greedy) move gives short-term iron but enables P1's perimeter completion.
 
+### Game 3 (seed 1002)
+
+**Strategy hypothesis before play:** First fair seed (I go first, both at 1 iron). Play (-1,1,0) — the heuristic's own choice — to capture 6 neutral iron via central placement, reaching 7 iron. Hypothesis: with 7 iron and going first turn 2 (iron-weighted draw favors me), I can complete a 4-base perimeter before P1 does.
+
+**Trajectory:**
+- T1.R1 (P0): built (-1,1,0). My iron went 1 → 7 (or maybe 8 — see below).
+- T1.R2 (P1): built (1,-1,0). P1's iron went 1 → 8 (overlapping with me on 3 hexes but P1's territory also contains 5 non-overlapping iron tiles).
+- T2.R1 (P1): P1 went first (probably tiebreak or higher iron). Built 4 bases (-3,3,0), (5,-1,-4), (-5,1,4), (-3,6,-3) — board-spanning perimeter.
+- Final: P0=8 iron (in iron-list ownership), P1=14 by `control()`. P1 won by iron.
+
+**Outcome:** LOST. P1 won despite me reaching 7-8 iron, because they ALSO reached 8 iron with their central placement, gaining budget=4 → 4-base perimeter → all 14 iron enclosed.
+
+**What I learned:**
+- **Critical realization: P1 (1,-1,0) is iron-budget heaven.** Centrally placed, radius 2 hits ~7-8 iron tiles. The heuristic ALWAYS heads here as P1's 2nd base move. To win, I must DENY this hex or reduce P1's iron yield from it.
+- **From (-5,6,-1), I CANNOT reach (1,-1,0) on turn 1.** Distance 7, placeRange 5. So I can't occupy it directly.
+- **(0,1,-1) at distance 5 from my base is the CLOSEST I can get to P1's central iron cluster.** Placing there: captures 5 neutral iron AND I'm adjacent to (1,-1,0). Maybe even better than (-1,1,0) because it overlaps with what P1 wants — every iron in OUR overlap reduces P1's net new iron.
+- **Even with 7-8 iron turn 1, P1 also gets 7-8 → budget 4 → wins turn 2.** I need to actively REDUCE P1's iron yield, not just maximize mine.
+- The heuristic's `hint` recommendation maximizes MY iron via greedy local search — but doesn't deny P1's iron. That's the exploit window.
+
+**Strategy update for next game:**
+- **New plan: maximize SHARED OVERLAP, not just my iron.** Place at a hex that grabs iron AND is within P1's eventual radius 2. Every shared iron splits P1's gain (we both have it, but it doesn't help them reach 10 unless we count it for them — and we do — but if MORE iron is "wasted" in overlap rather than P1-exclusive, P1's max is suppressed).
+  - Actually wait — overlap is GOOD for both. Doesn't suppress P1's count.
+- **Better plan: place at a CHOKE position that prevents P1 from forming a board-spanning perimeter.** Specifically, place on an iron tile P1 would otherwise capture AND that's adjacent to where P1's perimeter corner needs to go.
+  - P1's perimeter corners in winning games have been: (-3,3,0), (5,-1,-4), (-5,1,4), (-3,6,-3), (-3,6,-3). The two closest to my corner: (-3,3,0) and (-3,6,-3). These are within my placeRange 5.
+- **Test in game 4: place at (-3,3,0) (iron-rich AND a P1-perimeter-corner candidate).** This denies P1 that perimeter point AND grabs iron for me. Then turn 2, my goal is a 4-base perimeter that includes max iron.
+
