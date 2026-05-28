@@ -311,9 +311,11 @@ describe("alliance layer Phase 2 — `ally` action legality", () => {
     expect(new Set(allies.map((a) => a.target))).toEqual(new Set([1, 2]));
   });
 
-  it("does NOT emit ally actions for already-allied targets", () => {
+  it("does NOT emit ally actions for already-allied targets — and in 3P, the remaining target is banned by the all-coalition rule", () => {
     let s = mk(true);
-    // Pre-set player 0 and player 1 as allies.
+    // Pre-set player 0 and player 1 as allies. mk() is a 3P fixture, so the only
+    // non-allied target for P0 is P2; allying P2 would merge to the all-3 coalition,
+    // which is banned (legal-ally-all-coalition-ban.test.ts covers the rule in detail).
     s = {
       ...s,
       players: s.players.map((p) => {
@@ -324,9 +326,7 @@ describe("alliance layer Phase 2 — `ally` action legality", () => {
     };
     const acts = legalActions(s);
     const allies = acts.filter((a) => a.kind === "ally") as Extract<Action, { kind: "ally" }>[];
-    // Only player 2 remains as a valid target.
-    expect(allies.length).toBe(1);
-    expect(allies[0]!.target).toBe(2);
+    expect(allies.length).toBe(0);
   });
 
   it("does NOT emit ally actions when actor has allianceCooldownTurns > 0", () => {
@@ -349,7 +349,9 @@ describe("alliance layer Phase 2 — `ally` action legality", () => {
     expect(acts.some((a) => a.kind === "ally")).toBe(false);
   });
 
-  it("does NOT emit ally actions targeting eliminated players", () => {
+  it("does NOT emit ally actions targeting eliminated players — and in 3P with one elim'd, the remaining ally is banned by the all-coalition rule", () => {
+    // P2 eliminated; only P0+P1 alive. Allying them would form the only alive coalition,
+    // which is banned. See legal-ally-all-coalition-ban.test.ts for the rule.
     let s = mk(true);
     s = {
       ...s,
@@ -357,8 +359,7 @@ describe("alliance layer Phase 2 — `ally` action legality", () => {
     };
     const acts = legalActions(s);
     const allies = acts.filter((a) => a.kind === "ally") as Extract<Action, { kind: "ally" }>[];
-    expect(allies.length).toBe(1);
-    expect(allies[0]!.target).toBe(1);
+    expect(allies.length).toBe(0);
   });
 });
 

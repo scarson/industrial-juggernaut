@@ -119,12 +119,55 @@ export function legalActions(state: GameState): Action[] {
     const actor = state.players[player]!;
     if (actor.allianceCooldownTurns === 0) {
       // ally — basesInHand >= 1 (commit cost); target is a different LIVE non-allied player.
+      // BANNED: an ally action that would merge all currently-alive players into a single
+      // coalition. Such a state is functionally indistinguishable from unanimous concession
+      // (everyone "wins together") and previously slipped through `status()`'s
+      // "exactly one non-eliminated coalition remaining → last-standing" rule on turn 1
+      // under high alliance-weight play. Rejecting here keeps the rule semantics clean: the
+      // "exactly one coalition remaining" path is reachable only via elimination.
       if (actor.basesInHand >= 1) {
         const alreadyAllied = new Set(actor.alliance);
+        const aliveCount = state.players.filter((p) => !p.eliminated).length;
+        // Precompute the size of each player's current coalition (via the undirected
+        // alliance relation among alive players). Doing this once rather than per-target
+        // keeps the cost O(N²) over players, not O(N³).
+        const coalitionSizeOf = new Map<PlayerId, number>();
+        for (const p of state.players) {
+          if (p.eliminated) continue;
+          // BFS over the alliance graph starting at p, counting alive members reachable.
+          const visited = new Set<PlayerId>([p.id]);
+          const stack = [p.id];
+          while (stack.length > 0) {
+            const cur = stack.pop()!;
+            const curPlayer = state.players[cur]!;
+            for (const allyId of curPlayer.alliance) {
+              if (allyId === cur) continue;
+              if (visited.has(allyId)) continue;
+              const allyPlayer = state.players[allyId];
+              if (allyPlayer === undefined || allyPlayer.eliminated) continue;
+              visited.add(allyId);
+              stack.push(allyId);
+            }
+            // Also include any alive player who has `cur` in their alliance (symmetric closure).
+            for (const q of state.players) {
+              if (q.eliminated) continue;
+              if (visited.has(q.id)) continue;
+              if (q.alliance.includes(cur)) {
+                visited.add(q.id);
+                stack.push(q.id);
+              }
+            }
+          }
+          coalitionSizeOf.set(p.id, visited.size);
+        }
+        const actorCoalSize = coalitionSizeOf.get(player) ?? 1;
         for (const other of state.players) {
           if (other.id === player) continue;
           if (other.eliminated) continue;
           if (alreadyAllied.has(other.id)) continue;
+          const otherCoalSize = coalitionSizeOf.get(other.id) ?? 1;
+          // Reject when the prospective merged coalition would equal all alive players.
+          if (actorCoalSize + otherCoalSize === aliveCount) continue;
           actions.push({ kind: "ally", target: other.id });
         }
       }
