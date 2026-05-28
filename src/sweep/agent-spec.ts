@@ -3,6 +3,7 @@
 
 import { greedyAgent, type Agent } from "../agent/agent";
 import { heuristicAgent } from "../agent/heuristic-agent";
+import { lookahead2Agent } from "../agent/lookahead2";
 import { mctsAgent, defaultMctsParams } from "../agent/mcts-agent";
 import type { Archetype } from "../agent/archetypes";
 
@@ -15,7 +16,8 @@ import type { Archetype } from "../agent/archetypes";
 export type AgentSpec =
   | { kind: "heuristic"; allianceWeight?: number; breakAllianceWeight?: number }
   | { kind: "greedy"; archetype: Archetype }
-  | { kind: "mcts"; iterations?: number };
+  | { kind: "mcts"; iterations?: number }
+  | { kind: "lookahead2" };
 
 /** Reconstruct the `Agent` closure named by `spec`. Deterministic — the agent itself carries no hidden state. */
 export function buildAgent(spec: AgentSpec): Agent {
@@ -31,5 +33,7 @@ export function buildAgent(spec: AgentSpec): Agent {
       return spec.iterations === undefined
         ? mctsAgent()
         : mctsAgent({ ...defaultMctsParams(), iterations: spec.iterations });
+    case "lookahead2":
+      return lookahead2Agent();
   }
 }
