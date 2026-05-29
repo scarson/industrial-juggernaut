@@ -51,6 +51,15 @@ export interface RuleConfig {
    * forge (the current default-behavior shape) regardless of any `Base.type` field set on a fixture.
    */
   baseTypesEnabled: boolean;
+  /**
+   * Per-subtype build cost overrides (Track-D recalibration finding,
+   * `docs/2026-05-29-tactical-depth-cost-recalibration.md`). When `baseTypesEnabled`
+   * is true, these override the constants in `src/engine/build.ts` for the listed
+   * subtypes. Omitted subtypes use the default constants. Has no effect when the
+   * flag is off (all builds use forge cost = 2). Allows sweeps to tune the cost
+   * model without code changes.
+   */
+  basePieceCosts?: Partial<Record<"forge" | "watchtower" | "outpost", number>>;
 }
 export const defaultConfig = (): RuleConfig => ({
   radius: 5, placeRange: 5, attackRange: 6, baseLimit: 12,

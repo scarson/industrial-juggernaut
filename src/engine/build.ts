@@ -26,12 +26,23 @@ const BASE_PIECE_COST_WATCHTOWER = 4;
 const BASE_PIECE_COST_OUTPOST = 1;
 const FACTORY_PIECE_COST = 2;
 
+/**
+ * Per-piece cost lookup. Phase 3 default costs are the constants above; per-config
+ * overrides via `basePieceCosts?: Partial<Record<BaseType, number>>` let sweeps tune
+ * the cost model (post-Track-D recalibration finding — see
+ * `docs/2026-05-29-tactical-depth-cost-recalibration.md`).
+ *
+ * If the flag is off, every type returns the forge cost (bit-for-bit pre-Phase-3
+ * behavior). If the flag is on AND a per-type override is present in
+ * `config.basePieceCosts`, use the override; otherwise fall back to the constant.
+ */
 export function basePieceCost(config: RuleConfig, type: BaseType): number {
   if (!config.baseTypesEnabled) return BASE_PIECE_COST_FORGE;
+  const overrides = config.basePieceCosts ?? {};
   switch (type) {
-    case "forge":      return BASE_PIECE_COST_FORGE;
-    case "watchtower": return BASE_PIECE_COST_WATCHTOWER;
-    case "outpost":    return BASE_PIECE_COST_OUTPOST;
+    case "forge":      return overrides.forge      ?? BASE_PIECE_COST_FORGE;
+    case "watchtower": return overrides.watchtower ?? BASE_PIECE_COST_WATCHTOWER;
+    case "outpost":    return overrides.outpost    ?? BASE_PIECE_COST_OUTPOST;
   }
 }
 
