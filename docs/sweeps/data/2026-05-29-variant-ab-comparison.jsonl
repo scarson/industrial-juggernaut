@@ -302,3 +302,4 @@
 {"variant":"(c)+(b) victoryIronHoldRounds=2","nPlayers":3,"done":2,"total":60,"turns":2,"victoryType":"iron","winner":[2],"hitTurnCap":false,"elapsedSec":310.576}
 {"variant":"(c)+(b) victoryIronHoldRounds=2","nPlayers":3,"done":3,"total":60,"turns":3,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":311.661}
 {"variant":"(c)+(b) victoryIronHoldRounds=2","nPlayers":3,"done":4,"total":60,"turns":3,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":312.709}
+{"variant":"(c)+(b) victoryIronHoldRounds=2","nPlayers":3,"done":5,"total":60,"turns":3,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":313.738}
