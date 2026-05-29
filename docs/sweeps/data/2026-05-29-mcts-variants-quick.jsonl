@@ -144,3 +144,4 @@
 {"variant":"iron-share","done":16,"total":16,"turns":18,"victoryType":"last-standing","winner":[0],"hitTurnCap":false,"elapsedSec":1893.024}
 {"variant":"prng-aware+fixed","done":1,"total":16,"turns":2,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":1896.2}
 {"variant":"prng-aware+fixed","done":2,"total":16,"turns":2,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":1898.956}
+{"variant":"prng-aware+fixed","done":3,"total":16,"turns":2,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":1900.071}
