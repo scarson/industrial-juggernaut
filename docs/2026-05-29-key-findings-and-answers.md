@@ -4,16 +4,21 @@
 
 ## Q1 — Is the heuristic near-optimal in 3P+ on (c)?
 
-**A: No.** Proper N-player minimax (`lookahead2-multi`) finds improvements at every player count tested:
-- **3P (n=150):** 40.7% vs 33.3% baseline → **+7.7pp**.
-- **4P (n=100):** 31.0% vs 25.0% baseline → **+6.0pp**.
-- **5P/6P:** Queued; trend suggests +4-5pp.
+**Updated answer (post-V): Yes — at 3P/4P (c), the heuristic IS near-optimal.**
 
-The skill gap shrinks with player count (2P 30pp → 3P 7.7pp → 4P 6.0pp) but is real at every count.
+C1 (n=150) showed +7.7pp and C2 (n=100) showed +6.0pp, but V (n=60 per cell, different seeds) shows -5.0pp / -3.3pp — lookahead2-multi at baseline. The seed variance is large. The honest reading averages to "approximately at baseline" — i.e., mechanical.
 
-The original 2P-only `lookahead2` played at baseline in 3P/4P (A2/A3 → 32.7%, 25%). That MASKED the strategic structure — proper minimax finds it.
+But the matrix is more interesting:
 
-**Implication:** the original mechanical-3P+ worry is LARGELY DISPROVEN. Multi-player has skill ceiling above heuristic execution.
+| Variant | 2P | 3P | 4P |
+|---|---:|---:|---:|
+| default | +28.3pp | +11.7pp ⭐ | +1.7pp |
+| c | +35.0pp | -5.0pp | -3.3pp |
+| c+baseTypes | +6.7pp | +10.0pp ⭐ | +5.0pp |
+
+**The strategic depth is variant-dependent, not just player-count-dependent.** Default and c+baseTypes have 3P depth; (c) does not. So the design lever is variant choice, not "remove (c)."
+
+**Implication for Sam's worry:** mechanical-3P+ holds for (c). But the multi-player skill ceiling exists in OTHER variants. Sam can pick a variant that preserves multi-player strategy.
 
 ## Q2 — Is the heuristic better than random?
 
