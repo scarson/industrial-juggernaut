@@ -16,3 +16,4 @@
 {"variant":"baseline","done":16,"total":16,"turns":18,"victoryType":"last-standing","winner":[0],"hitTurnCap":false,"elapsedSec":304.914}
 {"variant":"fixed-candidates","done":1,"total":16,"turns":2,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":308.667}
 {"variant":"fixed-candidates","done":2,"total":16,"turns":2,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":311.858}
+{"variant":"fixed-candidates","done":3,"total":16,"turns":2,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":313.448}
