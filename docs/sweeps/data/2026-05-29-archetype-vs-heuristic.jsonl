@@ -160,3 +160,4 @@
 {"archetype":"economic","nPlayers":3,"done":10,"total":50,"turns":2,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":179.671}
 {"archetype":"economic","nPlayers":3,"done":11,"total":50,"turns":2,"victoryType":"iron","winner":[2],"hitTurnCap":false,"elapsedSec":180.823}
 {"archetype":"economic","nPlayers":3,"done":12,"total":50,"turns":2,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":181.949}
+{"archetype":"economic","nPlayers":3,"done":13,"total":50,"turns":2,"victoryType":"iron","winner":[2],"hitTurnCap":false,"elapsedSec":182.942}
