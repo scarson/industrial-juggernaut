@@ -129,6 +129,17 @@ Final test suite chain queued separately — runs after all sweeps complete.
 
 - **`lookahead2-multi` agent**: proper N-player max^n minimax with heuristic leaf eval. Wired into `AgentSpec`. Solves the "lookahead2 was only 2P-correct" issue.
 - **Heuristic subtype-aware composition**: when `baseTypesEnabled=true`, `samplePolicy` generates per-subtype build candidates (forge/watchtower/outpost). Engine 228/228, agent 111/111 green. **All agents (including MCTS and lookahead2-multi) automatically become tactical-aware via the leaf-eval** — no separate agent class needed.
+- **MCTS evalOpts plumbing**: `EvalOpts` (prng-aware, iron-share) threaded from `AgentSpec` → `MctsCoreParams` → `evaluate` AND `samplePolicy` → PW expansion + leaf value. Enables MCTS variant experiments.
+
+### MCTS variants — v2 result: all 11 variants at 0.0%
+
+Per your direct request to test fixes at MCTS@50. Tested config knobs (candidateMode, temperature, cPuct, maxDepth) AND eval-opts (prng-aware, iron-share, strong/combined). **All 11 scored exactly 0.0% over 16 games.** Full diagnosis in `docs/2026-05-29-mcts-variants-investigation.md`.
+
+Root cause: terminal-leaf bypass. (c) 2P games end at turn 2; `leafValue` at terminal returns hard win/loss vector WITHOUT calling `evaluate(state, evalOpts)`. The eval-opts variants only biased PW candidate scoring, not the leaf value that dominates Q.
+
+v3 (`mcts-variants-depth1`) caps maxDepth=1 so eval-opts ALWAYS fire at the leaf. Queued behind mcts2000.
+
+If v3 also fails uniformly, the deeper structural issue is PW prior equalization — `expandNode` discards the heuristic's relative ranking. Fix candidate documented in investigation doc, not yet built.
 
 ## Where I'll land by the time you read this
 
