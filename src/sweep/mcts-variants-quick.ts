@@ -51,6 +51,11 @@ const VARIANTS: Variant[] = [
   { label: "depth-2",           description: "@50 + maxDepth=2 (matches Opus's 2-ply structure)",                     spec: { kind: "mcts", iterations: 50, maxDepth: 2 } },
   { label: "depth-2+fixed",     description: "@50 + maxDepth=2 + candidateMode=fixed",                                spec: { kind: "mcts", iterations: 50, candidateMode: "fixed", maxDepth: 2 } },
   { label: "low-cpuct",         description: "@50 + cPuct=0.5 (less exploration, more exploitation)",                 spec: { kind: "mcts", iterations: 50, cPuct: 0.5 } },
+  // Eval-opts variants — code-level fixes that augment the heuristic leaf eval.
+  { label: "prng-aware",        description: "@50 + PRNG-aware leaf eval (peeks T2 turn-order draw, weight=5)",       spec: { kind: "mcts", iterations: 50, evalOpts: { prngAwareDeterministic: true } } },
+  { label: "iron-share",        description: "@50 + iron-share leaf eval (tabletop-valid 'who probably goes first')", spec: { kind: "mcts", iterations: 50, evalOpts: { ironShare: true } } },
+  { label: "prng-aware+fixed",  description: "@50 + PRNG-aware + candidateMode=fixed (combo)",                        spec: { kind: "mcts", iterations: 50, candidateMode: "fixed", evalOpts: { prngAwareDeterministic: true } } },
+  { label: "prng-aware-strong", description: "@50 + PRNG-aware with weight=20 (stronger turn-order bias)",            spec: { kind: "mcts", iterations: 50, evalOpts: { prngAwareDeterministic: true, prngAwareWeight: 20 } } },
 ];
 
 interface CellResult {

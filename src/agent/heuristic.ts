@@ -7,7 +7,7 @@ import { control } from "../engine/control";
 import { legalActions } from "../engine/legal";
 import { key, neighbors } from "../geometry/cube";
 import { convexHull, hullArea } from "../geometry/hull";
-import { nextFloat, type RngState } from "../rng/pcg";
+import { nextFloat, nextInt, type RngState } from "../rng/pcg";
 import { scoreMove, type Weights } from "./score";
 import type { Action, Base, BaseType, GameState, Hex, PlayerId } from "../engine/types";
 
@@ -201,14 +201,89 @@ function scorePlayer(state: GameState, player: PlayerId, w: HeuristicWeights): n
 }
 
 /**
+ * Optional evaluation knobs surfaced for MCTS variant experimentation.
+ *
+ *  - `prngAwareDeterministic: true` peeks the NEXT iron-weighted turn-order draw
+ *    (the rolled-over advanceRound draw) and gives a `prngAwareWeight` bonus to
+ *    whichever player it would assign to go first, with proportional penalties
+ *    to the others. This is a SIM-ONLY trick (in tabletop the velvet bag is
+ *    genuinely random) but exposes the Opus playtest's deterministic exploit to
+ *    the agent.
+ *
+ *  - `ironShare: true` adds `ironShareWeight × (my_iron / total_alive_iron)` as
+ *    a position-evaluation term. This is the TABLETOP-VALID approximation of
+ *    "higher iron share → more likely to go first" — survives randomization,
+ *    where the deterministic peek does not.
+ */
+export interface EvalOpts {
+  prngAwareDeterministic?: boolean;
+  prngAwareWeight?: number;
+  ironShare?: boolean;
+  ironShareWeight?: number;
+}
+
+const DEFAULT_PRNG_AWARE_WEIGHT = 5;
+const DEFAULT_IRON_SHARE_WEIGHT = 5;
+
+/**
  * Position evaluation: one score per player, indexed by player id. Higher is
  * better for that player. Eliminated players get a sentinel far below any live
  * score (`-1e9`). Pure — recomputes control/hull each call (GEO-5), no PRNG.
+ *
+ * `opts` lets MCTS variants opt into experimental terms (prngAwareDeterministic,
+ * ironShare). Default behavior with no opts is the pre-EvalOpts evaluator
+ * (bit-for-bit unchanged).
  */
-export function evaluate(state: GameState, weights: HeuristicWeights = defaultHeuristicWeights()): number[] {
-  return state.players.map((p) =>
+export function evaluate(
+  state: GameState,
+  weights: HeuristicWeights = defaultHeuristicWeights(),
+  opts: EvalOpts = {},
+): number[] {
+  const scores = state.players.map((p) =>
     p.eliminated ? ELIMINATED_SCORE : scorePlayer(state, p.id, weights),
   );
+
+  if (opts.ironShare === true || opts.prngAwareDeterministic === true) {
+    const ironCounts = state.players.map((p) =>
+      p.eliminated ? 0 : control(state, p.id).iron.length,
+    );
+    const totalIron = ironCounts.reduce((a, b) => a + b, 0);
+
+    if (opts.ironShare === true && totalIron > 0) {
+      const w = opts.ironShareWeight ?? DEFAULT_IRON_SHARE_WEIGHT;
+      for (let p = 0; p < scores.length; p++) {
+        if (state.players[p]!.eliminated) continue;
+        scores[p]! += w * (ironCounts[p]! / totalIron);
+      }
+    }
+
+    if (opts.prngAwareDeterministic === true && totalIron > 0) {
+      const w = opts.prngAwareWeight ?? DEFAULT_PRNG_AWARE_WEIGHT;
+      const { value } = nextInt(state.rngState, totalIron);
+      let cumulative = 0;
+      let firstPlayer = -1;
+      for (let p = 0; p < state.players.length; p++) {
+        if (state.players[p]!.eliminated) continue;
+        cumulative += ironCounts[p]!;
+        if (value < cumulative) {
+          firstPlayer = p;
+          break;
+        }
+      }
+      if (firstPlayer >= 0) {
+        const aliveCount = state.players.filter((p) => !p.eliminated).length;
+        if (aliveCount > 1) {
+          const penalty = -w / (aliveCount - 1);
+          for (let p = 0; p < state.players.length; p++) {
+            if (state.players[p]!.eliminated) continue;
+            scores[p]! += p === firstPlayer ? w : penalty;
+          }
+        }
+      }
+    }
+  }
+
+  return scores;
 }
 
 // ---------------------------------------------------------------------------

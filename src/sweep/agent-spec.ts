@@ -27,6 +27,13 @@ export type AgentSpec =
       temperature?: number;
       cPuct?: number;
       maxDepth?: number;
+      /** Optional eval knobs threaded into MCTS leaf evaluation. */
+      evalOpts?: {
+        prngAwareDeterministic?: boolean;
+        prngAwareWeight?: number;
+        ironShare?: boolean;
+        ironShareWeight?: number;
+      };
     }
   | { kind: "lookahead2" }
   | { kind: "lookahead2-multi" }
@@ -50,6 +57,7 @@ export function buildAgent(spec: AgentSpec): Agent {
       if (spec.temperature !== undefined) params.temperature = spec.temperature;
       if (spec.cPuct !== undefined) params.cPuct = spec.cPuct;
       if (spec.maxDepth !== undefined) params.maxDepth = spec.maxDepth;
+      if (spec.evalOpts !== undefined) params.evalOpts = spec.evalOpts;
       return mctsAgent(params);
     }
     case "lookahead2":

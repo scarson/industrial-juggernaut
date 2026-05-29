@@ -7,7 +7,7 @@ import { removeEncircledStrandedBases } from "../engine/stranded";
 import { stepRound } from "../engine/round";
 import { advanceRound, currentPlayer } from "../engine/turn";
 import { legalActions } from "../engine/legal";
-import { evaluate, samplePolicy, type HeuristicWeights, defaultHeuristicWeights } from "./heuristic";
+import { evaluate, samplePolicy, type HeuristicWeights, defaultHeuristicWeights, type EvalOpts } from "./heuristic";
 import { key } from "../geometry/cube";
 import { nextFloat, type RngState } from "../rng/pcg";
 import type { Action, AttackDecl, Base, GameState, PlayerId } from "../engine/types";
@@ -570,7 +570,7 @@ export function leafValue(state: GameState, params: MctsCoreParams): number[] {
   }
 
   // Non-terminal: softmax over per-player heuristic scores.
-  const scores = evaluate(state, params.heuristicWeights);
+  const scores = evaluate(state, params.heuristicWeights, params.evalOpts);
   let maxS = -Infinity;
   for (const s of scores) if (s > maxS) maxS = s;
 
@@ -599,6 +599,13 @@ export interface MctsCoreParams extends ExpansionParams {
   maxDepth: number;
   cPuct: number;
   heuristicWeights: HeuristicWeights;
+  /**
+   * Optional evaluation knobs (Sam-requested MCTS-variant experiments, 2026-05-29).
+   * When undefined, the default vanilla `evaluate` is used (no behavior change).
+   * Set `evalOpts.prngAwareDeterministic` or `evalOpts.ironShare` to inject extra
+   * terms into MCTS's leaf eval. See `EvalOpts` in `./heuristic.ts`.
+   */
+  evalOpts?: EvalOpts;
 }
 
 /** Default core params: PW defaults + 1000 iterations, depth 8, default PUCT/weights. */
