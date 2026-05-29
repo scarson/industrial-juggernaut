@@ -373,3 +373,4 @@
 {"variant":"c+baseTypes","nPlayers":2,"done":13,"total":60,"turns":1,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":491.506}
 {"variant":"c+baseTypes","nPlayers":2,"done":14,"total":60,"turns":1,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":492.571}
 {"variant":"c+baseTypes","nPlayers":2,"done":15,"total":60,"turns":1,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":493.721}
+{"variant":"c+baseTypes","nPlayers":2,"done":16,"total":60,"turns":7,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":495.537}
