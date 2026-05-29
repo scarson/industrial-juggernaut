@@ -2,14 +2,14 @@
 // ABOUTME: Pure; recomputes control/hull every call (GEO-5), keys hex membership by canonical string (GEO-4), no PRNG.
 
 import { applyAction } from "../engine/apply";
-import { buildBudget } from "../engine/build";
+import { buildBudget, buildBudgetForType } from "../engine/build";
 import { control } from "../engine/control";
 import { legalActions } from "../engine/legal";
 import { key, neighbors } from "../geometry/cube";
 import { convexHull, hullArea } from "../geometry/hull";
 import { nextFloat, type RngState } from "../rng/pcg";
 import { scoreMove, type Weights } from "./score";
-import type { Action, Base, GameState, Hex, PlayerId } from "../engine/types";
+import type { Action, Base, BaseType, GameState, Hex, PlayerId } from "../engine/types";
 
 const PERIMETER_BASE_COUNT = 4;
 
@@ -343,13 +343,19 @@ function sampleBuild(
   type: "factory" | "base",
   temperature: number,
   rng: RngState,
+  baseSubtype: BaseType = "forge",
 ): { build: Extract<Action, { kind: "build" }> | null; rng: RngState } {
-  const budget = buildBudget(state, player);
+  // Per-piece-cost-aware budget: factories ALWAYS cost 2; bases cost per their subtype
+  // (`buildBudgetForType`). When `baseTypesEnabled=false`, all subtypes return the legacy
+  // `floor(R/2)` so this is bit-for-bit identical to pre-Phase-3 behavior.
+  const budget = type === "factory"
+    ? buildBudget(state, player)
+    : buildBudgetForType(state, player, baseSubtype);
   if (budget < 1) return { build: null, rng };
 
   let cur = state;
   let curRng = rng;
-  const pieces: { type: "factory" | "base"; hex: Hex }[] = [];
+  const pieces: { type: "factory" | "base"; hex: Hex; baseType?: BaseType }[] = [];
 
   for (let i = 0; i < budget; i++) {
     const singles = legalSinglePieceBuilds(cur, type);
@@ -360,8 +366,19 @@ function sampleBuild(
     curRng = draw.rng;
 
     const chosen = singles[draw.index]!;
-    pieces.push(chosen.pieces[0]!);
-    cur = applyAction(cur, chosen).state;
+    const piece = chosen.pieces[0]!;
+    // Stamp the subtype on base pieces so the heuristic can compose multi-piece
+    // watchtower/outpost builds. When `type==="factory"` or subtype==="forge", we don't
+    // need to add anything (forge is the implicit default everywhere).
+    if (type === "base" && baseSubtype !== "forge") {
+      pieces.push({ ...piece, baseType: baseSubtype });
+      // Apply the SUBTYPED version so the budget/legality check on the next piece uses the
+      // correct subtype-aware engine path.
+      cur = applyAction(cur, { kind: "build", pieces: [{ ...piece, baseType: baseSubtype }] }).state;
+    } else {
+      pieces.push(piece);
+      cur = applyAction(cur, chosen).state;
+    }
   }
 
   if (pieces.length < 1) return { build: null, rng: curRng };
@@ -456,9 +473,23 @@ export function samplePolicy(
   type Candidate = { action: Action; typeValue: number };
   const candidates: Candidate[] = [];
 
-  // 1a. Builds, one composed instance per type.
-  for (const type of ["factory", "base"] as const) {
-    const { build, rng: r } = sampleBuild(state, player, type, temperature, curRng);
+  // 1a. Builds, one composed instance per type. When `baseTypesEnabled`, the base type
+  // expands to a candidate per subtype (forge, watchtower, outpost) — each composed
+  // separately because they have different costs and produce different control radii.
+  // When the flag is off, only "forge" is iterated (bit-for-bit pre-Phase-1 behavior).
+  const baseSubtypes: BaseType[] = state.config.baseTypesEnabled
+    ? ["forge", "watchtower", "outpost"]
+    : ["forge"];
+  {
+    const { build, rng: r } = sampleBuild(state, player, "factory", temperature, curRng);
+    curRng = r;
+    if (build !== null) {
+      const typeValue = evaluate(applyAction(state, build).state)[player]!;
+      candidates.push({ action: build, typeValue });
+    }
+  }
+  for (const subtype of baseSubtypes) {
+    const { build, rng: r } = sampleBuild(state, player, "base", temperature, curRng, subtype);
     curRng = r;
     if (build !== null) {
       const typeValue = evaluate(applyAction(state, build).state)[player]!;
