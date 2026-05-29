@@ -4,12 +4,16 @@
 
 ## Q1 — Is the heuristic near-optimal in 3P+ on (c)?
 
-**A: Partly.** It depends on player count:
-- **3P:** No — `lookahead2-multi` (proper N-player minimax) beats it by +7.7pp (40.7% vs 33.3% baseline). Real strategic structure exists.
-- **4P:** Likely yes — `lookahead2-multi` at 23.2% (n=56 partial) ≈ 25% baseline. Mechanical. *(C2 finishing — final number coming.)*
-- **5P/6P:** Queued; expect mechanical based on the trend.
+**A: No.** Proper N-player minimax (`lookahead2-multi`) finds improvements at every player count tested:
+- **3P (n=150):** 40.7% vs 33.3% baseline → **+7.7pp**.
+- **4P (n=100):** 31.0% vs 25.0% baseline → **+6.0pp**.
+- **5P/6P:** Queued; trend suggests +4-5pp.
 
-The original 2P-only `lookahead2` played at baseline in 3P/4P (A2/A3 → 32-33%, 25%). That MASKED the 3P strategic structure — proper minimax finds it.
+The skill gap shrinks with player count (2P 30pp → 3P 7.7pp → 4P 6.0pp) but is real at every count.
+
+The original 2P-only `lookahead2` played at baseline in 3P/4P (A2/A3 → 32.7%, 25%). That MASKED the strategic structure — proper minimax finds it.
+
+**Implication:** the original mechanical-3P+ worry is LARGELY DISPROVEN. Multi-player has skill ceiling above heuristic execution.
 
 ## Q2 — Is the heuristic better than random?
 
