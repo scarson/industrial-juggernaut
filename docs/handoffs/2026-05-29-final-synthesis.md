@@ -3,13 +3,14 @@
 > THE morning-read doc. Consolidates all 2026-05-29 work into a single decision-ready summary.
 > Updates as data lands; final state coming as the master-chain completes.
 
-## The big picture in 5 lines
+## The big picture in 6 lines
 
 1. **Heuristic captures REAL skill.** Random gets 0 wins in 3P/4P over 60 games each.
 2. **But heuristic is NOT optimal.** Proper N-player minimax (`lookahead2-multi`) beats it at every player count tested (2P 80% → 3P 41% → 4P 31% vs decreasing baselines).
-3. **The (c) regime resolves in 2 turns.** Track E exhaustively searched the (boardSize × victoryThreshold × ironCount) grid; no longer-game-but-resolving config exists.
-4. **MCTS is structurally bottlenecked.** MCTS@500 gets 10.4% on (c) 2P. Even higher iterations unlikely to recover (B2 + mcts2000 sweeps coming).
-5. **Tactical Depth engine (Phases 1-6) shipped.** Asymmetric base types are engine-ready; Track D measures their effect.
+3. **The (c) regime resolves in 2 turns.** Track E exhaustively searched the (boardSize × victoryThreshold × ironCount) grid; no longer-game-but-resolving config exists. Even strong-vs-strong lookahead2 self-play resolves in 2 turns (Track L).
+4. **MCTS is structurally bottlenecked.** MCTS@500 gets 10.4% on (c) 2P. Even higher iterations unlikely to recover (B2 + mcts2000 sweeps queued).
+5. **Tactical Depth engine (Phases 1-6) shipped.** Asymmetric base types are engine-ready.
+6. **Tactical Depth as currently calibrated ACCELERATES games** — Track D found median dropped from 2 to 1 turn with subtypes on. The outpost=1 cost is too cheap. Track D-prime (recal sweep) queued to test outpost=2 or 3. Cost recalibration is a 1-line engine fix (now configurable via `RuleConfig.basePieceCosts`).
 
 ## Sam's flight-night worry: ANSWERED
 
