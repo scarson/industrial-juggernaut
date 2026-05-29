@@ -41,6 +41,17 @@ The heuristic captures REAL skill — random gets 0 wins in 3P/4P over 60 games.
 
 Design implication: if multi-player strategy is the target, default variant or c+baseTypes are stronger candidates than pure (c).
 
+### AB (variants a/b) — variant (b) is a useful balance lever
+
+| Variant | 2P median | 3P median | Effect |
+|---|:---:|:---:|---|
+| (c) reference | 2 | 2 | baseline |
+| (c)+(a) victoryIronRequiresPerimeter | 2 | 2 | no effect |
+| **(c)+(b) victoryIronHoldRounds=2** | **3** | **3** | **+50% game length** |
+| (c)+(a)+(b) both | 3 | 3 | same as (b) alone |
+
+Variant (b) requires holding the iron threshold for TWO consecutive end-of-round checks before iron victory fires. Games naturally extend by one turn. **Sam now has a clean 1-line config knob to extend game length** if shorter (c) games feel too snappy.
+
 ### Track D landed — Tactical Depth ACCELERATES games (unexpected)
 
 | nPlayers | baseTypes=false median | baseTypes=true median |
