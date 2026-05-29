@@ -320,6 +320,13 @@ export const DEFAULT_POLICY_BREAK_ALLIANCE_WEIGHT = 5;
 export interface PolicyOpts {
   allianceWeight?: number;
   breakAllianceWeight?: number;
+  /**
+   * Optional eval opts passed through to every internal `evaluate` call inside
+   * `samplePolicy`. Lets MCTS variants opt their CANDIDATE SCORING (not just leaf
+   * eval) into PRNG-aware / iron-share terms. Without this, candidates are scored
+   * by vanilla evaluate even when the leaf eval has been augmented.
+   */
+  evalOpts?: EvalOpts;
 }
 
 /** Max `order` over every base, or -1 when there are none (mirrors apply.ts / score.ts). */
@@ -495,7 +502,7 @@ function sampleAttack(
  * would otherwise need both branches fatigued, which is more machinery than this
  * type-value comparison needs.)
  */
-function attackTypeValue(state: GameState, player: PlayerId, attack: Extract<Action, { kind: "attack" }>): number {
+function attackTypeValue(state: GameState, player: PlayerId, attack: Extract<Action, { kind: "attack" }>, evalOpts?: EvalOpts): number {
   const decl = attack.attacks[0]!;
   const commit = decl.attackers.length as 3 | 4 | 5 | 6;
   const pWin = state.config.combatTable[commit];
@@ -507,8 +514,8 @@ function attackTypeValue(state: GameState, player: PlayerId, attack: Extract<Act
   }
   const winState: GameState = { ...state, bases };
 
-  const winValue = evaluate(winState)[player]!;
-  const loseValue = evaluate(state)[player]!;
+  const winValue = evaluate(winState, undefined, evalOpts)[player]!;
+  const loseValue = evaluate(state, undefined, evalOpts)[player]!;
   return pWin * winValue + (1 - pWin) * loseValue;
 }
 
@@ -543,6 +550,7 @@ export function samplePolicy(
 ): { action: Action; rng: RngState } {
   const allianceWeight = policyOpts?.allianceWeight ?? DEFAULT_POLICY_ALLIANCE_WEIGHT;
   const breakAllianceWeight = policyOpts?.breakAllianceWeight ?? DEFAULT_POLICY_BREAK_ALLIANCE_WEIGHT;
+  const evalOpts = policyOpts?.evalOpts;
   let curRng = rng;
 
   type Candidate = { action: Action; typeValue: number };
@@ -559,7 +567,7 @@ export function samplePolicy(
     const { build, rng: r } = sampleBuild(state, player, "factory", temperature, curRng);
     curRng = r;
     if (build !== null) {
-      const typeValue = evaluate(applyAction(state, build).state)[player]!;
+      const typeValue = evaluate(applyAction(state, build).state, undefined, evalOpts)[player]!;
       candidates.push({ action: build, typeValue });
     }
   }
@@ -567,7 +575,7 @@ export function samplePolicy(
     const { build, rng: r } = sampleBuild(state, player, "base", temperature, curRng, subtype);
     curRng = r;
     if (build !== null) {
-      const typeValue = evaluate(applyAction(state, build).state)[player]!;
+      const typeValue = evaluate(applyAction(state, build).state, undefined, evalOpts)[player]!;
       candidates.push({ action: build, typeValue });
     }
   }
@@ -576,14 +584,14 @@ export function samplePolicy(
   const { attack, rng: rAttack } = sampleAttack(state, player, temperature, curRng);
   curRng = rAttack;
   if (attack !== null) {
-    candidates.push({ action: attack, typeValue: attackTypeValue(state, player, attack) });
+    candidates.push({ action: attack, typeValue: attackTypeValue(state, player, attack, evalOpts) });
   }
 
   // 1c. Pass, when offered. applyAction(pass) leaves the state unchanged.
   const acts = legalActions(state);
   const pass = acts.find((a) => a.kind === "pass");
   if (pass !== undefined) {
-    candidates.push({ action: pass, typeValue: evaluate(state)[player]! });
+    candidates.push({ action: pass, typeValue: evaluate(state, undefined, evalOpts)[player]! });
   }
 
   // 1d. Alliance actions — one candidate per legal ally / break-alliance target. Gated by
@@ -601,11 +609,11 @@ export function samplePolicy(
     if (a.kind === "ally") {
       const post = applyAction(state, a).state;
       const targetIron = control(state, a.target).iron.length;
-      const typeValue = evaluate(post)[player]! + allianceWeight * targetIron;
+      const typeValue = evaluate(post, undefined, evalOpts)[player]! + allianceWeight * targetIron;
       candidates.push({ action: a, typeValue });
     } else if (a.kind === "break-alliance") {
       const allyIron = control(state, a.target).iron.length;
-      const typeValue = evaluate(state)[player]! - breakAllianceWeight * allyIron;
+      const typeValue = evaluate(state, undefined, evalOpts)[player]! - breakAllianceWeight * allyIron;
       candidates.push({ action: a, typeValue });
     }
   }

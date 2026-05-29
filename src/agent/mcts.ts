@@ -193,6 +193,8 @@ export interface ExpansionParams {
   alpha: number;
   temperature: number;
   candidateMode: CandidateMode;
+  /** Eval opts threaded into samplePolicy + fixedCandidates so PW candidate scoring sees augmented eval. */
+  evalOpts?: EvalOpts;
 }
 
 /** PW defaults `C=2, alpha=0.5`, `temperature=1`, `candidateMode="pw"` (spec §4.2). */
@@ -355,7 +357,7 @@ interface Candidate {
  * heuristic prior is the PW path's job; fixed mode trades policy shaping for
  * throughput).
  */
-function fixedCandidates(state: GameState, player: PlayerId, rng: RngState): { candidates: Candidate[]; rng: RngState } {
+function fixedCandidates(state: GameState, player: PlayerId, rng: RngState, evalOpts?: EvalOpts): { candidates: Candidate[]; rng: RngState } {
   const seen = new Set<string>();
   const actions: Action[] = [];
   const add = (action: Action): void => {
@@ -375,7 +377,7 @@ function fixedCandidates(state: GameState, player: PlayerId, rng: RngState): { c
   // the attacks+pass candidates rather than crashing the whole search.
   let curRng = rng;
   try {
-    const greedy = samplePolicy(state, player, curRng, 0);
+    const greedy = samplePolicy(state, player, curRng, 0, evalOpts !== undefined ? { evalOpts } : undefined);
     curRng = greedy.rng;
     add(greedy.action);
   } catch {
@@ -464,7 +466,7 @@ export function expandNode(
   };
 
   if (params.candidateMode === "fixed") {
-    const { candidates, rng: r } = fixedCandidates(state, player, curRng);
+    const { candidates, rng: r } = fixedCandidates(state, player, curRng, params.evalOpts);
     curRng = r;
     for (const c of candidates) {
       if (!opened.has(actionKey(c.action))) addEdge(c);
@@ -486,9 +488,9 @@ export function expandNode(
     // so a maxed-out node is still expandable, then stop PW sampling.
     let draw: { action: Action; rng: RngState };
     try {
-      draw = samplePolicy(state, player, curRng, params.temperature);
+      draw = samplePolicy(state, player, curRng, params.temperature, { ...(params.evalOpts !== undefined && { evalOpts: params.evalOpts }) });
     } catch {
-      const fb = fixedCandidates(state, player, curRng);
+      const fb = fixedCandidates(state, player, curRng, params.evalOpts);
       curRng = fb.rng;
       for (const c of fb.candidates) {
         if (node.edges.length >= cap) break;
