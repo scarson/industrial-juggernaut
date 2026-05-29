@@ -6,6 +6,23 @@
 
 Sam's flight-night worry was: **"is (c) a corner where the heuristic plays functionally optimal in 3P+ — meaning mechanical execution by the player?"** Here's the evidence I have so far. The remaining sweeps will sharpen this.
 
+### Sam's worry: VERY LIKELY CONFIRMED
+
+The skill-floor sanity check (Track R, just landed):
+
+| nP | Random win% | Heuristic combined% | Heuristic skill gain |
+|---:|---:|---:|---:|
+| 2 | 5.0% | 91.7% | +41.7pp/seat |
+| 3 | **0.0%** | 100.0% | +16.7pp/seat |
+| 4 | **0.0%** | 100.0% | +8.3pp/seat |
+
+Random literally wins **0 of 60 games in 3P and 4P**. The heuristic captures real skill (random is destroyed). The question is whether ANYTHING above the heuristic exists in 3P+:
+
+- A2/A3 (earlier): the 2P lookahead2 algorithm in 3P/4P plays at baseline. NO advantage.
+- C1/C2 (running soon): proper N-player minimax. If STILL at baseline → **heuristic is near-optimal in 3P+, and Sam's mechanical-3P+ worry is confirmed.**
+
+If C1/C2 land at baseline, the design conclusion is sharp: **3P+ has no skill ceiling above the heuristic's strategy.** The game becomes "execute the heuristic correctly" in 3P+. That's the mechanical regime Sam was worried about.
+
 ### What we KNOW (existing data, n ≥ 100 per cell)
 
 | Regime | Heuristic vs lookahead2 (2-ply) | Median turns | Mechanical? |
