@@ -3,8 +3,8 @@
 
 import { distance, key } from "../geometry/cube";
 import { convexHull, hullArea } from "../geometry/hull";
-import { buildBudget, isLegalBasePlacement, isLegalFactoryPlacement } from "./build";
-import type { Action, Base, GameState, Hex, PlayerId } from "./types";
+import { buildBudget, buildBudgetForType, isLegalBasePlacement, isLegalFactoryPlacement } from "./build";
+import type { Action, Base, BaseType, GameState, Hex, PlayerId } from "./types";
 
 const MIN_ATTACKERS = 3;
 const MAX_ATTACKERS = 6;
@@ -56,13 +56,31 @@ export function legalActions(state: GameState): Action[] {
   const actions: Action[] = [];
 
   // 1. BUILD — one single-piece action per legal placement.
-  if (buildBudget(state, player) >= 1) {
+  // Tactical Depth Phase 5: when `baseTypesEnabled`, each legal base-placement hex
+  // emits THREE actions (one per subtype forge/watchtower/outpost) whose individual
+  // single-piece budgets satisfy `buildBudgetForType(state, player, T) >= 1`. Hexes
+  // with no subtype affordable are skipped. When the flag is off, the legacy single
+  // base action is emitted (no `baseType` field — defaults to forge), bit-for-bit
+  // identical to pre-Phase-5 behavior.
+  if (buildBudget(state, player) >= 1 || state.config.baseTypesEnabled) {
+    const baseSubtypes: BaseType[] = state.config.baseTypesEnabled
+      ? ["forge", "watchtower", "outpost"]
+      : ["forge"];
+    const affordableSubtypes = baseSubtypes.filter(
+      (t) => buildBudgetForType(state, player, t) >= 1,
+    );
     for (const h of state.board.hexes) {
-      if (isLegalFactoryPlacement(state, player, h)) {
+      if (isLegalFactoryPlacement(state, player, h) && buildBudget(state, player) >= 1) {
         actions.push({ kind: "build", pieces: [{ type: "factory", hex: h }] });
       }
       if (isLegalBasePlacement(state, player, h)) {
-        actions.push({ kind: "build", pieces: [{ type: "base", hex: h }] });
+        if (state.config.baseTypesEnabled) {
+          for (const subtype of affordableSubtypes) {
+            actions.push({ kind: "build", pieces: [{ type: "base", hex: h, baseType: subtype }] });
+          }
+        } else if (buildBudget(state, player) >= 1) {
+          actions.push({ kind: "build", pieces: [{ type: "base", hex: h }] });
+        }
       }
     }
   }
