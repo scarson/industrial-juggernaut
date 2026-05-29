@@ -19,7 +19,15 @@ import type { Archetype } from "../agent/archetypes";
 export type AgentSpec =
   | { kind: "heuristic"; allianceWeight?: number; breakAllianceWeight?: number }
   | { kind: "greedy"; archetype: Archetype }
-  | { kind: "mcts"; iterations?: number }
+  | {
+      kind: "mcts";
+      iterations?: number;
+      /** Optional MCTS tuning knobs for sweep experiments. */
+      candidateMode?: "pw" | "fixed";
+      temperature?: number;
+      cPuct?: number;
+      maxDepth?: number;
+    }
   | { kind: "lookahead2" }
   | { kind: "lookahead2-multi" }
   | { kind: "lookaheadN"; depth: number }
@@ -35,10 +43,15 @@ export function buildAgent(spec: AgentSpec): Agent {
       });
     case "greedy":
       return greedyAgent(spec.archetype);
-    case "mcts":
-      return spec.iterations === undefined
-        ? mctsAgent()
-        : mctsAgent({ ...defaultMctsParams(), iterations: spec.iterations });
+    case "mcts": {
+      const params = { ...defaultMctsParams() };
+      if (spec.iterations !== undefined) params.iterations = spec.iterations;
+      if (spec.candidateMode !== undefined) params.candidateMode = spec.candidateMode;
+      if (spec.temperature !== undefined) params.temperature = spec.temperature;
+      if (spec.cPuct !== undefined) params.cPuct = spec.cPuct;
+      if (spec.maxDepth !== undefined) params.maxDepth = spec.maxDepth;
+      return mctsAgent(params);
+    }
     case "lookahead2":
       return lookahead2Agent();
     case "lookahead2-multi":
