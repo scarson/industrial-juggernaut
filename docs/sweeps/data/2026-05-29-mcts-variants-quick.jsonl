@@ -159,3 +159,4 @@
 {"variant":"prng-aware+fixed","done":15,"total":16,"turns":2,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":1932.36}
 {"variant":"prng-aware+fixed","done":16,"total":16,"turns":2,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":1933.639}
 {"variant":"prng-aware-strong","done":1,"total":16,"turns":2,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":1951.061}
+{"variant":"prng-aware-strong","done":2,"total":16,"turns":2,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":1958.274}
