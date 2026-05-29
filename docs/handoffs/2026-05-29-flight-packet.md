@@ -56,6 +56,10 @@ Design implication: if multi-player strategy is the target, default variant or c
 
 Doubling from 500 to 1000 iterations DECREASED win rate (within noise — both ~10%). MCTS@2000 sweep queued; expected similar. **The structural fixes (PRNG-aware leaf eval, broader PW candidate diversity, optional root alpha-beta) are confirmed necessary, not optional.**
 
+### arch (archetypes vs heuristic) — heuristic dominates simple strategies
+
+All three M1-era archetypes (aggressive, economic, expansionist) score IDENTICALLY: 50.0% in 2P (tie), 28.0% in 3P (-5.3pp loss). The heuristic captures all the "play a role" strategies — simple alternatives don't beat it. **The only path above the heuristic is deeper search.**
+
 ### AB (variants a/b) — variant (b) is a useful balance lever
 
 | Variant | 2P median | 3P median | Effect |
