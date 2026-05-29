@@ -41,6 +41,10 @@ The heuristic captures REAL skill — random gets 0 wins in 3P/4P over 60 games.
 
 Design implication: if multi-player strategy is the target, default variant or c+baseTypes are stronger candidates than pure (c).
 
+### B3 — lookahead2 ANNIHILATES MCTS@500 (100% vs 0%)
+
+32 head-to-head 2P games on (c). lookahead2 won 32-0. MCTS@500 was completely outmatched by a simple 2-ply minimax. **Strong evidence the MCTS structural bottleneck is real — adding iterations alone won't recover.** The fixes (PRNG-aware leaf eval, broader PW candidate diversity, optional root alpha-beta) are now confirmed necessary, not optional.
+
 ### AB (variants a/b) — variant (b) is a useful balance lever
 
 | Variant | 2P median | 3P median | Effect |
