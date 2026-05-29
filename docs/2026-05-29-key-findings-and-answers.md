@@ -45,7 +45,13 @@ MCTS is structurally bottlenecked because it uses the heuristic as its leaf eval
 
 ## Q6 — Do variants (a) and (b) add strategic depth?
 
-**A: Queued — track AB coming.** Both flags exist in the engine; we haven't benchmarked them properly under (c).
+**A: (b) adds GAME LENGTH; (a) is a no-op.** Track AB (heuristic self-play on (c) + (a)/(b) combos):
+- (c) reference: median 2 turns.
+- (c)+(a) [victoryIronRequiresPerimeter]: median 2 turns — no shift from (c).
+- **(c)+(b) [victoryIronHoldRounds=2]: median 3 turns** — +50% game length.
+- (c)+(a)+(b): same as (b) alone.
+
+Variant (b) requires holding 10+ iron for TWO consecutive rounds before iron victory. Games naturally extend. This is a useful **balance lever** Sam can pull if (c)'s 2-turn games feel too snappy. Whether (b) also restores 3P+ strategic depth (V's open question) needs a follow-up sweep — heuristic self-play didn't measure that.
 
 ## Q7 — Do asymmetric base types (Tactical Depth) open strategic space?
 
