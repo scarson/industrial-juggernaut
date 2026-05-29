@@ -75,22 +75,21 @@ My A2/A3 used the 2-player `lookahead2` algorithm in 3P/4P matches — that may 
 
 ## What's running while you fly
 
-Single master-chain script running sweeps sequentially (no thrashing under 4-vCPU limit). Priority order = most decisive answers first.
+**Container restarted ~10:43 UTC mid-V.** Resume chain (`/tmp/master-chain-resume.sh`) re-launched with all remaining sweeps:
 
 | # | Track | What it answers | Status |
 |---|---|---|---|
-| 1 | **R** — random vs heuristic, (c) 2P/3P/4P, 60 games/cell | Skill floor sanity check. If heuristic CRUSHES random in 3P+ but lookahead2-multi doesn't beat heuristic → heuristic IS near-optimal in 3P+. If random ties heuristic → game is essentially random. | 🟢 running |
-| 2 | **C1** — lookahead2-multi vs heuristic, (c) 3P | THE critical 3P test. If lookahead2-multi STILL plays at baseline → heuristic IS near-optimal in 3P. If wins above baseline → heuristic has gaps. | ⬜ queued |
-| 3 | **C2** — lookahead2-multi vs heuristic, (c) 4P | Same for 4P. | ⬜ queued |
-| 4 | **L** — lookahead2 self-play, (c) 2P/3P/4P, 50 games/cell | Do stronger-vs-stronger games produce longer/deeper games? Indicator of suppressed strategic depth. | ⬜ queued |
-| 5 | **D** — baseTypesEnabled effect, heuristic self-play 2P/3P/4P, 100 games/cell | Does enabling subtypes shift metrics? Tests whether the tactical-depth flag is a real lever. | ⬜ queued |
-| 6 | **V** — variant cross-compare {default, c, c+baseTypes} × {2P, 3P, 4P}, 60 games/cell | Auto-flags strategic-depth vs mechanical regimes. Finds where lookahead2-multi shows >5pp gain. | ⬜ queued |
-| 7 | **AB** — variants (a) + (b), heuristic self-play, 60 games/cell | Do victoryIronRequiresPerimeter or victoryIronHoldRounds shift gameplay? | ⬜ queued |
-| 8 | **B3** — lookahead2 vs MCTS@500, (c) 2P, 32 games | Does proper search beat higher MCTS? | ⬜ queued |
-| 9 | **B2** — MCTS@1000 vs heuristic, (c) 2P, 32 games | Higher MCTS recovery curve. | ⬜ queued |
-| 10 | **archetype** — aggressive/economic/expansionist vs heuristic, (c) 2P/3P, 50 games/cell | Does any simple strategy beat heuristic? Diversity of viable strategies. | ⬜ queued |
+| 1 | **V** — variant cross-compare {default, c, c+baseTypes} × {2P,3P,4P}, 60 games/cell | Strategic-depth vs mechanical regimes by variant | 🟢 running (restarted) |
+| 2 | **AB** — variants (a)+(b) heuristic self-play, 60 games/cell | Do (a)/(b) shift gameplay vs (c)? | ⬜ queued |
+| 3 | **B3** — lookahead2 vs MCTS@500, (c) 2P, 32 games | Does proper search beat MCTS@500? | ⬜ queued |
+| 4 | **B2** — MCTS@1000 vs heuristic, (c) 2P, 32 games | Higher MCTS recovery curve | ⬜ queued |
+| 5 | **arch** — greedy archetypes vs heuristic, 50 games/cell | Do simple strategies beat heuristic? | ⬜ queued |
+| 6 | **lookahead3** — 3-ply vs heuristic, (c) 2P, 16 games | Does deeper search find more than 2-ply? | ⬜ queued |
+| 7 | **mcts2000** — MCTS@2000 vs heuristic, (c) 2P, 16 games | Does even higher MCTS recover? | ⬜ queued |
+| 8 | **recal** — Track D-prime: outpost cost ∈ {1, 2, 3} × 2P/3P/4P, 100 games/cell | **Cost recalibration** — does outpost=2 fix the median-1-turn finding? | ⬜ queued |
+| 9 | **5P/6P** — lookahead2-multi vs heuristic, 60 games/cell | Does mechanical pattern hold at higher player counts? | ⬜ queued |
 
-Total: ~90 minutes wall-clock estimated (sequential, 3 workers each).
+Final test suite chain queued separately — runs after all sweeps complete.
 
 ## Engineering shipped while you fly
 
