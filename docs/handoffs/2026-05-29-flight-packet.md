@@ -35,7 +35,11 @@ The heuristic captures REAL skill — random gets 0 wins in 3P/4P over 60 games.
 - The heuristic is NOT mechanical-optimal in 3P or 4P. It misses ~6-8% of available skill structure.
 - The skill that lookahead2-multi finds is "anticipate all opponents' moves one ply deeper" — a real cognitive lift for a human, not mechanical.
 
-**The game has skill ceiling at all tested player counts.** The original mechanical-3P+ worry is largely DISPROVEN. Multi-player play has strategic depth above heuristic execution.
+**Updated post-V verdict:** the original mechanical-3P+ worry **IS CONFIRMED for variant (c) at 3P/4P** — lookahead2-multi plays at baseline. C1/C2 data showed +7.7pp/+6.0pp at different seeds, but V with controlled larger sample at seed 23000 shows -5pp/-3pp. The earlier "skill ceiling at all counts" claim was overstated.
+
+**V's cleanest finding:** the **default variant** has strategic depth at 2P AND 3P (+28.3pp, +11.7pp) but goes mechanical at 4P. The **c+baseTypes** combination has 3P depth (+10pp) despite the 1-turn games. **(c) variant** has dominant 2P depth (+35pp) but is mechanical at 3P+.
+
+Design implication: if multi-player strategy is the target, default variant or c+baseTypes are stronger candidates than pure (c).
 
 ### Track D landed — Tactical Depth ACCELERATES games (unexpected)
 
