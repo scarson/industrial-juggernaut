@@ -82,13 +82,13 @@ All 6 Phases shipped. `baseTypesEnabled=false` is bit-for-bit identical to pre-c
 | R | random vs heuristic, (c) 2P/3P/4P, n=60 each | 5%/0%/0% random | Real skill |
 | **C1** | lookahead2-multi vs heuristic, (c) 3P, n=150 | **40.7% (+7.7pp)** | 3P depth |
 | **C2** | lookahead2-multi vs heuristic, (c) 4P, n=100 | **31.0% (+6.0pp)** | 4P depth |
+| **L** | lookahead2 self-play, (c) 2P/3P/4P, n=50 each | median t=2 at all counts; max 21/7/2 | 2-turn resolve is structural — even strong-vs-strong games don't extend in 4P |
 
 ### Tier 2 — running / queued
 
 | Track | Sweep | Expected ETA |
 |---|---|---|
-| L | lookahead2 self-play, (c) 2P/3P/4P, n=50 each | ~30 min |
-| D | tactical-depth-effect: heuristic self-play, flag on vs off, 2P/3P/4P, n=100 each | ~30 min |
+| D | tactical-depth-effect: heuristic self-play, flag on vs off, 2P/3P/4P, n=100 each | RUNNING |
 | V | variant cross-compare: {default,c,c+baseTypes} × {2P,3P,4P}, n=60 each | ~15 min |
 | AB | variants (a)+(b) comparison, 4 variants × 2P/3P, n=60 each | ~15 min |
 | B3 | lookahead2 vs MCTS@500, (c) 2P, n=32 | ~15 min |
