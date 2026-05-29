@@ -122,3 +122,4 @@
 {"variant":"(c)+(a) victoryIronRequiresPerimeter","nPlayers":2,"done":2,"total":60,"turns":2,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":125.738}
 {"variant":"(c)+(a) victoryIronRequiresPerimeter","nPlayers":2,"done":3,"total":60,"turns":2,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":126.725}
 {"variant":"(c)+(a) victoryIronRequiresPerimeter","nPlayers":2,"done":4,"total":60,"turns":2,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":127.768}
+{"variant":"(c)+(a) victoryIronRequiresPerimeter","nPlayers":2,"done":5,"total":60,"turns":2,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":128.735}
