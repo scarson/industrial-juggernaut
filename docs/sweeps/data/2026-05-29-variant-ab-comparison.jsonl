@@ -390,3 +390,4 @@
 {"variant":"(c)+(a)+(b) both","nPlayers":2,"done":30,"total":60,"turns":3,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":407.43}
 {"variant":"(c)+(a)+(b) both","nPlayers":2,"done":31,"total":60,"turns":3,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":408.569}
 {"variant":"(c)+(a)+(b) both","nPlayers":2,"done":32,"total":60,"turns":3,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":409.549}
+{"variant":"(c)+(a)+(b) both","nPlayers":2,"done":33,"total":60,"turns":3,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":410.88}
