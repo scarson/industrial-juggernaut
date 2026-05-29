@@ -195,6 +195,15 @@ export interface ExpansionParams {
   candidateMode: CandidateMode;
   /** Eval opts threaded into samplePolicy + fixedCandidates so PW candidate scoring sees augmented eval. */
   evalOpts?: EvalOpts;
+  /**
+   * When true (default false), PW assigns each opened edge a prior equal to its
+   * `softmax(typeValue / temperature)` over the opened set — preserving the
+   * heuristic's relative ranking through PUCT's U term. The default behavior
+   * (uniform 1/k priors) discards `samplePolicy`'s distribution information, so
+   * PUCT can't bias toward the heuristic's argmax at low iteration budgets — a
+   * structural cause of MCTS@50 underperformance (variant-experiment 2026-05-29).
+   */
+  preserveSoftmaxPrior?: boolean;
 }
 
 /** PW defaults `C=2, alpha=0.5`, `temperature=1`, `candidateMode="pw"` (spec §4.2). */
@@ -481,12 +490,17 @@ export function expandNode(
   // instead of looping forever.
   const maxAttempts = Math.max(8, cap * 4);
   let attempts = 0;
+  // Track the FIRST observed typeValue per opened action key so we can compute
+  // softmax priors when `preserveSoftmaxPrior` is set. (Re-samples of the same
+  // key are dropped by the `opened` guard, so the first typeValue is the one
+  // that won its key — symmetric with how the edge itself was chosen.)
+  const openedTypeValues = new Map<string, number>();
   while (node.edges.length < cap && attempts < maxAttempts) {
     attempts++;
     // samplePolicy can throw on a maxed-out player (see fixedCandidates note);
     // on a throw, fall back to the bounded fixed candidate set (attacks + pass)
     // so a maxed-out node is still expandable, then stop PW sampling.
-    let draw: { action: Action; rng: RngState };
+    let draw: { action: Action; rng: RngState; typeValue: number };
     try {
       draw = samplePolicy(state, player, curRng, params.temperature, { ...(params.evalOpts !== undefined && { evalOpts: params.evalOpts }) });
     } catch {
@@ -501,16 +515,38 @@ export function expandNode(
     curRng = draw.rng;
     const k = actionKey(draw.action);
     if (opened.has(k)) continue;
-    // The prior is recomputed below as an equal share once the set is known; use a
-    // provisional placeholder and normalize at the end.
+    openedTypeValues.set(k, draw.typeValue);
+    // The prior is recomputed below: uniform 1/k by default, OR softmax over
+    // the captured typeValues when `preserveSoftmaxPrior` is set.
     addEdge({ action: draw.action, prior: 1 });
   }
 
-  // Normalize PW priors to an equal share over the opened set (the net-prior
-  // version replaces samplePolicy with a learned prior; spec §4.2).
   if (node.edges.length > 0) {
-    const share = 1 / node.edges.length;
-    for (const edge of node.edges) edge.prior = share;
+    if (params.preserveSoftmaxPrior === true) {
+      // Softmax over typeValues / temperature, restricted to the opened set.
+      // Edges without a captured typeValue (e.g., the maxed-out fixedCandidates
+      // fallback above) get the mean of captured values so they don't dominate
+      // by underflow/overflow — keeps the distribution proper.
+      const t = Math.max(params.temperature, 1e-9);
+      const tvs = node.edges.map((e) => openedTypeValues.get(actionKey(e.action)));
+      const known = tvs.filter((v): v is number => v !== undefined);
+      const mean = known.length > 0 ? known.reduce((a, b) => a + b, 0) / known.length : 0;
+      const filled = tvs.map((v) => v ?? mean);
+      const maxV = Math.max(...filled);
+      const exps = filled.map((v) => Math.exp((v - maxV) / t));
+      const total = exps.reduce((a, b) => a + b, 0);
+      if (total > 0 && Number.isFinite(total)) {
+        node.edges.forEach((e, i) => { e.prior = exps[i]! / total; });
+      } else {
+        const share = 1 / node.edges.length;
+        for (const edge of node.edges) edge.prior = share;
+      }
+    } else {
+      // Normalize PW priors to an equal share over the opened set (the net-prior
+      // version replaces samplePolicy with a learned prior; spec §4.2).
+      const share = 1 / node.edges.length;
+      for (const edge of node.edges) edge.prior = share;
+    }
   }
   return { rng: curRng };
 }

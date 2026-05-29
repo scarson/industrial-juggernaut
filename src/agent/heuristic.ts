@@ -547,7 +547,7 @@ export function samplePolicy(
   rng: RngState,
   temperature: number,
   policyOpts?: PolicyOpts,
-): { action: Action; rng: RngState } {
+): { action: Action; rng: RngState; typeValue: number } {
   const allianceWeight = policyOpts?.allianceWeight ?? DEFAULT_POLICY_ALLIANCE_WEIGHT;
   const breakAllianceWeight = policyOpts?.breakAllianceWeight ?? DEFAULT_POLICY_BREAK_ALLIANCE_WEIGHT;
   const evalOpts = policyOpts?.evalOpts;
@@ -633,10 +633,12 @@ export function samplePolicy(
           `or a maxed-out late-game state with allowPass=false).`,
       );
     }
-    return { action: acts[0]!, rng: nextFloat(curRng).state };
+    // Fallback path: no policy candidates, used the engine's first legal action.
+    // typeValue reflects the actor's current position score (vanilla evaluate).
+    return { action: acts[0]!, rng: nextFloat(curRng).state, typeValue: evaluate(state, undefined, evalOpts)[player]! };
   }
 
   // 2. Choose the round-type by softmax over type values.
   const draw = softmaxSample(candidates.map((c) => c.typeValue), temperature, curRng);
-  return { action: candidates[draw.index]!.action, rng: draw.rng };
+  return { action: candidates[draw.index]!.action, rng: draw.rng, typeValue: candidates[draw.index]!.typeValue };
 }
