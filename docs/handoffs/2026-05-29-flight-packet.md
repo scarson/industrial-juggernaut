@@ -37,6 +37,20 @@ The heuristic captures REAL skill — random gets 0 wins in 3P/4P over 60 games.
 
 **The game has skill ceiling at all tested player counts.** The original mechanical-3P+ worry is largely DISPROVEN. Multi-player play has strategic depth above heuristic execution.
 
+### Track D landed — Tactical Depth ACCELERATES games (unexpected)
+
+| nPlayers | baseTypes=false median | baseTypes=true median |
+|---:|:---:|:---:|
+| 2P | 2 | **1** |
+| 3P | 2 | **1** |
+| 4P | 2 | **1** |
+
+Across ALL 6 cells, enabling subtypes DROPS median games from 2 turns to 1 turn. Iron-vic % unchanged (~100%). The heuristic, when allowed to compose per-subtype, builds outposts (cost=1/piece) in volume, hitting the iron threshold in a single turn.
+
+**Implication:** the current Tactical Depth cost calibration (forge=2, watchtower=4, outpost=1) is unbalanced. Outposts are too cheap for the iron-grab regime. If you want Tactical Depth to ADD strategic depth (not subtract it), the costs need recalibration — probably outpost cost ≥ 2 and watchtower with stronger benefits.
+
+This is actually a positive Phase 7 finding — the sweep CAUGHT the imbalance immediately. Cost-recalibration is what Phase 7's "4-test falsification battery" was designed to inform.
+
 ### What we KNOW (existing data, n ≥ 100 per cell)
 
 | Regime | Heuristic vs lookahead2 (2-ply) | Median turns | Mechanical? |
