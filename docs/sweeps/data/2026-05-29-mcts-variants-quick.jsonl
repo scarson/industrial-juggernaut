@@ -109,3 +109,4 @@
 {"variant":"low-cpuct","done":13,"total":16,"turns":2,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":1150.487}
 {"variant":"low-cpuct","done":14,"total":16,"turns":2,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":1175.917}
 {"variant":"low-cpuct","done":15,"total":16,"turns":2,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":1201.401}
+{"variant":"low-cpuct","done":16,"total":16,"turns":18,"victoryType":"last-standing","winner":[0],"hitTurnCap":false,"elapsedSec":1237.86}
