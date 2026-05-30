@@ -799,3 +799,4 @@
 {"calibration":"recal outpost=3","nPlayers":3,"done":99,"total":100,"turns":1,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":775.484}
 {"calibration":"recal outpost=3","nPlayers":3,"done":100,"total":100,"turns":1,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":776.401}
 {"calibration":"recal outpost=3","nPlayers":4,"done":1,"total":100,"turns":1,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":777.404}
+{"calibration":"recal outpost=3","nPlayers":4,"done":2,"total":100,"turns":1,"victoryType":"iron","winner":[2],"hitTurnCap":false,"elapsedSec":778.359}
