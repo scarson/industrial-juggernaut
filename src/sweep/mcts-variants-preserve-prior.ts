@@ -43,14 +43,19 @@ interface Variant {
  * should noticeably outperform v3's all-0% PW variants.
  */
 const VARIANTS: Variant[] = [
+  // @50 — preserveSoftmaxPrior structural-fix tests.
   { label: "v4-baseline",                description: "@50 control — default PW, uniform 1/k prior",                                       spec: { kind: "mcts", iterations: 50 } },
   { label: "v4-preserve",                description: "@50 + preserveSoftmaxPrior (PW)",                                                   spec: { kind: "mcts", iterations: 50, preserveSoftmaxPrior: true } },
   { label: "v4-preserve+d1",             description: "@50 + preserveSoftmaxPrior + maxDepth=1",                                           spec: { kind: "mcts", iterations: 50, maxDepth: 1, preserveSoftmaxPrior: true } },
   { label: "v4-preserve+d2",             description: "@50 + preserveSoftmaxPrior + maxDepth=2 (Opus-like structure)",                     spec: { kind: "mcts", iterations: 50, maxDepth: 2, preserveSoftmaxPrior: true } },
-  { label: "v4-preserve+temp-0.5",       description: "@50 + preserveSoftmaxPrior + T=0.5 (sharper softmax)",                              spec: { kind: "mcts", iterations: 50, temperature: 0.5, preserveSoftmaxPrior: true } },
   { label: "v4-preserve+temp-0.1",       description: "@50 + preserveSoftmaxPrior + T=0.1 (near-argmax softmax)",                          spec: { kind: "mcts", iterations: 50, temperature: 0.1, preserveSoftmaxPrior: true } },
   { label: "v4-preserve+iron-share",     description: "@50 + preserveSoftmaxPrior + iron-share leaf eval",                                 spec: { kind: "mcts", iterations: 50, preserveSoftmaxPrior: true, evalOpts: { ironShare: true } } },
   { label: "v4-preserve+d1+prng-aware",  description: "@50 + preserveSoftmaxPrior + maxDepth=1 + prng-aware (everything combined)",        spec: { kind: "mcts", iterations: 50, maxDepth: 1, preserveSoftmaxPrior: true, evalOpts: { prngAwareDeterministic: true } } },
+  // @100 — re-test the most promising variants from v3 (fixed-equivalent) + the structural fix at higher budget.
+  { label: "v4-d1-fixed@100",            description: "@100 + maxDepth=1 + candidateMode=fixed (v3's best, re-tested)",                    spec: { kind: "mcts", iterations: 100, maxDepth: 1, candidateMode: "fixed" } },
+  { label: "v4-d1-fixed+prng@100",       description: "@100 + maxDepth=1 + fixed + prng-aware",                                            spec: { kind: "mcts", iterations: 100, maxDepth: 1, candidateMode: "fixed", evalOpts: { prngAwareDeterministic: true } } },
+  { label: "v4-preserve@100",            description: "@100 + preserveSoftmaxPrior (structural fix at higher budget)",                     spec: { kind: "mcts", iterations: 100, preserveSoftmaxPrior: true } },
+  { label: "v4-preserve+d1@100",         description: "@100 + preserveSoftmaxPrior + maxDepth=1",                                          spec: { kind: "mcts", iterations: 100, maxDepth: 1, preserveSoftmaxPrior: true } },
 ];
 
 interface CellResult {
