@@ -157,6 +157,8 @@ I'll keep updating this doc as data lands.
 
 ## Pointers
 
+- **🎯 Authoritative synthesis (read first when this packet feels stale):** `docs/handoffs/2026-05-30-multi-player-mechanical-synthesis.md`. Pulls together C1/C2/V/AB/5p6p/c+b 3p/recal/random/archetype + MCTS variants negative-result into a decision-ready doc with skill-room curve, variant comparison, decision matrix.
+- **🎯 MCTS variants investigation closed:** `docs/2026-05-29-mcts-variants-investigation.md` and `docs/handoffs/2026-05-30-mcts-research-checkpoint.md`. 37 variants tested across 5 sweeps; MCTS@50-500 cannot bridge the 80% gap to lookahead2 in (c) 2P with any lever we control. Sam's decision: accept and move on.
 - Sweep data: `docs/sweeps/data/2026-05-29-*.jsonl`
 - Reports: `docs/2026-05-29-*.md`
 - Prior synthesis: `docs/playtest/2026-05-28-playtest-synthesis.md`, `docs/handoffs/2026-05-29-overnight-handoff.md`
@@ -164,4 +166,4 @@ I'll keep updating this doc as data lands.
 
 ---
 
-*Updated [INCOMPLETE — will refresh as sweeps land].*
+*Original updated as sweeps landed during the flight window. Now CLOSED — superseded by `docs/handoffs/2026-05-30-multi-player-mechanical-synthesis.md`, which is the authoritative analysis. This packet remains the time-ordered narrative of what happened during the flight.*
