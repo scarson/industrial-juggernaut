@@ -14,3 +14,4 @@
 {"variant":"bootstrap@50","done":14,"total":16,"turns":2,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":242.523}
 {"variant":"bootstrap@50","done":15,"total":16,"turns":2,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":266.994}
 {"variant":"bootstrap@50","done":16,"total":16,"turns":17,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":461.537}
+{"variant":"bootstrap@100","done":1,"total":16,"turns":1,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":462.681}
