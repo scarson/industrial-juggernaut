@@ -757,8 +757,10 @@ export function runMcts(
   // edge to an already-populated node, mark it saturated and stop re-expanding it.
   const saturated = new Set<Node>();
   const pwCap = (n: number): number => Math.ceil(params.C * Math.pow(n, params.alpha));
-  // One-time flag: apply rootBootstrap priors after the root's first expansion.
-  let rootBootstrapApplied = false;
+  // rootBootstrap cache: scoreActionLookahead2 is expensive (a full 1-ply lookahead
+  // per edge), so cache by actionKey across iterations. Re-apply the softmax over
+  // the FULL opened set after each root expansion so newly-added edges integrate.
+  const bootstrapScoreCache = new Map<string, number>();
 
   for (let i = 0; i < params.iterations; i++) {
     const path: PathStep[] = [];
@@ -794,17 +796,22 @@ export function runMcts(
         rng = expanded.rng;
         // No growth despite room -> distinct candidates exhausted; stop re-expanding.
         if (node.edges.length === before && before > 0) saturated.add(node);
-        // rootBootstrap (hybrid ii): after the root's first expansion, overwrite
-        // the edge priors with `softmax(scoreActionLookahead2 / temperature)` so
-        // PUCT is guided by a deterministic 2-ply lookahead at the decision point.
-        if (
-          params.rootBootstrap === "lookahead2" &&
-          node === root &&
-          !rootBootstrapApplied &&
-          node.edges.length > 0
-        ) {
-          rootBootstrapApplied = true;
-          const scores = node.edges.map((e) => scoreActionLookahead2(curState, acting, e.action));
+        // rootBootstrap (hybrid ii): after EVERY root expansion (initial + later
+        // PW growth steps), overwrite the edge priors with `softmax(scoreActionLookahead2
+        // / temperature)` so PUCT is consistently guided by deterministic 2-ply
+        // lookahead at the decision point. We re-apply on every root expansion
+        // because the regular prior path (uniform 1/k or preserveSoftmaxPrior) runs
+        // inside `expandNode` and would otherwise clobber the bootstrap.
+        if (params.rootBootstrap === "lookahead2" && node === root && node.edges.length > 0) {
+          const scores = node.edges.map((e) => {
+            const k = actionKey(e.action);
+            let s = bootstrapScoreCache.get(k);
+            if (s === undefined) {
+              s = scoreActionLookahead2(curState, acting, e.action);
+              bootstrapScoreCache.set(k, s);
+            }
+            return s;
+          });
           let maxV = -Infinity;
           for (const s of scores) if (Number.isFinite(s) && s > maxV) maxV = s;
           if (Number.isFinite(maxV)) {
