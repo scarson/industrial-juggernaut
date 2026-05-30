@@ -30,3 +30,4 @@
 {"variant":"mcts500-preserve","done":14,"total":16,"turns":2,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":2976.045}
 {"variant":"mcts500-preserve","done":15,"total":16,"turns":2,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":3152.432}
 {"variant":"mcts500-preserve","done":16,"total":16,"turns":20,"victoryType":"last-standing","winner":[1],"hitTurnCap":false,"elapsedSec":3787.104}
+{"variant":"mcts500-preserve+d1","done":1,"total":16,"turns":2,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":3789.01}
