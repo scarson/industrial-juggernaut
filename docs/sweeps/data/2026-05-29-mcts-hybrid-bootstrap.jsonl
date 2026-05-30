@@ -79,3 +79,4 @@
 {"variant":"bootstrap+d1@50","done":15,"total":16,"turns":18,"victoryType":"last-standing","winner":[1],"hitTurnCap":false,"elapsedSec":5390.124}
 {"variant":"bootstrap+d1@50","done":16,"total":16,"turns":17,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":5408.259}
 {"variant":"bootstrap+temp-0.1@50","done":1,"total":16,"turns":1,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":5409.215}
+{"variant":"bootstrap+temp-0.1@50","done":2,"total":16,"turns":1,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":5410.166}
