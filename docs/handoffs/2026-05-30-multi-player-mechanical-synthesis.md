@@ -123,7 +123,7 @@ What ships depends on whether multi-player strategic depth is a goal:
 
 ## Open questions (deferred)
 
-- **Lookahead3 vs heuristic on (c) 2P** — does deeper search find MORE than 2-ply (suggesting unexplored depth even in the strategic-depth regimes)? Sweep was killed at 3/16 because lookahead3 was hanging — needs a per-move timeout to be testable.
+- **Lookahead3 vs heuristic on (c) 2P** — does deeper search find MORE than 2-ply (suggesting unexplored depth even in the strategic-depth regimes)? Sweep was killed at 3/16 because lookahead3 was hanging — needs a per-move timeout to be testable. **Confirmed pre-existing**: the unit test `lookaheadN.test.ts > "depth=3 produces a legal action (smoke)"` also hangs in 2026-05-30's full-suite run. Both call sites blocked by the same underlying issue — lookahead3's recursion has no wall-clock budget. Fix in `src/agent/lookaheadN.ts` would unblock both.
 - **Alliances enabled** — the entire investigation was at `alliancesEnabled=false`. Whether alliances re-open multi-player strategic depth is unknown.
 - **Tactical Depth Phase 7 positional fix** — what's the cleanest single intervention (forge-anchor, control-radius asymmetry, or outpost-placement restriction)? Needs new sweep design after Phase 7 ships.
 - **n=16 noise band on the MCTS investigation** — the lookahead2-bootstrap hybrid showed 12.5% across all 6 v5b cells (vs 6.3% baseline). One bootstrap@500 run at n=50 would conclusively settle whether this is a real lift or pure noise. Low priority — bumping MCTS from 6.3% to 12.5% doesn't change the design conclusions.
