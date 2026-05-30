@@ -104,3 +104,4 @@
 {"variant":"v4-baseline","done":15,"total":16,"turns":2,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":189.598}
 {"variant":"v4-baseline","done":16,"total":16,"turns":2,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":195.141}
 {"variant":"v4-preserve+temp-0.1","done":10,"total":16,"turns":2,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":750.061}
+{"variant":"v4-preserve","done":1,"total":16,"turns":2,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":212.815}
