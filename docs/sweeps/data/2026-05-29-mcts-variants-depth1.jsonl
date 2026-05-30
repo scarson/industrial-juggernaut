@@ -48,3 +48,4 @@
 {"variant":"d1-prng-aware-strong","done":16,"total":16,"turns":24,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":162.553}
 {"variant":"d1-iron-share","done":1,"total":16,"turns":2,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":163.571}
 {"variant":"d1-iron-share","done":2,"total":16,"turns":2,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":164.539}
+{"variant":"d1-iron-share","done":3,"total":16,"turns":2,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":165.787}
