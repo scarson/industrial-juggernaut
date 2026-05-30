@@ -110,7 +110,42 @@ v4 sweep at `src/sweep/mcts-variants-preserve-prior.ts` tests 8 variants combini
 
 - v2: complete, all 0.0%. Report committed.
 - v3: complete, PW = 0%, fixed = 6.3% (within noise). Report committed.
-- v4 (preserveSoftmaxPrior): infrastructure committed (9bbe9ac), sweep queued.
+- v4 (preserveSoftmaxPrior @50/@100): complete, all 0%. Report committed (`docs/2026-05-29-mcts-variants-preserve-prior.md`).
+- v5a (preserveSoftmaxPrior @500): complete, all 4 variants at 6.3%. Report committed (`docs/2026-05-29-mcts-preserve-500.md`). Recovered manually after a container restart killed the script before final-report generation.
+- v5b (rootBootstrap=lookahead2 hybrid): complete, all 6 variants at exactly **12.5%** (2/16). Report committed (`docs/2026-05-29-mcts-hybrid-bootstrap.md`).
+
+## Final conclusion (Sam decision: accept and move on)
+
+After **37 variants across 5 sweeps**, the picture is clear:
+
+| Sweep | Variants | Best | Headline |
+|---|---:|---:|---|
+| v2 (config knobs + eval-opts) | 11 | 0.0% | No config knob moves the needle |
+| v3 (maxDepth=1 + eval-opts) | 9 | 6.3% | maxDepth=1 lets evalOpts fire but doesn't help |
+| v4 (preserveSoftmaxPrior @50/@100) | 11 | 0.0% | Prior fix doesn't help at low budget |
+| v5a (preserveSoftmaxPrior @500) | 4 | 6.3% | Prior fix doesn't help at higher budget either |
+| v5b (lookahead2 root bootstrap) | 6 | **12.5%** | First reproducible lift but still within noise band |
+
+**MCTS@50-500 fundamentally cannot match the heuristic in (c) 2P with any of the levers we control.** The v5b hybrid bootstrap shows a small (2x baseline, within ±25pp CI at n=16) reproducible lift — but still nowhere near lookahead2's 80% ceiling.
+
+The remaining structural candidates that we did NOT test:
+- **Hybrid (i)** — replace MCTS's leaf eval with lookahead2's 1-ply evaluation at every leaf. Expensive per iteration (would have to drop iteration count) but in principle could close the gap.
+- **Hybrid (iii)** — MCTS visit-count filter then lookahead2 decider. Requires MCTS visits to be informative, which v2-v5b suggest they aren't.
+- **Search-rng / game-rng mismatch fix** — would violate the architectural separation.
+
+**v5b also rules out cheap bootstrap as a lookahead2-substitute.** Three iteration budgets (50/100/500), two prior strategies (with/without preserveSoftmaxPrior), and three temperature/depth knobs all landed at exactly 12.5%. The lookahead2 root prior moves outcomes but caps at the same noise floor. If anything closes the gap, it's not "lookahead2 at the decision point only" — it'd have to be "lookahead2 at every leaf" (hybrid i) which is much more expensive.
+
+**Per Sam (2026-05-30): accept that MCTS isn't going to bridge the gap. Use lookahead2 as the strong agent for (c) 2P. Pivot to the 3P/4P mechanical-game research questions** (already largely answered by Tracks C1/C2/V/AB but worth a synthesis).
+
+## Code shipped (preserved on branch claude/document-game-design-VpqqB)
+
+- `src/agent/heuristic.ts` — `EvalOpts` (prng-aware, iron-share); `samplePolicy` now returns `typeValue` alongside `action`+`rng`.
+- `src/agent/mcts.ts` — `MctsCoreParams.evalOpts` + `preserveSoftmaxPrior` + `rootBootstrap`; `expandNode` softmax-prior path; `runMcts` root-bootstrap cache.
+- `src/agent/lookahead2.ts` — `scoreActionLookahead2` exported wrapper for hybrid bootstrap.
+- `src/sweep/agent-spec.ts` — All new knobs surfaced.
+- 5 sweep scripts: `mcts-variants-quick.ts`, `mcts-variants-depth1.ts`, `mcts-variants-preserve-prior.ts`, `mcts-variants-preserve-500.ts`, `mcts-preserve-500-recover.ts`, `mcts-hybrid-bootstrap.ts`.
+
+All knobs default to off — no existing-caller behavior change.
 
 ## Files
 

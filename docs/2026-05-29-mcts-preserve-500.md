@@ -36,5 +36,13 @@ What's left:
 
 v5b (hybrid bootstrap with `scoreActionLookahead2`) is the next test — it sidesteps both issues by handing MCTS a deterministic, lookahead-quality prior at the root decision point.
 
+## Note on JSONL contents (for future readers)
+
+The data file `docs/sweeps/data/2026-05-29-mcts-preserve-500.jsonl` contains 63 game records — 16 baseline + 16 preserve + 15 preserve+d1 (one game lost to container restart) + 16 preserve+d2. The preserve+d2 records were APPENDED by the recovery script (`src/sweep/mcts-preserve-500-recover.ts`) at the same baseSeed, so they are deterministic re-runs that match what the original sweep would have produced.
+
+**Reconstruction technique for any future MCTS variant report whose script crashed before final aggregation:** the seat schedule is `seat s ← agent (s + g) mod n` (see `src/eval/arena.ts:106`). For 2P with `agents = [variant, heuristic]`, the variant plays seat 0 for even `g` and seat 1 for odd `g`. The JSONL records `done` (completion order, NOT schedule index), so per-game seat assignment can't be derived from JSONL alone. BUT the WINNER DISTRIBUTION across all completed games is recoverable: if X variant wins came as `[0]` (even-g variant-at-seat-0 wins) and Y came as `[1]` (odd-g variant-at-seat-1 wins), then X+Y = total variant wins, and `total [0] = X + (n_odd_games - Y)` plus `total [1] = (n_even_games - X) + Y`. With an equal even/odd split, observed `[0] - [1] = X - Y`, so if a recovery run reports the aggregator's actual variant win rate (X+Y), the X/Y split itself can be solved.
+
+The v5a finding of identical 9/7 distributions across all four variants was what tipped us off that preserveSoftmaxPrior wasn't changing what MCTS picks — same distribution → same games won → same outcomes → same agent choices.
+
 ---
 *Recovered after container restart; aggregation reconstructed from JSONL.*
