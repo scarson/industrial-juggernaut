@@ -106,3 +106,4 @@
 {"variant":"d1-fixed+prng-aware","done":10,"total":16,"turns":2,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":301.499}
 {"variant":"d1-fixed+prng-aware","done":11,"total":16,"turns":2,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":302.466}
 {"variant":"d1-fixed+prng-aware","done":12,"total":16,"turns":17,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":303.499}
+{"variant":"d1-fixed+prng-aware","done":13,"total":16,"turns":2,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":304.432}
