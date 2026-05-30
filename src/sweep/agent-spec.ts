@@ -36,6 +36,8 @@ export type AgentSpec =
       };
       /** When true, PW assigns softmax(typeValue/temperature) priors instead of uniform 1/k. */
       preserveSoftmaxPrior?: boolean;
+      /** When "lookahead2", overrides the ROOT edge priors with softmax(scoreActionLookahead2/temperature). */
+      rootBootstrap?: "lookahead2";
     }
   | { kind: "lookahead2" }
   | { kind: "lookahead2-multi" }
@@ -61,6 +63,7 @@ export function buildAgent(spec: AgentSpec): Agent {
       if (spec.maxDepth !== undefined) params.maxDepth = spec.maxDepth;
       if (spec.evalOpts !== undefined) params.evalOpts = spec.evalOpts;
       if (spec.preserveSoftmaxPrior !== undefined) params.preserveSoftmaxPrior = spec.preserveSoftmaxPrior;
+      if (spec.rootBootstrap !== undefined) params.rootBootstrap = spec.rootBootstrap;
       return mctsAgent(params);
     }
     case "lookahead2":

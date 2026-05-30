@@ -8,6 +8,7 @@ import { stepRound } from "../engine/round";
 import { advanceRound, currentPlayer } from "../engine/turn";
 import { legalActions } from "../engine/legal";
 import { evaluate, samplePolicy, type HeuristicWeights, defaultHeuristicWeights, type EvalOpts } from "./heuristic";
+import { scoreActionLookahead2 } from "./lookahead2";
 import { key } from "../geometry/cube";
 import { nextFloat, type RngState } from "../rng/pcg";
 import type { Action, AttackDecl, Base, GameState, PlayerId } from "../engine/types";
@@ -644,6 +645,14 @@ export interface MctsCoreParams extends ExpansionParams {
    * terms into MCTS's leaf eval. See `EvalOpts` in `./heuristic.ts`.
    */
   evalOpts?: EvalOpts;
+  /**
+   * When set to "lookahead2", after the root's PW expansion the priors are
+   * overwritten with `softmax(scoreActionLookahead2 / temperature)` over the
+   * opened root edges. This bootstraps PUCT with a strong, deterministic prior
+   * at the decision point — the hybrid (ii) approach from the variants
+   * investigation. Applies only at the ROOT; deeper nodes use the regular PW prior.
+   */
+  rootBootstrap?: "lookahead2";
 }
 
 /** Default core params: PW defaults + 1000 iterations, depth 8, default PUCT/weights. */
@@ -748,6 +757,8 @@ export function runMcts(
   // edge to an already-populated node, mark it saturated and stop re-expanding it.
   const saturated = new Set<Node>();
   const pwCap = (n: number): number => Math.ceil(params.C * Math.pow(n, params.alpha));
+  // One-time flag: apply rootBootstrap priors after the root's first expansion.
+  let rootBootstrapApplied = false;
 
   for (let i = 0; i < params.iterations; i++) {
     const path: PathStep[] = [];
@@ -783,6 +794,28 @@ export function runMcts(
         rng = expanded.rng;
         // No growth despite room -> distinct candidates exhausted; stop re-expanding.
         if (node.edges.length === before && before > 0) saturated.add(node);
+        // rootBootstrap (hybrid ii): after the root's first expansion, overwrite
+        // the edge priors with `softmax(scoreActionLookahead2 / temperature)` so
+        // PUCT is guided by a deterministic 2-ply lookahead at the decision point.
+        if (
+          params.rootBootstrap === "lookahead2" &&
+          node === root &&
+          !rootBootstrapApplied &&
+          node.edges.length > 0
+        ) {
+          rootBootstrapApplied = true;
+          const scores = node.edges.map((e) => scoreActionLookahead2(curState, acting, e.action));
+          let maxV = -Infinity;
+          for (const s of scores) if (Number.isFinite(s) && s > maxV) maxV = s;
+          if (Number.isFinite(maxV)) {
+            const t = Math.max(params.temperature, 1e-9);
+            const exps = scores.map((s) => (Number.isFinite(s) ? Math.exp((s - maxV) / t) : 0));
+            const total = exps.reduce((a, b) => a + b, 0);
+            if (total > 0 && Number.isFinite(total)) {
+              node.edges.forEach((e, j) => { e.prior = exps[j]! / total; });
+            }
+          }
+        }
       }
 
       // IS-MCTS legality filter. Transitions are stochastic (combat chance

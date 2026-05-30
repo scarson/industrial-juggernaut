@@ -71,6 +71,16 @@ export function chooseActionLookahead2(
  * turn (or terminal), then taking the best 1-step `evaluate` over the player's
  * T2 legal actions.
  */
+/**
+ * Public wrapper so MCTS's `rootBootstrap=lookahead2` can score a single root
+ * candidate using lookahead2's same 1-ply lookahead logic. The opponent is the
+ * default heuristic agent. PURE — returns a single scalar value (the score from
+ * `player`'s perspective).
+ */
+export function scoreActionLookahead2(state: GameState, player: PlayerId, action: Action): number {
+  return scoreCandidate(state, player, action, heuristicAgent());
+}
+
 function scoreCandidate(
   state: GameState,
   player: PlayerId,
