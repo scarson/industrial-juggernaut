@@ -82,11 +82,35 @@ At 50 iterations across ~15 candidates, each edge gets ~3 visits. Q values can't
 
 **Fix candidate (not yet implemented):** thread typeValues through `samplePolicy` → `expandNode` and set `prior = softmax(typeValue / temperature)` over the opened set, preserving the heuristic's relative ranking.
 
+## v3 result — 9 variants, none break out
+
+Full report at `docs/2026-05-29-mcts-variants-depth1.md`.
+
+| Variant | Win rate |
+| --- | ---: |
+| d1-baseline | 0.0% |
+| d1-prng-aware (weight=5 & weight=20) | 0.0% |
+| d1-iron-share (weight=5 & weight=20) | 0.0% |
+| d1-fixed | 6.3% (1/16) |
+| d1-fixed+prng-aware | 6.3% |
+| d1-fixed+iron-share | 6.3% |
+| d1-temp-0.01+prng-aware | 6.3% |
+
+The eval-opts (prng-aware, iron-share) move the win rate by 0pp. The ONLY lift comes from `candidateMode=fixed` or near-equivalent (`temp-0.01` which makes softmax saturate). All four "fixed-equivalent" variants land at exactly 6.3% (1 win out of 16) — within noise but consistent.
+
+**Structural hypothesis confirmed:** PW candidate generation is the bottleneck, not the leaf eval. With ~15 PW candidates each getting ~3 visits at 50 iterations, PUCT can't differentiate. Fixed mode helps slightly by reducing candidates to ~3 (so each gets ~17 visits), but the uniform 1/k prior still discards heuristic ranking.
+
+## v4 — preserveSoftmaxPrior (test queued)
+
+Built `preserveSoftmaxPrior` flag in `expandNode` (committed in 9bbe9ac). When true, PW priors become `softmax(typeValue/temperature)` over the opened set instead of uniform `1/k` — preserving the heuristic's relative ranking through PUCT's U term.
+
+v4 sweep at `src/sweep/mcts-variants-preserve-prior.ts` tests 8 variants combining the flag with maxDepth, temperature, and eval-opts knobs. Queued after recal + 5p6p via `/tmp/chain-v4-after-recal-5p6p.sh`.
+
 ## Status
 
 - v2: complete, all 0.0%. Report committed.
-- v3: queued behind mcts2000. ETA ~1.5 hours.
-- v4 (structural fix): designed in this doc, not yet built. Will write if v3 fails.
+- v3: complete, PW = 0%, fixed = 6.3% (within noise). Report committed.
+- v4 (preserveSoftmaxPrior): infrastructure committed (9bbe9ac), sweep queued.
 
 ## Files
 
