@@ -17,10 +17,13 @@
 | v4-preserve | 0.0% | +0.0pp | @50 + preserveSoftmaxPrior (PW) |
 | v4-preserve+d1 | 0.0% | +0.0pp | @50 + preserveSoftmaxPrior + maxDepth=1 |
 | v4-preserve+d2 | 0.0% | +0.0pp | @50 + preserveSoftmaxPrior + maxDepth=2 (Opus-like structure) |
-| v4-preserve+temp-0.5 | 0.0% | +0.0pp | @50 + preserveSoftmaxPrior + T=0.5 (sharper softmax) |
 | v4-preserve+temp-0.1 | 0.0% | +0.0pp | @50 + preserveSoftmaxPrior + T=0.1 (near-argmax softmax) |
 | v4-preserve+iron-share | 0.0% | +0.0pp | @50 + preserveSoftmaxPrior + iron-share leaf eval |
 | v4-preserve+d1+prng-aware | 0.0% | +0.0pp | @50 + preserveSoftmaxPrior + maxDepth=1 + prng-aware (everything combined) |
+| v4-d1-fixed@100 | 0.0% | +0.0pp | @100 + maxDepth=1 + candidateMode=fixed (v3's best, re-tested) |
+| v4-d1-fixed+prng@100 | 0.0% | +0.0pp | @100 + maxDepth=1 + fixed + prng-aware |
+| v4-preserve@100 | 0.0% | +0.0pp | @100 + preserveSoftmaxPrior (structural fix at higher budget) |
+| v4-preserve+d1@100 | 0.0% | +0.0pp | @100 + preserveSoftmaxPrior + maxDepth=1 |
 
 ## Interpretation
 
