@@ -2,3 +2,4 @@
 {"variant":"mcts500-baseline","done":2,"total":16,"turns":2,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":169.211}
 {"variant":"mcts500-baseline","done":3,"total":16,"turns":2,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":279.503}
 {"variant":"mcts500-baseline","done":4,"total":16,"turns":2,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":427.08}
+{"variant":"mcts500-baseline","done":5,"total":16,"turns":2,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":435.375}
