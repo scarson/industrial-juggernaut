@@ -17,3 +17,4 @@
 {"variant":"d1-prng-aware","done":1,"total":16,"turns":2,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":56.1}
 {"variant":"d1-prng-aware","done":2,"total":16,"turns":2,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":57.188}
 {"variant":"d1-prng-aware","done":3,"total":16,"turns":2,"victoryType":"iron","winner":[1],"hitTurnCap":false,"elapsedSec":58.329}
+{"variant":"d1-prng-aware","done":4,"total":16,"turns":2,"victoryType":"iron","winner":[0],"hitTurnCap":false,"elapsedSec":59.404}
