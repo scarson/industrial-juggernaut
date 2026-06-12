@@ -296,16 +296,16 @@ Redundancy is the feature. Each layer has different durability and different acc
 
 ## Build & Dev Commands
 
-<!-- TODO: Copy-paste-ready one-liners for build / test / lint / publish.
-Group by subsystem if the project has multiple (e.g., backend + frontend).
-
 ```bash
-[BUILD COMMAND]
-[TEST COMMAND]
-[LINT COMMAND]
-[PUBLISH COMMAND]
+bun install         # install deps — bun only; no node/npm on the local machine
+bun run build       # compile: tsc -p tsconfig.json → dist/
+bun run typecheck   # tsc --noEmit (strict)
+bun run test        # full suite: vitest run
+bun run test:watch  # vitest in watch mode
 ```
--->
+
+> Run tests with `bun run test` (vitest), **not** `bun test` — bun's native runner ignores `vitest.config.ts` and won't pick up the suite.
+> Cloudflare deploy will use `wrangler` (a devDependency); no `wrangler.toml` exists yet.
 
 ## Tech Stack
 

@@ -87,7 +87,7 @@ By reference (not repeated per-task):
 ```
 BEFORE starting: invoke /superpowers:test-driven-development; read docs/pitfalls/testing-pitfalls.md.
 Failing test → red → minimal implement → green.
-BEFORE complete: review tests vs pitfalls; verify edge/error coverage; full suite green; npm run typecheck clean (strict).
+BEFORE complete: review tests vs pitfalls; verify edge/error coverage; full suite green; bun run typecheck clean (strict).
 ```
 
 **Assertion rigor (statistics + ML heavy):**

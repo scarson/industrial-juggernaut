@@ -104,7 +104,7 @@ Follow TDD: write a failing test → run it red → implement minimal code → r
 BEFORE marking this task complete:
 1. Review tests against docs/pitfalls/testing-pitfalls.md
 2. Verify coverage (error paths? edge cases? boundary values?)
-3. Run the full suite and confirm green; run npm run typecheck (clean, strict).
+3. Run the full suite and confirm green; run bun run typecheck (clean, strict).
 ```
 
 **Assertion rigor (CRITICAL — this milestone is statistics-heavy):**

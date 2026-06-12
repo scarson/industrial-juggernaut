@@ -6,7 +6,7 @@
 
 **Architecture:** Layered and pure (geometry → board → territory → engine → agent → driver), with all randomness routed through one explicit seeded PRNG carried in `GameState`. Immutable state; `applyAction` / `legalActions` / `status` are total functions over legal inputs. Source of truth is `docs/superpowers/specs/2026-05-27-rules-engine-m1-design.md`.
 
-**Tech Stack:** TypeScript (strict), Node ≥ 20, Vitest (test runner), fast-check (property-based testing), tsx (dev runner). Package manager: npm. No runtime dependencies in the engine itself.
+**Tech Stack:** TypeScript (strict), Node ≥ 20, Vitest (test runner), fast-check (property-based testing), tsx (dev runner). Package manager: bun. No runtime dependencies in the engine itself.
 
 ## Living Document Contract
 
@@ -189,7 +189,7 @@ export default defineConfig({ test: { include: ["test/**/*.test.ts"] } });
 
 - [ ] **Step 5: Install and verify**
 
-Run: `npm install && npm run typecheck`
+Run: `bun install && bun run typecheck`
 Expected: install succeeds; typecheck passes with no errors.
 
 - [ ] **Step 6: Commit**

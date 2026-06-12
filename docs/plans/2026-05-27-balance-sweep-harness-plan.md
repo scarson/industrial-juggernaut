@@ -62,7 +62,7 @@ downstream reconstruction is expensive and fails silently.
 ```
 BEFORE: invoke /superpowers:test-driven-development; read docs/pitfalls/testing-pitfalls.md.
 Failing test → red → minimal implement → green.
-BEFORE complete: review vs pitfalls; verify edge cases; full suite green; npm run typecheck clean.
+BEFORE complete: review vs pitfalls; verify edge cases; full suite green; bun run typecheck clean.
 ```
 **Assertion rigor (statistics-heavy):**
 ```
