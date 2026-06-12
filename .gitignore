@@ -16,3 +16,6 @@
 # Node / TypeScript build artifacts
 node_modules/
 dist/
+
+# macOS
+.DS_Store
