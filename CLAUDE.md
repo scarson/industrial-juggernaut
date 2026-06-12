@@ -15,6 +15,10 @@ design docs and pitfalls. -->
 
 Industrial Juggernaut — A 2-6 player hex-grid strategy game of industrial expansion; this repo holds the rules, design docs, and a TypeScript rules-engine/simulator.
 
+## Design Context
+
+UI/frontend work MUST read two repo-root files first: `PRODUCT.md` — the strategic design source of truth (register: product; users; brand personality; anti-references; design principles) — and `DESIGN.md` — the visual system (currently a seed: color strategy, typography direction, motion energy; real tokens land once frontend code exists). Both are maintained via the `/impeccable` skill; re-run `/impeccable document` after the first frontend code to replace the DESIGN.md seed with extracted tokens.
+
 ## Principles
 
 Rule #1: If you want exception to ANY rule, YOU MUST STOP and get explicit permission from Sam first. BREAKING THE LETTER OR SPIRIT OF THE RULES IS FAILURE.
