@@ -310,3 +310,25 @@ Every section of `industrial-juggernaut-rules-v10.md` was mapped to engine code:
 - **BUG candidates:** 0.
 - **UNCERTAIN (need Sam's sign-off):** 4 — all "model this printed rule or intentionally
   drop it?" judgment calls, none are defects.
+
+---
+
+## Part 6 — Sam sign-off (2026-06-13)
+
+Sam reviewed the audit and signed off:
+
+- **All 7 new DER candidates (DER-N1…N7) APPROVED** → appended to the spec's Digital Edition
+  Rulings section as rulings **#8–#14** (`docs/superpowers/specs/2026-06-12-web-client-design.md`).
+  Documentation-only; no engine changes.
+- **UNCERTAIN #1** (alliances are board state, no agent form/dissolve action in M1) → documented
+  as DER **#15** (negotiation layer lands in Phase 3, spec §5 item 10).
+- **UNCERTAIN #2** (6-base combined-attack cap is per-declaration) → **confirmed code-correct**;
+  the per-attack cap already satisfies "total bases involved ≤ 6" for a single attack. No DER
+  needed — recorded here as a confirmation, not a divergence.
+- **UNCERTAIN #3** (size-96 request → ~93 hexes; ±6 oval-fit tolerance) → documented as DER **#16**.
+- **UNCERTAIN #4** (overlapping iron not subtracted across the radiating↔perimeter boundary) →
+  documented as DER **#17** AND **flagged as a possible balance bug for future review** (Sam's
+  call: "flag for future balance review AND as possible bug — document, don't investigate now").
+  A follow-up was spun off for a future balance pass. `control()` stays pure for now.
+
+**Phase 7 is COMPLETE:** audit done + Sam sign-off obtained. 0 engine bugs → no fix-tasks/PRs.

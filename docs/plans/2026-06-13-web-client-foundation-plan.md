@@ -59,7 +59,7 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** Phase 1 ✅ (Task 1.1; Task 1.2 ⏳ Sam) · Phases 2–6 ✅ merged · Phase 7 audit COMPLETE (0 bugs; 7 new DERs + 4 UNCERTAINs) — ⏳ awaiting Sam sign-off on the new rulings to close.
+**Overall:** Phase 1 ✅ (Task 1.1 shipped; Task 1.2 dev branch-protection ⏳ Sam to run) · Phases 2–6 ✅ merged to `dev` · Phase 7 ✅ COMPLETE (audit + Sam sign-off; 0 bugs; rulings #8–#17 added to spec). **All 7 phases done.** Next: write the DO-host + wire-protocol plan from spec §3.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
@@ -69,7 +69,7 @@ notes and commit messages.
 | 4 — Type move + representativeDefender + RNG codec | ✅ SHIPPED (PR [#14](https://github.com/scarson/industrial-juggernaut/pull/14) merged `86257f6f`) | `b85bc53e` `a955875e` `c1b02e42` | BoardSource move, defender extract, RNG codec; 329 green |
 | 5 — Human-choice setup phase | ✅ SHIPPED (PR [#15](https://github.com/scarson/industrial-juggernaut/pull/15) merged `a9dc804a`) | `4da78345` `9bf26d95` `f7980e1a` `bb6fa5bd` | structurally identical; 5.4 kept (Elo parity); 345 green |
 | 6 — Public API barrel | ✅ SHIPPED (PR [#16](https://github.com/scarson/industrial-juggernaut/pull/16) merged `dabdcdf9`) | `24cac155` | 24 value + 21 type re-exports; pure; build clean; 346 green |
-| 7 — Engine-vs-rulebook fidelity audit | 🟡 Audit complete, ⏳ Sam sign-off (branch `docs/fidelity-audit`) | `2026-06-13-fidelity-audit-findings.md` | 7/7 known DERs confirmed; **0 bugs**; 7 new DERs + 4 UNCERTAINs proposed — see findings doc |
+| 7 — Engine-vs-rulebook fidelity audit | ✅ COMPLETE (audit + Sam sign-off) | `b598db62` + findings doc | 7/7 known DERs confirmed; **0 bugs**; rulings #8–#17 added to spec; #17 (overlap iron) flagged for future balance review |
 
 ### Discoveries
 
@@ -1076,7 +1076,7 @@ git commit -m "feat(engine): public API barrel (src/index.ts)"
 
 ## Phase 7 — Engine-vs-rulebook fidelity audit (§5 item 9)
 
-**Execution Status:** 🟡 AUDIT COMPLETE, ⏳ awaiting Sam sign-off — branch `docs/fidelity-audit`. Full report: [`docs/plans/2026-06-13-fidelity-audit-findings.md`](2026-06-13-fidelity-audit-findings.md). Result: **7/7 known DERs confirmed present & faithful; 0 BUG candidates** (the auditor specifically hunted the suspicious-clean failure modes — move-gen/validation mismatch, multi-attack PRNG threading, hull-vertex off-by-one — all held); **7 new documentation-only DER candidates** (DER-N1…N7, code is authoritative — no engine change) and **4 UNCERTAINs** for Sam's judgment. Orchestrator spot-verified the key claims against `combat.ts`/`status.ts`. **Next:** Sam signs off → append approved DERs to the spec's Digital Edition Rulings section + resolve UNCERTAINs → mark complete. No fix-tasks/PRs needed (0 bugs).
+**Execution Status:** ✅ COMPLETE — audit + Sam sign-off obtained (2026-06-13). Full report: [`docs/plans/2026-06-13-fidelity-audit-findings.md`](2026-06-13-fidelity-audit-findings.md) (see Part 6 for the sign-off). Result: **7/7 known DERs confirmed present & faithful; 0 BUG candidates** (the auditor hunted the suspicious-clean failure modes — move-gen/validation mismatch, multi-attack PRNG threading, hull-vertex off-by-one — all held; orchestrator spot-verified against `combat.ts`/`status.ts`). Sam approved all 7 new DERs + UNCERTAINs #1/#3/#4 → appended to the spec as **rulings #8–#17**; UNCERTAIN #2 confirmed code-correct (no DER). **Ruling #17 (overlapping iron not subtracted across the radiating↔perimeter boundary) is flagged as a possible balance bug for a future balance pass** (document now, don't investigate). No engine fix-tasks (0 bugs).
 
 Parallelizable; not a code-fix task (no TDD cycle). **Completion condition:** read all of `industrial-juggernaut-rules-v10.md` against `src/engine/**`; every discrepancy becomes either a numbered fix (its own task/PR) or a numbered entry in the spec's Digital Edition Rulings section (`docs/superpowers/specs/2026-06-12-web-client-design.md`); the audit is done when no unresolved discrepancy remains AND Sam has signed off on any new rulings. This gates the LATER client plan (which treats the engine as the authority for human play), not this foundation plan.
 
