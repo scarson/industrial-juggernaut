@@ -151,6 +151,10 @@ function applyOneAttack(
       `applyAction(attack): ${attackers.length} attackers; must be ${MIN_ATTACKERS}..${MAX_ATTACKERS}`,
     );
   }
+  const attackerKeys = new Set(attackers.map((h) => key(h)));
+  if (attackerKeys.size !== attackers.length) {
+    throw new Error("applyAction(attack): attacker hexes must be distinct");
+  }
   const attackerBases: Base[] = attackers.map((h) => {
     const base = state.bases.find((b) => key(b.hex) === key(h) && isAlly(b.owner));
     if (!base) {
@@ -168,6 +172,9 @@ function applyOneAttack(
 
   // 3. Defender: exactly one base at `defender`, owned by the SAME opponent as
   //    the target base, fresh, within attackRange of target.
+  if (key(defender) === key(target)) {
+    throw new Error("applyAction(attack): defender cannot be the target base itself");
+  }
   const defenderBase = state.bases.find((b) => key(b.hex) === key(defender));
   if (!defenderBase) {
     throw new Error(`applyAction(attack): no base at defender ${defender.x},${defender.y},${defender.z}`);
