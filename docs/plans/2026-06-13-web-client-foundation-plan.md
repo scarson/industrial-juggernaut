@@ -59,7 +59,7 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** Phase 1 ✅ (Task 1.1; Task 1.2 ⏳ Sam) · Phase 2 ✅ · Phase 3 ✅ (gate `baseCount===1` — see Deviations) · Phase 4 ✅ (merged) · Phase 5 🚧 in progress (highest ripple) · Phases 6–7 pending.
+**Overall:** Phase 1 ✅ (Task 1.1; Task 1.2 ⏳ Sam) · Phase 2 ✅ · Phase 3 ✅ (gate `baseCount===1`) · Phase 4 ✅ · Phase 5 ✅ shipped (setup phase, structurally identical; 5.4 kept) · Phase 6 🚧 next · Phase 7 pending.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
@@ -67,7 +67,7 @@ notes and commit messages.
 | 2 — Attack validation fixes | ✅ SHIPPED (PR [#12](https://github.com/scarson/industrial-juggernaut/pull/12) merged `0e4d601a`) | `66aff888` | dup-attacker + self-defender guards; 316 tests green |
 | 3 — Bootstrap factory-only | ✅ SHIPPED (PR [#13](https://github.com/scarson/industrial-juggernaut/pull/13) merged `d20887a6`) | `e5141074` (+ `de2abfef` pitfalls) | gate `baseCount===1` (NOT `<4`); 320 tests green; GEO-7 added |
 | 4 — Type move + representativeDefender + RNG codec | ✅ SHIPPED (PR [#14](https://github.com/scarson/industrial-juggernaut/pull/14) merged `86257f6f`) | `b85bc53e` `a955875e` `c1b02e42` | BoardSource move, defender extract, RNG codec; 329 green |
-| 5 — Human-choice setup phase | 🚧 In progress (branch `feat/setup-phase`) | — | highest-ripple phase |
+| 5 — Human-choice setup phase | ✅ SHIPPED | `4da78345` `9bf26d95` `f7980e1a` `bb6fa5bd` | structurally identical; 5.4 kept (Elo parity); 345 green |
 | 6 — Public API barrel | ⬜ Not started | — | depends on 2–5 |
 | 7 — Engine-vs-rulebook fidelity audit | ⬜ Not started | — | parallelizable; gates the later client plan |
 
@@ -664,7 +664,7 @@ git commit -m "feat(rng): bigint<->decimal RngState codec for JSON wire/storage"
 
 **Execution Status:** ⬜ NOT STARTED
 
-**Execution Status:** 🚧 IN PROGRESS — branch `feat/setup-phase` (off `dev` `86257f6f`).
+**Execution Status:** ✅ SHIPPED — branch `feat/setup-phase`. 5.1 `4da78345` (outerRingSorted + representativeFirstBase + setupPhaseState), 5.2 `9bf26d95` (placeFirstBase/legalFirstBaseHexes + setupGame re-expressed, **structurally identical** — golden snapshots n=2/4/6 + full acceptance/agent/eval suite green prove it), 5.3 `f7980e1a` (`initGame`), **5.4 `bb6fa5bd` KEPT** (runGame uses initGame — MCTS-vs-greedy Elo reproduced exactly, behavioral parity confirmed), plus review fixups `223d0100`. 345 tests green, typecheck clean. Independent review APPROVED the structural-identity core (5.1/5.2); 5.3/5.4 verified behavior-identical (Elo + full-suite parity). **Review-driven addition:** `advanceRound` now throws on a turn-0 state (defense-in-depth on the determinism seam the setup phase introduces) + the two missing `placeFirstBase` error-path tests. PR backfilled at Phase 6.
 
 **Highest-ripple phase. The design that keeps it safe:** the setup phase is built so the agent/simulator path (`setupGame`) produces a STRUCTURALLY IDENTICAL state to today (deep `toEqual`, not byte-level serialization). That requires three invariants: (1) placement order during setup is deterministic id-order and consumes NO rng; (2) `representativeFirstBase` reproduces the exact angle-spaced hexes the current `setupGame` seats — its occupied-skip never triggers in all-agent setup because the ideal indices are distinct; (3) the turn-1 order is drawn by the SAME `shuffle(rng, allIds)` call at the SAME rng point (after board-gen, no intervening draws). With all three, an all-agent game via the new init is identical to the old one and no fixtures break.
 
