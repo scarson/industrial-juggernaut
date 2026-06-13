@@ -59,11 +59,11 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** Not started.
+**Overall:** Phase 1 in flight (PR [#11](https://github.com/scarson/industrial-juggernaut/pull/11)).
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
-| 1 — CI gate + dev protection | ⬜ Not started | — | — |
+| 1 — CI gate + dev protection | 🚧 Task 1.1 in PR #11 (CI verifying); Task 1.2 ⏳ Sam | `6763ba8f` | Task 1.2 dev branch-protection prepared, awaiting Sam (admin) — see Phase 1 banner |
 | 2 — Attack validation fixes | ⬜ Not started | — | — |
 | 3 — Bootstrap factory-only | ⬜ Not started | — | — |
 | 4 — Type move + representativeDefender + RNG codec | ⬜ Not started | — | — |
@@ -149,7 +149,7 @@ Test files are per-task (`test/engine/setup-phase.test.ts` is shared by 5.1 and 
 
 ## Phase 1 — CI gate + dev branch protection
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** 🚧 Task 1.1 in PR [#11](https://github.com/scarson/industrial-juggernaut/pull/11) (`6763ba8f`), CI verifying. Task 1.2 (dev branch protection) ⏳ awaiting Sam — command prepared below.
 
 CI is config, not production code (TDD does not apply per CLAUDE.md scope), but the workflow MUST be verified green on a real PR before the phase is complete.
 
