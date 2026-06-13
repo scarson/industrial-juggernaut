@@ -59,16 +59,19 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** Not started.
+**Overall:** ✅ ALL PHASES COMPLETE on branch `feat/session-record-replay` (off `dev` `c817f3f2`). Phase 6 shipped 2026-06-13.
+
+### Deviations
+- **Execution consolidated onto ONE branch + ONE PR** (not per-phase PRs). The `src/session/` files are all-new and disjoint; the cross-task dependencies (codec→types, applyEntry→types, record→applyEntry, replay→record) are satisfied by ordered commits on a single branch in one subagent-driven session, so the "merge to dev between phases" rule (written for parallel phase branches) is met by sequential same-branch commits. Per-task TDD + per-phase review checkpoints are preserved.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
-| 1 — Wire-format types + SessionRecord/LogEntry codec | ⬜ Not started | — | — |
-| 2 — `stateHash` (deterministic divergence checksum) | ⬜ Not started | — | — |
-| 3 — `applyEntry` round state machine | ⬜ Not started | — | depends on 1 |
-| 4 — `recordGame` all-agent record driver | ⬜ Not started | — | depends on 1,3 |
-| 5 — `replayLog` + §7 replay-equivalence property tests | ⬜ Not started | — | depends on 2,3,4 — highest-value phase |
-| 6 — Session validation (defense in depth) | ⬜ Not started | — | depends on 1 |
+| 1 — Wire-format types + SessionRecord/LogEntry codec | ✅ Shipped | `76efce4b`, `b993ff08` | 2026-06-13 |
+| 2 — `stateHash` (deterministic divergence checksum) | ✅ Shipped | `5b22aeca` | 2026-06-13 |
+| 3 — `applyEntry` round state machine | ✅ Shipped | `2af3f451` | 2026-06-13 |
+| 4 — `recordGame` all-agent record driver | ✅ Shipped | `2d77e128` | 2026-06-13 |
+| 5 — `replayLog` + §7 replay-equivalence property tests | ✅ Shipped | `7c255aab`, `4a9f5dfb` | 2026-06-13 |
+| 6 — Session validation (defense in depth) | ✅ Shipped | `b08d92f0`, `41fa80e1` | 2026-06-13 |
 
 ### Discoveries
 
@@ -149,7 +152,7 @@ Execute phases in numeric order. Within shared-file sets, the earlier task MUST 
 
 ## Phase 1 — Wire-format types + `SessionRecord`/`LogEntry` codec
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED — Task 1.1: `76efce4b`, Task 1.2: `b993ff08` (2026-06-13)
 
 The JSON interchange shapes (spec §3) and the bigint↔string codec that makes them JSON-safe. `SessionRecord` is the canonical pre-authorized artifact named in §6 — its field list is exact and MUST NOT drift.
 
@@ -456,7 +459,7 @@ git commit -m "feat(session): SessionRecord/LogEntry codec (bigint seed + rngBef
 
 ## Phase 2 — `stateHash` (deterministic divergence checksum)
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED — Task 2.1: `5b22aeca` (2026-06-13)
 
 The per-boundary checksum the snapshot stores and replay validates against (spec §3 "Snapshot … `stateHash` is the divergence checksum"). MUST be deterministic across machines and stable across runs for a given state; two structurally-equal states MUST hash equal, and any meaningful difference (a base moved, an rng tick, a fatigue flip) MUST hash differently.
 
@@ -567,7 +570,7 @@ git commit -m "feat(session): deterministic structural stateHash (FNV-1a over ca
 
 ## Phase 3 — `applyEntry` round state machine
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED — Task 3.1: `2af3f451` (2026-06-13)
 
 The heart of replay: one function that, given a state and a `LogEntry`, installs the entry's `rngBeforeApply` and runs exactly the right engine steps for that kind — the per-declaration canonical composition for actions, `advanceRound` for round-closing kinds, with `status()` consulted once at the close. **This is the single source of truth both `recordGame` and `replayLog` route through** (record calls it to advance live state; replay calls it to reconstruct), so the two halves cannot drift.
 
@@ -734,7 +737,7 @@ git commit -m "feat(session): applyEntry round state machine (per-kind compose +
 
 ## Phase 4 — `recordGame` all-agent record driver
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED — Task 4.1: `2d77e128` (2026-06-13)
 
 Plays an all-agent game and emits the `LogEntry[]` (each carrying the correct `rngBeforeApply`) plus the live per-boundary `stateHash[]` — the producer half of the replay invariant, and §4's all-agent-viewer backend. **The `rngBeforeApply` capture is load-bearing:** for an agent action, the agent closure returns `{action, state}` where `state.rngState` is the *post-selection, pre-apply* state; that is exactly `rngBeforeApply`. For the auto-appended `endRound` that closes an attack round, `rngBeforeApply` is the state's rng *after* the attack's composition (the state `advanceRound` will draw from).
 
@@ -968,7 +971,7 @@ git commit -m "feat(session): recordGame all-agent driver (faithful log + per-bo
 
 ## Phase 5 — `replayLog` + §7 replay-equivalence property tests
 
-**Execution Status:** ⬜ NOT STARTED — **highest-value phase.**
+**Execution Status:** ✅ SHIPPED — Task 5.1: `7c255aab`, Task 5.2: `4a9f5dfb` (2026-06-13)
 
 The consumer half: re-run a recorded log via `applyEntry` and prove it reconstructs the identical terminal state and per-boundary `stateHash`. This phase is the spec §7 centerpiece ("replay equivalence over random agent games").
 
@@ -1105,7 +1108,7 @@ git commit -m "test(session): replay equivalence at mid-turn elimination + regim
 
 ## Phase 6 — Session validation (defense in depth) + barrel
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED — Task 6.1: `b08d92f0`, Task 6.2: `41fa80e1` (2026-06-13)
 
 The named session-layer checks from spec §3 "Validation (defense in depth)". These back the §5 engine fixes and will be consumed by the interactive `GameSession` (plan 2) and the DO (plan 3). They operate on a `GameState` + a proposed action/entry; they NEVER membership-test against `legalActions` (representatives ≠ the legal space) — but **derived existence/eligibility checks are sanctioned and required**.
 
