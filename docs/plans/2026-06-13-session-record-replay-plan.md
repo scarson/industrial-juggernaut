@@ -67,8 +67,8 @@ notes and commit messages.
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
 | 1 — Wire-format types + SessionRecord/LogEntry codec | ✅ Shipped | `76efce4b`, `b993ff08` | 2026-06-13 |
-| 2 — `stateHash` (deterministic divergence checksum) | ⬜ Not started | — | — |
-| 3 — `applyEntry` round state machine | ⬜ Not started | — | depends on 1 |
+| 2 — `stateHash` (deterministic divergence checksum) | ✅ Shipped | `5b22aeca` | 2026-06-13 |
+| 3 — `applyEntry` round state machine | ✅ Shipped | `2af3f451` | 2026-06-13 |
 | 4 — `recordGame` all-agent record driver | ⬜ Not started | — | depends on 1,3 |
 | 5 — `replayLog` + §7 replay-equivalence property tests | ⬜ Not started | — | depends on 2,3,4 — highest-value phase |
 | 6 — Session validation (defense in depth) | ⬜ Not started | — | depends on 1 |
@@ -459,7 +459,7 @@ git commit -m "feat(session): SessionRecord/LogEntry codec (bigint seed + rngBef
 
 ## Phase 2 — `stateHash` (deterministic divergence checksum)
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED — Task 2.1: `5b22aeca` (2026-06-13)
 
 The per-boundary checksum the snapshot stores and replay validates against (spec §3 "Snapshot … `stateHash` is the divergence checksum"). MUST be deterministic across machines and stable across runs for a given state; two structurally-equal states MUST hash equal, and any meaningful difference (a base moved, an rng tick, a fatigue flip) MUST hash differently.
 
@@ -570,7 +570,7 @@ git commit -m "feat(session): deterministic structural stateHash (FNV-1a over ca
 
 ## Phase 3 — `applyEntry` round state machine
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED — Task 3.1: `2af3f451` (2026-06-13)
 
 The heart of replay: one function that, given a state and a `LogEntry`, installs the entry's `rngBeforeApply` and runs exactly the right engine steps for that kind — the per-declaration canonical composition for actions, `advanceRound` for round-closing kinds, with `status()` consulted once at the close. **This is the single source of truth both `recordGame` and `replayLog` route through** (record calls it to advance live state; replay calls it to reconstruct), so the two halves cannot drift.
 
