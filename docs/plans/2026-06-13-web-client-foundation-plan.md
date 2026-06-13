@@ -4,7 +4,7 @@
 
 **Goal:** Land the dependency-root engine work and CI gate that everything else in the web-client effort builds on — public API barrel, deterministic init, three engine correctness fixes, the human-choice setup phase, and a minimal CI pipeline on `dev` — all with zero Cloudflare runtime.
 
-**Architecture:** Pure-TS engine changes (TDD against the existing vitest suite), additive where possible. The one structural change (a setup phase) is designed to be byte-identical to the current `setupGame` for the agent/simulator path, so no existing fixtures break. A new `src/index.ts` barrel exposes the public surface a future Worker/client imports. CI runs typecheck + vitest + build under bun.
+**Architecture:** Pure-TS engine changes (TDD against the existing vitest suite), additive where possible. The one structural change (a setup phase) is designed to be structurally identical to the current `setupGame` for the agent/simulator path, so no existing fixtures break. A new `src/index.ts` barrel exposes the public surface a future Worker/client imports. CI runs typecheck + vitest + build under bun.
 
 **Tech Stack:** TypeScript (strict ESM), vitest + fast-check, bun (local + CI), GitHub Actions. No runtime dependencies in the engine.
 
@@ -82,6 +82,8 @@ Every task in this plan inherits this block. Each task's final step says "apply 
 2. Read `docs/pitfalls/testing-pitfalls.md` and `docs/pitfalls/implementation-pitfalls.md` (the GEO-1..6 entries bind all engine work).
 3. Follow TDD: write the failing test → run it red → write minimal code → run it green → refactor green.
 
+**TDD scope (resolves the apparent contradiction with Phase 1/7):** steps 1 and 3 apply to PRODUCTION-CODE tasks — anything editing `src/` (Phases 2–6). Config/docs tasks are NOT TDD per CLAUDE.md scope: **Phase 1** (CI workflow + branch protection) and **Phase 7** (fidelity audit) have no red-green cycle; their "complete" gate is the explicit verification the task names (CI green on a real PR; the audit completion condition). Step 2 (read pitfalls) applies to every task regardless.
+
 **Engine purity invariants (MUST hold for every engine change):**
 - No `Math.random()` anywhere; all randomness threads `RngState` per GEO-3.
 - No Node-only APIs (`fs`, `process`, `node:*`), no new runtime dependencies — the engine bundles into a Worker and the browser unchanged.
@@ -103,6 +105,40 @@ Every task in this plan inherits this block. Each task's final step says "apply 
 **After completing each PHASE:** review the batch from at least 3 perspectives (correctness, determinism/GEO, test rigor). If round 3 still finds issues, keep going until clean. Update this plan's Execution Status banner + table per the Living Document Contract.
 
 **Worktree/branch:** all work on branches off `dev` (`fix/*`, `feat/*`, `chore/*`) in worktrees under `.claude/worktrees/<slug>`, never on local `main` or `dev` directly. PRs target `dev`.
+
+---
+
+## Test fixture conventions (use these, do not invent)
+
+Every engine test below builds its `GameState` with the existing helper `mkState(opts: MkStateOpts)` from `test/helpers/state.ts`. Read it and the pattern file `test/engine/apply-attack.test.ts` before writing any test. Key facts:
+
+- `mkState({ board: 96, basesP0?: Hex[], basesP1?: Hex[], …basesP5?, iron?: Hex[], factories?: Hex[], config? })`. Hexes are built with `hex(x,y,z)` from `src/geometry/cube` (import `key` too for set assertions).
+- It generates the board from a FIXED `seed(1n)` at the given `size`, sets `rngState = seed(1n)`, `phase = { turn: 1, order: [0..n-1], indexInOrder: 0 }` (player 0 moves first), and `basesInHand = 12 − (bases placed for that player)`.
+- Player count = highest declared `basesP*` index + 1, floored at 2 (so declaring only `basesP0` still yields an opponent `p1` with no bases / no perimeter).
+- **On-board coordinate caveat (carried from `apply-attack.test.ts`):** every BASE hex you pass must be a real coordinate on the seed-1n/size-96 board, or placement/control logic silently misbehaves. `mkState` auto-appends provided `iron` hexes to the board if missing, but does NOT do this for base hexes. Reuse the verified coordinates in `apply-attack.test.ts` (e.g. `hex(2,-2,0)`, `hex(0,-1,1)`, the `ATTACKERS6` set) where possible; if you need new on-board hexes, verify them against `generateBoard(seed(1n), {size:96, ironCount:14}).board.hexes` first.
+- **Control/bootstrap fixtures:** to make a player control N iron, pass `iron` hexes within `config.radius` (5) of one of their bases (a `<4`-base player radiates a radius-5 disk). To make a player bootstrap-only, give them 1 base, 1 controlled iron, 0 factories (so `floor(rc/2)===0`). To make them radiating-but-not-bootstrap, give 2 controlled iron (so `floor(2/2)===1`).
+- **Golden-capture for refactor-safety tests (Tasks 4.2, 5.1, 5.2):** these assert a refactor leaves behavior unchanged, so the expected value is a snapshot of the CURRENT code. Step 0 of each such task: on a branch off the up-to-date `dev`, run the current function on the fixed input and paste its literal output as the expected constant — BEFORE writing any new code. This golden-capture precedes the red-green cycle (it is the one place "record current behavior" legitimately comes first). Use a fixed-seed, NON-bootstrap state for the Task 4.2 `legalActions` snapshot so it isolates the defender refactor from Phase 3's bootstrap suppression.
+
+## File ownership & execution order (prevents merge conflicts)
+
+Tasks are NOT all independent — several share files. Execute phases in numeric order; within the shared-file set below, the earlier task MUST land (merge to `dev`) before the later one starts, so each branches from an up-to-date `dev`:
+
+| File | Tasks that modify it | Required order |
+|---|---|---|
+| `.github/workflows/ci.yml` | 1.1 | — (new file) |
+| `src/engine/apply.ts` | 2.1 (applyOneAttack), 3.1 (applyBuild) | 2.1 → 3.1 |
+| `src/engine/legal.ts` | 3.1 (build emission), 4.2 (representativeDefender) | 3.1 → 4.2 |
+| `src/engine/build.ts` | 3.1 | — |
+| `src/engine/types.ts` | 4.1 (BoardSource), 5.2 (Phase comments) | 4.1 → 5.2 |
+| `src/driver/record.ts` | 4.1 | — |
+| `src/rng/codec.ts` | 4.3 | — (new file) |
+| `src/engine/turn.ts` | 5.1, 5.2 | 5.1 → 5.2 |
+| `src/engine/init.ts` | 5.3 | — (new file) |
+| `src/driver/run.ts` | 5.4 (optional) | after 5.3 |
+| `src/index.ts` | 6.1 | after 2–5 |
+| `docs/**` (DER / pitfalls) | 7.1 | — |
+
+Test files are per-task (`test/engine/setup-phase.test.ts` is shared by 5.1 and 5.2, which are already sequenced 5.1 → 5.2; no other test file is cross-task). **Safe to parallelize** (file-disjoint from everything above and each other): 4.3 (new `src/rng/codec.ts`) and 7.1 (docs only). Task 4.1 touches `types.ts`, which 5.2 also edits — they're already ordered (Phase 4 before Phase 5), so no conflict, but 4.1 is NOT free to run after 5.2. Everything else: sequential. The earlier "phases 2/3/4 are independent" framing was wrong — 2/3 share `apply.ts` and 3/4.2 share `legal.ts`.
 
 ---
 
@@ -160,7 +196,7 @@ Watch the `check` job on the PR (monitoring tool / `gh pr checks --watch`). Expe
 
 ### Task 1.2: Enable dev branch protection (requires repo admin)
 
-**This is a GitHub settings change, not code.** The `gh api` calls require admin on the personal repo `scarson/industrial-juggernaut`. The executing agent SHOULD prepare the exact command and ask Sam to run it (or run it if the agent has admin-scoped auth).
+**This is a GitHub settings change, not code.** The `gh api` calls require admin on the personal repo `scarson/industrial-juggernaut`. The snippet below is a STARTING POINT — verify the current GitHub branch-protection / ruleset API shape for personal repos first (the classic `branches/*/protection` endpoint and the newer rulesets API differ, and personal-repo support has changed over time). The executing agent SHOULD prepare the command, confirm its shape, and ask Sam to run it (or run it if the agent has admin-scoped auth).
 
 - [ ] **Step 1: Require the `check` status on `dev`**
 
@@ -198,22 +234,30 @@ Two fixes in the same function (`applyOneAttack`, `src/engine/apply.ts`). Do the
 - [ ] **Step 1: Write the failing tests**
 
 ```ts
-// The six-copies exploit: one fresh base submitted 6× reads as commit-6 → auto-win.
-// After the fix, applyAction MUST reject it for non-distinct attackers.
-test("applyAction(attack) rejects duplicate attacker hexes", () => {
-  const state = /* a state with one fresh attacker base at hex H within range of an opponent target T with an eligible separate defender */;
-  const dup = { kind: "attack", attacks: [{ target: T, attackers: [H, H, H, H, H, H], defender: D }] } as const;
+import { hex } from "../../src/geometry/cube";
+import { mkState } from "../helpers/state";
+import { applyAction } from "../../src/engine/apply";
+
+// All coordinates verified on-board for the seed-1n/size-96 board in apply-attack.test.ts.
+const TARGET = hex(2, -2, 0);
+const DEFENDER = hex(0, -1, 1);
+
+test("applyAction(attack) rejects duplicate attacker hexes (the six-copies auto-win exploit)", () => {
+  // p0 has ONE fresh base; submitting it 6× would (pre-fix) read as commit-6 → auto-win.
+  const state = mkState({ board: 96, basesP0: [hex(0, 0, 0)], basesP1: [TARGET, DEFENDER] });
+  const dup = { kind: "attack", attacks: [{ target: TARGET, attackers: [hex(0,0,0), hex(0,0,0), hex(0,0,0), hex(0,0,0), hex(0,0,0), hex(0,0,0)], defender: DEFENDER }] } as const;
   expect(() => applyAction(state, dup)).toThrow(/distinct/i);
 });
 
 test("applyAction(attack) rejects the target base as its own defender", () => {
-  const state = /* opponent target T, 3 distinct fresh attackers in range */;
-  const selfDefend = { kind: "attack", attacks: [{ target: T, attackers: [A1, A2, A3], defender: T }] } as const;
+  // 3 distinct fresh attackers in range of TARGET; opponent has only the target base.
+  const state = mkState({ board: 96, basesP0: [hex(0,0,0), hex(-1,1,0), hex(0,1,-1)], basesP1: [TARGET] });
+  const selfDefend = { kind: "attack", attacks: [{ target: TARGET, attackers: [hex(0,0,0), hex(-1,1,0), hex(0,1,-1)], defender: TARGET }] } as const;
   expect(() => applyAction(state, selfDefend)).toThrow(/defender cannot be the target/i);
 });
 ```
 
-Construct the states with the existing test helpers under `test/helpers/` (read them first; reuse the board/base builders the other engine tests use). Seed any RNG with a fixed value.
+These reuse the exact on-board coordinates the existing `test/engine/apply-attack.test.ts` verified. `mkState` seats p0/p1 bases, sets `rngState = seed(1n)`, and makes player 0 the mover.
 
 - [ ] **Step 2: Run to verify they fail**
 
@@ -271,24 +315,36 @@ git commit -m "fix(engine): reject duplicate attackers and self-defending target
 - [ ] **Step 1: Write the failing tests (including the radiating-phase regression guard)**
 
 ```ts
+import { hex } from "../../src/geometry/cube";
+import { mkState } from "../helpers/state";
+import { legalActions } from "../../src/engine/legal";
+import { applyAction } from "../../src/engine/apply";
+
+// Base at origin; mkState auto-adds provided iron hexes to the board, so they are
+// guaranteed on-board and within radius 5 of the base → controlled iron.
+const BUILD_HEX = hex(-1, 1, 0); // empty, on-board, within placeRange of origin, not iron
+
 test("bootstrap-only player (rc=1): legalActions offers a factory but no base", () => {
-  const state = /* a player with <4 bases, controlling exactly 1 iron, 0 factories, so floor(1/2)=0 and budget=1 */;
-  const acts = legalActions(stateWithThatPlayerToMove);
-  expect(acts.some(a => a.kind === "build" && a.pieces[0].type === "factory")).toBe(true);
-  expect(acts.some(a => a.kind === "build" && a.pieces[0].type === "base")).toBe(false);
+  // p0: 1 base, 1 controlled iron, 0 factories → floor(1/2)=0 → bootstrap-only.
+  const state = mkState({ board: 96, basesP0: [hex(0, 0, 0)], iron: [hex(1, 0, -1)] });
+  const acts = legalActions(state);
+  expect(acts.some(a => a.kind === "build" && a.pieces[0]!.type === "factory")).toBe(true);
+  expect(acts.some(a => a.kind === "build" && a.pieces[0]!.type === "base")).toBe(false);
 });
 
 test("bootstrap-only player: applyAction(build base) throws factory-only", () => {
-  expect(() => applyAction(state, { kind: "build", pieces: [{ type: "base", hex: H }] }))
+  const state = mkState({ board: 96, basesP0: [hex(0, 0, 0)], iron: [hex(1, 0, -1)] });
+  expect(() => applyAction(state, { kind: "build", pieces: [{ type: "base", hex: BUILD_HEX }] }))
     .toThrow(/factory-only/i);
 });
 
-// REGRESSION GUARD: do NOT suppress legal radiating base placement.
-test("radiating player (rc>=2, <4 bases, 0 factories): base build stays legal", () => {
-  const state = /* a <4-base player controlling 2 iron, 0 factories, so floor(2/2)=1 → real budget, NOT bootstrap-only */;
-  const acts = legalActions(stateWithThatPlayerToMove);
-  expect(acts.some(a => a.kind === "build" && a.pieces[0].type === "base")).toBe(true);
-  expect(() => applyAction(state, { kind: "build", pieces: [{ type: "base", hex: H }] })).not.toThrow();
+// REGRESSION GUARD: do NOT suppress legal radiating base placement at rc>=2.
+test("radiating player (rc=2, <4 bases, 0 factories): base build stays legal", () => {
+  // p0: 1 base, 2 controlled iron, 0 factories → floor(2/2)=1 → NOT bootstrap-only.
+  const state = mkState({ board: 96, basesP0: [hex(0, 0, 0)], iron: [hex(1, 0, -1), hex(0, 1, -1)] });
+  const acts = legalActions(state);
+  expect(acts.some(a => a.kind === "build" && a.pieces[0]!.type === "base")).toBe(true);
+  expect(() => applyAction(state, { kind: "build", pieces: [{ type: "base", hex: BUILD_HEX }] })).not.toThrow();
 });
 ```
 
@@ -393,9 +449,12 @@ export type BoardSource =
 
 - [ ] **Step 2: Re-export from `src/driver/record.ts`**
 
-Replace the local `export type BoardSource = ...` (lines 27–29) with:
+Delete the local `export type BoardSource = ...` (lines 27–29). `record.ts` USES `BoardSource` in `RunOptions.boardSource`, so it needs BOTH a local binding AND a re-export — a bare `export type { BoardSource } from "../engine/types"` alone does NOT create a local binding and `RunOptions` would fail to compile (this is the trap). Update the existing type import to include `BoardSource`, and add the re-export:
 
 ```ts
+// existing import line gains BoardSource:
+import type { BoardDefinition, BoardSource, PlayerId } from "../engine/types";
+// and add, so external consumers can still import it from driver/record:
 export type { BoardSource } from "../engine/types";
 ```
 
@@ -573,31 +632,56 @@ git commit -m "feat(rng): bigint<->decimal RngState codec for JSON wire/storage"
 
 **Execution Status:** ⬜ NOT STARTED
 
-**Highest-ripple phase. The design that keeps it safe:** the setup phase is built so the agent/simulator path (`setupGame`) produces a BYTE-IDENTICAL state to today. That requires three invariants: (1) placement order during setup is deterministic id-order and consumes NO rng; (2) `representativeFirstBase` reproduces the exact angle-spaced hexes the current `setupGame` seats; (3) the turn-1 order is drawn by the SAME `shuffle(rng, allIds)` call at the SAME rng point (after board-gen, no intervening draws). With all three, an all-agent game via the new init is identical to the old one and no fixtures break.
+**Highest-ripple phase. The design that keeps it safe:** the setup phase is built so the agent/simulator path (`setupGame`) produces a STRUCTURALLY IDENTICAL state to today (deep `toEqual`, not byte-level serialization). That requires three invariants: (1) placement order during setup is deterministic id-order and consumes NO rng; (2) `representativeFirstBase` reproduces the exact angle-spaced hexes the current `setupGame` seats — its occupied-skip never triggers in all-agent setup because the ideal indices are distinct; (3) the turn-1 order is drawn by the SAME `shuffle(rng, allIds)` call at the SAME rng point (after board-gen, no intervening draws). With all three, an all-agent game via the new init is identical to the old one and no fixtures break.
 
-### Task 5.1: Extract `representativeFirstBase` + outer-ring helper
+### Task 5.1: Outer-ring helper + `representativeFirstBase` + `setupPhaseState`
 
 **Files:**
-- Modify: `src/engine/turn.ts` (extract the outer-ring sort + the per-player index pick from `setupGame` lines 81–96)
+- Modify: `src/engine/turn.ts` (add `outerRingSorted`, `representativeFirstBase`, `setupPhaseState`; extract the seating math from `setupGame` lines 81–96)
 - Test: `test/engine/setup-phase.test.ts`
 
-- [ ] **Step 1: Write the failing test (pin against current seating)**
+`setupPhaseState` lands HERE (not 5.2) because 5.1's tests need it to build an empty (no-bases) setup state, and `representativeFirstBase`'s occupied-skip can only be tested against such a state.
+
+- [ ] **Step 1: Write the failing tests**
 
 ```ts
-test("representativeFirstBase reproduces setupGame's seated hex for each player", () => {
-  // For a fixed board + nPlayers, capture the hexes current setupGame seats,
-  // then assert representativeFirstBase(setupPhaseState, id) === that hex for each id.
-  for (let id = 0; id < n; id++) {
-    expect(representativeFirstBase(setupState, id)).toEqual(EXPECTED_SEATING[id]);
-  }
+import { setupPhaseState, representativeFirstBase } from "../../src/engine/turn";
+import { generateBoard } from "../../src/board/generate";
+import { ringDepthFromEdge } from "../../src/board/shape";
+import { seed } from "../../src/rng/pcg";
+import { defaultConfig } from "../../src/engine/config";
+import { key } from "../../src/geometry/cube";
+
+const board = generateBoard(seed(1n), { size: 96, ironCount: 14 }).board;
+
+// Exact seating equality is pinned in Task 5.2 (structural toEqual vs the golden
+// setupGame). Here we test the mapping shape + the occupied-skip fallback only.
+test.each([2, 4, 6])("representativeFirstBase: %i distinct deterministic outer-ring picks on an empty setup state", (n) => {
+  const s = setupPhaseState(seed(1n), board, n, defaultConfig());
+  const picks = Array.from({ length: n }, (_, id) => representativeFirstBase(s, id));
+  // all outer-ring:
+  for (const h of picks) expect(ringDepthFromEdge(h, board.hexes)).toBe(0);
+  // all distinct (so all-agent setup never collides → structural identity holds):
+  expect(new Set(picks.map(key)).size).toBe(n);
+  // deterministic:
+  for (let id = 0; id < n; id++) expect(representativeFirstBase(s, id)).toEqual(picks[id]);
+});
+
+test("representativeFirstBase skips an occupied ideal hex (mixed-setup fallback)", () => {
+  const n = 4;
+  let s = setupPhaseState(seed(1n), board, n, defaultConfig());
+  const ideal1 = representativeFirstBase(s, 1);
+  // simulate a human (player 0) having taken player 1's ideal hex:
+  s = { ...s, bases: [{ owner: 0, hex: ideal1, state: "fresh", order: 0 }] };
+  const pick1 = representativeFirstBase(s, 1);
+  expect(key(pick1)).not.toBe(key(ideal1));            // skipped the occupied ideal
+  expect(ringDepthFromEdge(pick1, board.hexes)).toBe(0); // still an outer-ring hex
 });
 ```
 
-Capture `EXPECTED_SEATING` from the current `setupGame(fixedRng, board, n, config).bases` (sorted by owner) before refactoring.
+- [ ] **Step 2: Run → FAIL** (`setupPhaseState`/`representativeFirstBase` not exported). `bun run test -- setup-phase`.
 
-- [ ] **Step 2: Run → FAIL** (`representativeFirstBase` not exported). `bun run test -- setup-phase`.
-
-- [ ] **Step 3: Extract the helpers in `turn.ts`**
+- [ ] **Step 3: Add the helpers in `turn.ts`**
 
 ```ts
 /** Outer-ring hexes (ringDepthFromEdge === 0), sorted by projected angle then key. */
@@ -612,39 +696,81 @@ function outerRingSorted(board: Board): Hex[] {
     });
 }
 
-/** The deterministic auto-pick first base for `player` (the current setupGame seating). */
+/**
+ * The deterministic auto-pick first base for `player`. Computes the ideal evenly
+ * spaced index (the current setupGame seating math), then scans forward (wrapping)
+ * for the first UNOCCUPIED outer-ring hex. In all-agent setup the ideal indices
+ * are distinct, so the ideal hex is always free → this returns it unchanged,
+ * preserving structural identity with the old setupGame. The skip only triggers
+ * in MIXED setup, when a human has taken a hex an agent's ideal would land on.
+ */
 export function representativeFirstBase(state: GameState, player: PlayerId): Hex {
   const outer = outerRingSorted(state.board);
-  const idx = Math.floor((player * outer.length) / state.players.length);
-  return outer[idx]!;
+  const occupied = new Set(state.bases.map((b) => key(b.hex)));
+  const ideal = Math.floor((player * outer.length) / state.players.length);
+  for (let i = 0; i < outer.length; i++) {
+    const h = outer[(ideal + i) % outer.length]!;
+    if (!occupied.has(key(h))) return h;
+  }
+  return outer[ideal]!; // unreachable while outer-ring count >= player count
+}
+
+/** The pre-placement setup-phase state: turn 0, id-order placement, no bases yet. */
+export function setupPhaseState(rng: RngState, board: Board, nPlayers: number, config: RuleConfig): GameState {
+  const players: Player[] = [];
+  for (let id = 0; id < nPlayers; id++) {
+    players.push({ id, basesInHand: config.baseLimit, alliance: [id], eliminated: false });
+  }
+  return {
+    board, bases: [], factories: [], players,
+    phase: { turn: 0, order: players.map((p) => p.id), indexInOrder: 0 },
+    factorySupply: config.factorySupply, config, rngState: rng,
+  };
 }
 ```
 
-- [ ] **Step 4: Run → PASS.** Full `bun run test` green.
+- [ ] **Step 4: Run → PASS.** Full `bun run test` green (these are pure additions; nothing existing imports them yet).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/engine/turn.ts test/engine/setup-phase.test.ts
-git commit -m "refactor(engine): extract representativeFirstBase + outerRingSorted from setupGame"
+git commit -m "feat(engine): outerRingSorted + occupied-skip representativeFirstBase + setupPhaseState"
 ```
 
 - [ ] **Step 6: Apply the Execution Discipline block.**
 
-### Task 5.2: Setup-phase state, `placeFirstBase`, `legalFirstBaseHexes`, and `setupGame` re-expression
+### Task 5.2: `placeFirstBase`, `legalFirstBaseHexes`, and `setupGame` re-expression
 
 **Files:**
-- Modify: `src/engine/turn.ts` (add `setupPhaseState`, `placeFirstBase`, `legalFirstBaseHexes`; re-express `setupGame`)
+- Modify: `src/engine/turn.ts` (add `placeFirstBase`, `legalFirstBaseHexes`; re-express `setupGame`) and `src/engine/types.ts` (update the `Phase` comments for the turn-0 setup convention)
 - Test: `test/engine/setup-phase.test.ts` (extend)
 
-Convention: `phase.turn === 0` denotes the setup phase. `phase.order` is the placement order (`[0..n-1]`), `phase.indexInOrder` is the next placer; `bases` grows as placements happen; players start with `basesInHand === baseLimit` (full) and `placeFirstBase` decrements.
+(`setupPhaseState` was added in Task 5.1.) Convention: `phase.turn === 0` denotes the setup phase. `phase.order` is the placement order (`[0..n-1]`), `phase.indexInOrder` is the next placer; `bases` grows as placements happen; players start with `basesInHand === baseLimit` (full) and `placeFirstBase` decrements.
+
+- [ ] **Step 0 (golden capture, per the Test fixture conventions):** before changing `setupGame`, record its current output as the golden constant — for EACH of n=2,4,6: `EXPECTED_SETUP[n] = structuredClone(setupGame(seed(1n), board, n, defaultConfig()))`. Paste the literal results into the test.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```ts
-test("setupGame output is byte-identical to the pre-refactor snapshot", () => {
-  // EXPECTED_SETUP = structuredClone of current setupGame(fixedRng, board, n, config), captured before this task.
-  expect(setupGame(fixedRng, board, n, config)).toEqual(EXPECTED_SETUP);
+test.each([2, 4, 6])("re-expressed setupGame is structurally identical to the golden snapshot (%i players)", (n) => {
+  // deep equality (toEqual), not byte-level serialization — same shape/values as the old setupGame.
+  expect(setupGame(seed(1n), board, n, defaultConfig())).toEqual(EXPECTED_SETUP[n]);
+});
+
+test("mixed setup: a human taking another seat's ideal hex still completes legally", () => {
+  // Drive setup manually: player 0 (human) deliberately takes player 1's ideal hex;
+  // remaining seats auto-pick via representativeFirstBase (which skips occupied).
+  let s = setupPhaseState(seed(1n), board, 4, defaultConfig());
+  const stolen = representativeFirstBase(s, 1);            // player 1's ideal
+  s = placeFirstBase(s, 0, stolen);                        // player 0 takes it (it's outer-ring + unoccupied)
+  for (let i = 1; i < 4; i++) {
+    const p = s.phase.order[s.phase.indexInOrder]!;
+    s = placeFirstBase(s, p, representativeFirstBase(s, p)); // must NOT throw "occupied"
+  }
+  expect(s.phase.turn).toBe(1);
+  expect(s.bases).toHaveLength(4);
+  expect(new Set(s.bases.map((b) => key(b.hex))).size).toBe(4); // no two seats share a hex
 });
 
 test("placeFirstBase: only the current placer, only an unoccupied outer-ring hex", () => {
@@ -674,24 +800,11 @@ test("legalFirstBaseHexes lists exactly the unoccupied outer-ring hexes", () => 
 });
 ```
 
-- [ ] **Step 2: Run → FAIL** (`setupPhaseState`/`placeFirstBase`/`legalFirstBaseHexes` missing; the byte-identical test fails until `setupGame` is re-expressed).
+- [ ] **Step 2: Run → FAIL** (`setupPhaseState`/`placeFirstBase`/`legalFirstBaseHexes` missing; the structurally identical test fails until `setupGame` is re-expressed).
 
-- [ ] **Step 3: Implement**
+- [ ] **Step 3: Implement** (`setupPhaseState` already exists from Task 5.1)
 
 ```ts
-/** The pre-placement setup-phase state: turn 0, id-order placement, no bases yet. */
-export function setupPhaseState(rng: RngState, board: Board, nPlayers: number, config: RuleConfig): GameState {
-  const players: Player[] = [];
-  for (let id = 0; id < nPlayers; id++) {
-    players.push({ id, basesInHand: config.baseLimit, alliance: [id], eliminated: false });
-  }
-  return {
-    board, bases: [], factories: [], players,
-    phase: { turn: 0, order: players.map((p) => p.id), indexInOrder: 0 },
-    factorySupply: config.factorySupply, config, rngState: rng,
-  };
-}
-
 /** Unoccupied outermost-ring hexes — the legal first-base placements during setup. */
 export function legalFirstBaseHexes(state: GameState): Hex[] {
   const occupied = new Set(state.bases.map((b) => key(b.hex)));
@@ -709,8 +822,10 @@ export function placeFirstBase(state: GameState, player: PlayerId, hex: Hex): Ga
   if (state.phase.turn !== 0) throw new Error("placeFirstBase: not in setup phase");
   const placer = state.phase.order[state.phase.indexInOrder];
   if (placer !== player) throw new Error("placeFirstBase: not this player's setup turn");
-  if (ringDepthFromEdge(hex, state.board.hexes) !== 0) throw new Error("placeFirstBase: hex must be an outermost-ring hex");
+  // On-board check FIRST: ringDepthFromEdge assumes h is a board hex; an off-board
+  // hex must be rejected before any geometry runs on it.
   if (!state.board.hexes.some((h) => key(h) === key(hex))) throw new Error("placeFirstBase: hex is not on the board");
+  if (ringDepthFromEdge(hex, state.board.hexes) !== 0) throw new Error("placeFirstBase: hex must be an outermost-ring hex");
   if (state.bases.some((b) => key(b.hex) === key(hex))) throw new Error("placeFirstBase: hex is already occupied");
 
   const bases = [...state.bases, { owner: player, hex, state: "fresh" as const, order: player }];
@@ -739,13 +854,25 @@ export function setupGame(rng: RngState, board: Board, nPlayers: number, config:
 }
 ```
 
-- [ ] **Step 4: Run → PASS** (all setup-phase tests incl. byte-identical). Then full `bun run test` → ALL green. This is the load-bearing check: if any agent/eval/acceptance test breaks, the byte-identical invariant was violated — STOP and diagnose (do not loosen the test).
+- [ ] **Step 3b: Update the `Phase` comments in `src/engine/types.ts`**
+
+The `turn === 0` setup convention makes the current comments false (CLAUDE.md requires evergreen, accurate comments). Update them:
+
+```ts
+export type Phase = {
+  turn: number; // 0 = setup phase (placing first bases); >=1 = play (full cycles completed + 1)
+  order: PlayerId[]; // setup: placement order; play: this turn's round order
+  indexInOrder: number; // whose round/placement it is
+};
+```
+
+- [ ] **Step 4: Run → PASS** (all setup-phase tests incl. the structural-equality snapshots). Then full `bun run test` → ALL green. This is the load-bearing check: if any agent/eval/acceptance test breaks, the structural-identity invariant was violated — STOP and diagnose (do not loosen the test).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/engine/turn.ts test/engine/setup-phase.test.ts
-git commit -m "feat(engine): human-choice setup phase (setupPhaseState/placeFirstBase/legalFirstBaseHexes); setupGame re-expressed byte-identical"
+git add src/engine/turn.ts src/engine/types.ts test/engine/setup-phase.test.ts
+git commit -m "feat(engine): human-choice setup phase (placeFirstBase/legalFirstBaseHexes); setupGame re-expressed, structurally identical"
 ```
 
 - [ ] **Step 6: Apply the Execution Discipline block.**
@@ -762,10 +889,13 @@ git commit -m "feat(engine): human-choice setup phase (setupPhaseState/placeFirs
 test("initGame produces a setup-phase state; auto-placing all bases equals runGame's seeded setup", () => {
   const s = initGame({ seed: 7n, boardSource: { kind: "generate", size: 96, ironCount: 14 }, nPlayers: 4, config: defaultConfig() });
   expect(s.phase.turn).toBe(0);
-  // auto-place via representativeFirstBase and assert byte-equality with the driver's internal init:
+  // auto-place via representativeFirstBase and assert structural equality with the driver's internal init:
   let auto = s;
   for (let i = 0; i < 4; i++) { const p = auto.phase.order[auto.phase.indexInOrder]!; auto = placeFirstBase(auto, p, representativeFirstBase(auto, p)); }
-  const viaDriver = /* replicate run.ts init: seed → generateBoard(threading rng) → setupGame */;
+  // viaDriver replicates run.ts:38-53 init exactly (seed → generateBoard threading rng → setupGame):
+  const rng0 = seed(7n);
+  const g = generateBoard(rng0, { size: 96, ironCount: 14 });
+  const viaDriver = setupGame(g.rng, g.board, 4, defaultConfig());
   expect(auto).toEqual(viaDriver);
 });
 
@@ -824,7 +954,7 @@ git commit -m "feat(engine): initGame shared init (board source + setup-phase st
 
 ### Task 5.4 (OPTIONAL refactor): runGame uses initGame
 
-**Files:** Modify `src/driver/run.ts` (lines 38–53) to call `initGame` + auto-place, removing the duplicated init. Only do this if it keeps every driver/eval/acceptance test byte-identical green. If it perturbs anything, SKIP and note in Deviations — the duplication is acceptable; correctness parity is not negotiable.
+**Files:** Modify `src/driver/run.ts` (lines 38–53) to call `initGame` + auto-place, removing the duplicated init. Only do this if it keeps every driver/eval/acceptance test structurally identical green. If it perturbs anything, SKIP and note in Deviations — the duplication is acceptable; correctness parity is not negotiable.
 
 - [ ] Apply the Execution Discipline block; commit only if fully green.
 
@@ -849,7 +979,7 @@ import * as IJ from "../src/index";
 
 test("barrel exports the public engine API", () => {
   for (const name of [
-    "initGame","setupGame","applyAction","applyEliminations","removeEncircledStrandedBases",
+    "initGame","setupGame","applyAction","stepRound","applyEliminations","removeEncircledStrandedBases",
     "advanceRound","currentPlayer","legalActions","status","buildBudget","control",
     "generateBoard","loadBoard","representativeDefender","representativeFirstBase",
     "placeFirstBase","legalFirstBaseHexes","seed","nextUint32","nextFloat","encodeRng","decodeRng","defaultConfig",
@@ -872,13 +1002,13 @@ export { setupGame, currentPlayer, advanceRound, representativeFirstBase, placeF
 export { applyAction } from "./engine/apply";
 export { stepRound } from "./engine/round";
 export { legalActions, representativeDefender } from "./engine/legal";
-export { buildBudget, isLegalBasePlacement, isLegalFactoryPlacement, farthestBases, isBootstrapOnly } from "./engine/build";
-export { status, applyEliminations, coalitions, coalitionIron } from "./engine/status";
-export { removeEncircledStrandedBases, strandedBases } from "./engine/stranded";
-export { control, resourceCount } from "./engine/control";
+export { buildBudget } from "./engine/build";
+export { status, applyEliminations } from "./engine/status";
+export { removeEncircledStrandedBases } from "./engine/stranded";
+export { control } from "./engine/control";
 export { generateBoard } from "./board/generate";
 export { loadBoard } from "./board/load";
-export { seed, nextUint32, nextFloat, nextInt } from "./rng/pcg";
+export { seed, nextUint32, nextFloat } from "./rng/pcg";
 export { encodeRng, decodeRng } from "./rng/codec";
 export { defaultConfig } from "./engine/config";
 export type { RuleConfig, KillBounty } from "./engine/config";
@@ -889,9 +1019,11 @@ export type {
 export type { EncodedRng } from "./rng/codec";
 ```
 
+This is the spec §5-item-1 surface plus the setup-phase additions the client needs (`initGame`, `placeFirstBase`, `legalFirstBaseHexes`) and `stepRound` (the canonical round body the future session reuses). Internal predicates (`isBootstrapOnly`, `isLegalBasePlacement`, `isLegalFactoryPlacement`, `farthestBases`, `coalitions`, `coalitionIron`, `resourceCount`, `strandedBases`, `nextInt`) are deliberately NOT public — the client derives hints from `legalActions`/`legalFirstBaseHexes`, not these. The wider engine stays importable by deep path for the harness; the barrel is the minimal external surface.
+
 - [ ] **Step 4: Verify exact symbol names against the modules**
 
-Run: `grep -rnE '^export (function|const|type|interface)' src/engine src/rng src/board | grep -E 'applyEliminations|removeEncircledStrandedBases|coalitions|coalitionIron|resourceCount|strandedBases|defaultConfig'`
+Run: `grep -rnE '^export (function|const|type|interface)' src/engine src/rng src/board | grep -E 'applyEliminations|removeEncircledStrandedBases|defaultConfig|representativeDefender|representativeFirstBase|placeFirstBase|legalFirstBaseHexes|stepRound|initGame'`
 Confirm each re-exported name matches its module's actual export. Fix any mismatch (these were enumerated at plan time, but verify — the barrel must `bun run typecheck` clean).
 
 - [ ] **Step 5: Run → PASS.** `bun run test -- index-barrel`, then `bun run typecheck && bun run test` → all green.
@@ -929,6 +1061,17 @@ Parallelizable; not a code-fix task (no TDD cycle). **Completion condition:** re
 ## Self-review (planner, completed at write time)
 
 - **Spec coverage:** §5 items 1–9 each map to a task (barrel→6.1; initGame→5.3; dup-attacker→2.1; defender≠target→2.1; bootstrap→3.1; representativeDefender→4.2; BoardSource move→4.1; setup phase→5.1/5.2; fidelity audit→7.1). §6 minimal-CI + dev protection→1.1/1.2 (deploy pipeline explicitly deferred). §7 testing discipline→the Execution Discipline block + per-task TDD. RNG codec (§3) → 4.3.
-- **Deviations recorded:** (a) bootstrap gate corrected to require `floor(rc/2)===0` (Phase 3 header); (b) setup phase designed byte-identical to preserve fixtures (Phase 5 header); (c) `main` protection / deploy pipeline / `wrangler.jsonc` / default-branch flip deferred to the DO-host plan (Task 1.2).
+- **Deviations recorded:** (a) bootstrap gate corrected to require `floor(rc/2)===0` (Phase 3 header); (b) setup phase designed structurally identical to preserve fixtures (Phase 5 header); (c) `main` protection / deploy pipeline / `wrangler.jsonc` / default-branch flip deferred to the DO-host plan (Task 1.2).
 - **Type/name consistency:** all re-exported symbols verified against `grep ^export` at plan time; Task 6.1 Step 4 re-verifies before the barrel ships.
-- **No placeholders in code steps** except the deliberately bracketed test-fixture construction (states built from `test/helpers/`), which the executor fills from the existing helpers — flagged inline, not hidden.
+- **No placeholders in code steps:** test fixtures use the real `mkState` helper with verified on-board coordinates (see Test fixture conventions).
+
+## Plan review cycle record (`plan-review-cycle`)
+
+Minimum 3 rounds, alternating author self-review with an independent cross-model reviewer, run until a round landed 0 substantive findings.
+
+- **Round 1 — author (Claude/Opus):** 6 findings, all fixed. Test-fixture context gap (no named helper) → added the Test fixture conventions block naming `mkState`; wrong parallelization guidance → added the File ownership & execution order table (2/3 share `apply.ts`, 3/4.2 share `legal.ts`); golden-capture not an explicit step for refactor-safety tests; `placeFirstBase` validation order (on-board before ring-depth); barrel drifted to a superset → trimmed to the spec §5-item-1 surface + setup additions.
+- **Round 2 — codex (OpenAI, cross-model, read-only):** 3 P0 + 7 P1 + 3 P2, all applied. P0s: `BoardSource` re-export wouldn't compile (needs import + re-export); Task 5.1 test used `setupPhaseState` before it was defined → moved `setupPhaseState` into 5.1; `representativeFirstBase` ignored occupied hexes (breaks mixed human/agent setup) → added an occupied-skip that preserves all-agent structural identity. P1s: completed the file-ownership table, added the `types.ts` Phase-comment update, wrote out the `viaDriver` parity code, made Phase 2/3 fixtures concrete, added a mixed-setup collision test, resolved the Phase-1 TDD-scope contradiction. P2s: "byte-identical"→"structurally identical", softened the branch-protection command claim, added 2P/6P seating coverage. **Codex independently confirmed both planner overrides are correct** (bootstrap gate `floor(rc/2)===0`; the all-agent structural-equivalence core) and that the Phase 2 fix placements and Phase 6 barrel names are right.
+- **Round 3 — author (Claude/Opus):** 1 finding (4 stale "byte-identical" mentions the round-2 reword missed) — fixed.
+- **Round 4 — author (Claude/Opus):** 0 substantive findings. Single-definition checks pass (`setupPhaseState`, `representativeFirstBase` defined once each), no placeholder comments remain, imports reference real modules. Cycle complete.
+
+The independent cross-provider round (Round 2, codex) is where the highest-impact findings came from — the three P0s were all author blind spots. That is the alternation mechanism working as intended.
