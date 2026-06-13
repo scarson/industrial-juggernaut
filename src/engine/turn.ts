@@ -11,7 +11,6 @@ import type {
   Board,
   GameState,
   Hex,
-  Phase,
   Player,
   PlayerId,
   RngState,
@@ -66,12 +65,12 @@ function outerRingSorted(board: Board): Hex[] {
 }
 
 /**
- * The deterministic auto-pick first base for `player`. Computes the ideal evenly
- * spaced index (the setupGame seating math), then scans forward (wrapping) for the
- * first UNOCCUPIED outer-ring hex. In all-agent setup the ideal indices are
- * distinct, so the ideal hex is always free and this returns it unchanged,
- * preserving structural identity with the legacy setupGame. The skip only triggers
- * in MIXED setup, when a human has taken a hex an agent's ideal would land on.
+ * The deterministic auto-pick first base for `player`: the ideal evenly-spaced
+ * outer-ring index (`floor(player * outerCount / playerCount)`), then a forward
+ * (wrapping) scan for the first UNOCCUPIED outer-ring hex. In all-agent setup the
+ * ideal indices are distinct, so the ideal hex is always free and this returns it
+ * unchanged — all-agent seating is collision-free and deterministic. The skip only
+ * triggers in MIXED setup, when a human has taken a hex an agent's ideal would land on.
  */
 export function representativeFirstBase(state: GameState, player: PlayerId): Hex {
   const outer = outerRingSorted(state.board);
@@ -107,8 +106,8 @@ export function legalFirstBaseHexes(state: GameState): Hex[] {
  * Place `player`'s first base during the setup phase (turn 0). Validates: setup
  * phase active, `player` is the current placer, `hex` is an unoccupied outermost-
  * ring hex. On the LAST placement, draws the turn-1 order and transitions to turn 1.
- * Consumes NO rng for placement; the turn-1 draw is the SAME shuffle(rng, allIds)
- * the legacy setupGame used, at the same rng point.
+ * Consumes NO rng for placement; the turn-1 order is drawn by a single
+ * shuffle(rng, allIds) at the setup→play transition.
  */
 export function placeFirstBase(state: GameState, player: PlayerId, hex: Hex): GameState {
   if (state.phase.turn !== 0) throw new Error("placeFirstBase: not in setup phase");
@@ -234,6 +233,8 @@ function drawTurnOrder(
 /**
  * Advance to the next player's round; roll over to a new turn when the current
  * turn's order is exhausted. PURE (returns a new state, threads rng per GEO-3).
+ * Requires play to have begun (`phase.turn >= 1`); throws on a setup-phase
+ * (turn 0) state, where `placeFirstBase` drives placement instead.
  *
  * - Intra-turn (more players remain this turn): bump indexInOrder; no refresh.
  * - Rollover (turn complete): increment turn, refresh ALL bases to "fresh"
@@ -241,6 +242,9 @@ function drawTurnOrder(
  *   (per `drawTurnOrder`), and reset indexInOrder to 0.
  */
 export function advanceRound(state: GameState): GameState {
+  if (state.phase.turn === 0) {
+    throw new Error("advanceRound: cannot advance during the setup phase (turn 0); place all first bases first");
+  }
   const { order, indexInOrder } = state.phase;
 
   if (indexInOrder + 1 < order.length) {

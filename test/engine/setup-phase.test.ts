@@ -1,7 +1,7 @@
 // ABOUTME: Setup-phase tests — representativeFirstBase mapping/occupied-skip, placeFirstBase, setupGame structural identity.
-// ABOUTME: Pins that all-agent setup via the new init is deep-equal to the legacy monolithic setupGame.
+// ABOUTME: Pins that all-agent setup (setupGame) is deep-equal to its captured golden snapshot.
 import { test, expect } from "vitest";
-import { setupGame, setupPhaseState, representativeFirstBase, placeFirstBase, legalFirstBaseHexes } from "../../src/engine/turn";
+import { setupGame, setupPhaseState, representativeFirstBase, placeFirstBase, legalFirstBaseHexes, advanceRound } from "../../src/engine/turn";
 import { generateBoard } from "../../src/board/generate";
 import { ringDepthFromEdge } from "../../src/board/shape";
 import { seed } from "../../src/rng/pcg";
@@ -28,7 +28,7 @@ test("representativeFirstBase skips an occupied ideal hex (mixed-setup fallback)
   expect(ringDepthFromEdge(pick1, board.hexes)).toBe(0);
 });
 
-// Golden snapshots captured from the pre-re-expression monolithic setupGame (seed(1n), board above).
+// Golden snapshots of setupGame's output (seed(1n), board above) — the deep-equal target for all-agent setup.
 const EXPECTED_SETUP: Record<number, { bases: any; players: any; phase: any; factorySupply: number; rngState: { state: bigint; inc: bigint } }> = {
   2: {
     bases: [{"owner":0,"hex":{"x":-5,"y":6,"z":-1},"state":"fresh","order":0},{"owner":1,"hex":{"x":5,"y":-6,"z":1},"state":"fresh","order":1}],
@@ -53,7 +53,7 @@ const EXPECTED_SETUP: Record<number, { bases: any; players: any; phase: any; fac
   },
 };
 
-test.each([2, 4, 6])("re-expressed setupGame is structurally identical to the golden snapshot (%i players)", (n) => {
+test.each([2, 4, 6])("setupGame output is deep-equal to the golden snapshot (%i players)", (n) => {
   expect(setupGame(seed(1n), board, n, defaultConfig())).toEqual({
     board,
     bases: EXPECTED_SETUP[n]!.bases,
@@ -106,4 +106,23 @@ test("legalFirstBaseHexes lists exactly the unoccupied outer-ring hexes", () => 
   const got = legalFirstBaseHexes(s0).map(key).sort();
   const want = board.hexes.filter((h) => ringDepthFromEdge(h, board.hexes) === 0).map(key).sort();
   expect(got).toEqual(want);
+});
+
+test("placeFirstBase rejects a hex that is not on the board", () => {
+  const s0 = setupPhaseState(seed(1n), board, 4, defaultConfig());
+  const offBoard = { x: 999, y: -999, z: 0 }; // off-board; on-board check must fire before ring-depth geometry
+  expect(() => placeFirstBase(s0, 0, offBoard)).toThrow(/not on the board/i);
+});
+
+test("placeFirstBase rejects placement outside the setup phase (turn !== 0)", () => {
+  // A completed setup (turn 1) is no longer in the placement phase.
+  const played = setupGame(seed(1n), board, 4, defaultConfig());
+  expect(played.phase.turn).toBe(1);
+  const outer = legalFirstBaseHexes(setupPhaseState(seed(1n), board, 4, defaultConfig()))[0]!;
+  expect(() => placeFirstBase(played, played.phase.order[0]!, outer)).toThrow(/not in setup phase/i);
+});
+
+test("advanceRound rejects a setup-phase (turn 0) state", () => {
+  const s = setupPhaseState(seed(1n), board, 4, defaultConfig());
+  expect(() => advanceRound(s)).toThrow(/setup phase/i);
 });
