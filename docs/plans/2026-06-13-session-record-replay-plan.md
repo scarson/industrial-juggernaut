@@ -69,7 +69,7 @@ notes and commit messages.
 | 1 — Wire-format types + SessionRecord/LogEntry codec | ✅ Shipped | `76efce4b`, `b993ff08` | 2026-06-13 |
 | 2 — `stateHash` (deterministic divergence checksum) | ✅ Shipped | `5b22aeca` | 2026-06-13 |
 | 3 — `applyEntry` round state machine | ✅ Shipped | `2af3f451` | 2026-06-13 |
-| 4 — `recordGame` all-agent record driver | ⬜ Not started | — | depends on 1,3 |
+| 4 — `recordGame` all-agent record driver | ✅ Shipped | `2d77e128` | 2026-06-13 |
 | 5 — `replayLog` + §7 replay-equivalence property tests | ⬜ Not started | — | depends on 2,3,4 — highest-value phase |
 | 6 — Session validation (defense in depth) | ⬜ Not started | — | depends on 1 |
 
@@ -737,7 +737,7 @@ git commit -m "feat(session): applyEntry round state machine (per-kind compose +
 
 ## Phase 4 — `recordGame` all-agent record driver
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED — Task 4.1: `2d77e128` (2026-06-13)
 
 Plays an all-agent game and emits the `LogEntry[]` (each carrying the correct `rngBeforeApply`) plus the live per-boundary `stateHash[]` — the producer half of the replay invariant, and §4's all-agent-viewer backend. **The `rngBeforeApply` capture is load-bearing:** for an agent action, the agent closure returns `{action, state}` where `state.rngState` is the *post-selection, pre-apply* state; that is exactly `rngBeforeApply`. For the auto-appended `endRound` that closes an attack round, `rngBeforeApply` is the state's rng *after* the attack's composition (the state `advanceRound` will draw from).
 
