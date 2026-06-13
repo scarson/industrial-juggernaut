@@ -1,5 +1,5 @@
 // ABOUTME: Tests for representativeDefender — the deterministic nearest-eligible-defender selector.
-// ABOUTME: Also pins the refactor: legalActions uses representativeDefender consistently.
+// ABOUTME: Also pins that legalActions resolves each emitted attack's defender via representativeDefender.
 import { test, expect } from "vitest";
 import { hex, key, distance } from "../../src/geometry/cube";
 import { legalActions, representativeDefender } from "../../src/engine/legal";
@@ -96,7 +96,7 @@ test("returns null when all other candidates are out of range", () => {
   expect(result).toBeNull();
 });
 
-test("refactor-safety: legalActions attack defender equals representativeDefender for each emitted attack", () => {
+test("legalActions resolves each emitted attack's defender via representativeDefender", () => {
   // Non-bootstrap fixture: p0 has iron + 6 attackers, p1 has TARGET + D1.
   const state = mkState({
     board: 96,

@@ -1,4 +1,5 @@
 // ABOUTME: Round-trip property tests for the bigint<->decimal RngState codec.
+// ABOUTME: Verifies bit-exact uint64 round-trips (incl. > 2^53) and JSON.stringify/parse survival.
 import { test, expect } from "vitest";
 import * as fc from "fast-check";
 import { encodeRng, decodeRng } from "../../src/rng/codec";

@@ -10,8 +10,10 @@ import type { Action, Base, GameState, Hex, PlayerId } from "./types";
  * The engine's deterministic representative defender for an attack on `target`
  * owned by `defenderOwner`: the nearest fresh in-range base (distance asc, tie by
  * ascending canonical key), EXCLUDING the target itself. Null when no eligible
- * defender exists (target is then not attackable this round). Shared by
- * legalActions and the future server-side defender policy / timeout auto-pick.
+ * defender exists (target is then not attackable this round). Exported as the one
+ * canonical defender selection, so any caller that must match `legalActions`'
+ * choice — the agent-defender policy and timeout auto-pick — gets the same
+ * deterministic result.
  */
 export function representativeDefender(
   state: GameState,
