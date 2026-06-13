@@ -71,6 +71,31 @@ export function buildBudget(state: GameState, player: PlayerId): number {
 }
 
 /**
+ * True when a player is in the FOUNDING bootstrap state: a single base, at least
+ * one controlled iron, no controlled factories, and no real build budget yet
+ * (`floor(resourceCount / 2) === 0`). Here the entire budget is the bootstrap +1
+ * term, which grants exactly one FACTORY — a base is not buildable until the
+ * player earns real budget (build the first factory, or control a second iron).
+ *
+ * Scoped to a single base on purpose: a player with two or more bases is past
+ * founding, and radiating 2nd/3rd-base placement and the perimeter-forming 4th
+ * base stay legal even at resource count 1 (the agent score/policy suite pins
+ * this behavior). Widening this to all sub-perimeter players would wrongly
+ * suppress those placements.
+ */
+export function isBootstrapOnly(state: GameState, player: PlayerId): boolean {
+  const ctl = control(state, player);
+  const rc = ctl.iron.length + ctl.factories.length;
+  const baseCount = basesOf(state, player).length;
+  return (
+    Math.floor(rc / 2) === 0 &&
+    baseCount === 1 &&
+    ctl.iron.length >= 1 &&
+    ctl.factories.length === 0
+  );
+}
+
+/**
  * The player's base(s) farthest (by cube distance) from their first/oldest base
  * (min `order`). Returns ALL bases tied for the maximum distance (R4). If the
  * player has only the first base, returns that base.

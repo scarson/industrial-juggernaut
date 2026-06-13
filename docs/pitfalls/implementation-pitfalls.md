@@ -24,7 +24,7 @@ This document serves three audiences. Start here, then go directly to the sectio
 
 | § | Section | You're working on... | Entries | Checklist |
 |---|---------|---------------------|---------|-----------|
-| 1 | [Geometry & Engine](#section-1-geometry--engine) | Hex math, coordinate projection, PRNG threading, derived state | GEO-1 – GEO-6 | §1.C |
+| 1 | [Geometry & Engine](#section-1-geometry--engine) | Hex math, coordinate projection, PRNG threading, derived state | GEO-1 – GEO-7 | §1.C |
 | — | [Orchestration](#orchestration) | Parallel subagent dispatch and output persistence | ORCH-1 | §Orchestration.C |
 | A | [Historical Changelog](#appendix-a-historical-changelog) | Provenance, validation dates, review process meta-observations | — | — |
 | B | [Unified Summary Table](#appendix-b-unified-summary-table) | All pitfalls at a glance, with severity and status | — | — |
@@ -106,6 +106,18 @@ The broken-perimeter death clock (`applyEliminations`, cause `brokenPerimeterAt1
 
 ---
 
+### GEO-7: Bootstrap-Only Is the Founding Single Base, Not Every Sub-Perimeter Player
+
+**The Flaw:** The bootstrap-factory-only restriction (`isBootstrapOnly` in `src/engine/build.ts`) is gated on `baseCount < 4` (every sub-perimeter player), suppressing base builds whenever a `<4`-base player's only budget is the bootstrap `+1`.
+
+**Why It Matters:** A multi-base player at resource count 1 — radiating onto a single iron, or knocked back below the perimeter — must still place bases on the bootstrap `+1` budget (radiating 2nd/3rd base, and the perimeter-establishing 4th base). This is simulation-validated engine behavior pinned by the agent suite (`test/agent/score.test.ts` "4th base … hard-pruned to -Infinity"; `test/agent/heuristic-policy.test.ts` "samples a perimeter-forming 4th-base build"). A `baseCount < 4` gate suppresses that 4th base and breaks both tests. The printed rules (`industrial-juggernaut-rules-v10.md` lines 104, 240) say bootstrap is factory-only "when fewer than 4 bases," which argues for `baseCount < 4` — but the rules doc is stale relative to the iterated engine, and the code is the source of truth (Sam, 2026-06-13).
+
+**The Fix:** Gate on `baseCount === 1` (the FOUNDING single-base state): `floor(rc/2) === 0 && baseCount === 1 && iron >= 1 && factories === 0`. Only the founding player is forced to spend the bootstrap `+1` on a factory; a 2+-base player is past founding and places bases normally even at resource count 1. Note the deliberate asymmetry with `buildBudget`, whose bootstrap term still grants `+1` to any `<4`-base player — `buildBudget` provides the budget; `isBootstrapOnly` restricts only WHAT that budget buys, only at founding. Regression-guarded in `test/engine/bootstrap-factory-only.test.ts` ("multi-base player at rc=1 … is NOT bootstrap-only").
+
+**The Lesson:** When a printed-rules reading and the validated test suite disagree, the code wins (see the project memory "code over rules doc"). A spec-driven gate that breaks a pre-existing behavior test has mis-scoped the rule — narrow it to match the code, do not widen the code to match the doc. A failing pre-existing test after a spec change is a STOP-and-confirm signal, never a license to edit the test.
+
+---
+
 ### Review Checklist
 
 - [ ] **All geometry predicates use a `1e-9` epsilon and treat on-edge as inside** — no `===`/bare `<`/`>` on projected floats; on-edge counts as inside per R1 (GEO-1)
@@ -114,6 +126,7 @@ The broken-perimeter death clock (`applyEliminations`, cause `brokenPerimeterAt1
 - [ ] **Hex collections are keyed by canonical `"x,y,z"` strings** — never by object identity (GEO-4)
 - [ ] **Perimeter is recomputed from current bases, never cached** — no stored perimeter that a base change could invalidate (GEO-5)
 - [ ] **Factory-death clock counts the player's OWN controlled factories, not the shared placed pool** — per-player decoupling; not reverted to `36 − factorySupply` (GEO-6)
+- [ ] **`isBootstrapOnly` is gated on `baseCount === 1`, not `baseCount < 4`** — only the founding single base is factory-only; multi-base players at rc=1 still place bases (GEO-7)
 
 ---
 
@@ -146,7 +159,10 @@ Pitfalls that arise when a session dispatches parallel subagents and consolidate
 <!-- - Added PREFIX-N (<title>) — <what and why> -->
 <!-- - Updated PREFIX-M — <what changed> -->
 
-TODO — add entries as this document evolves.
+## 2026-06-13 — Web-client foundation Phase 3
+
+- Added GEO-7 (Bootstrap-Only Is the Founding Single Base, Not Every Sub-Perimeter Player) — surfaced when the Phase-3 `baseCount<4` gate regressed two pre-existing agent tests; resolved to `baseCount===1` per code-as-source-of-truth (Sam).
+- Added the missing GEO-6 row to Appendix B (pre-existing drift: the entry existed in §1 but never reached the summary table). Marked GEO-6 and GEO-7 VALIDATED.
 
 ---
 
@@ -161,6 +177,8 @@ TODO — add entries as this document evolves.
 | GEO-3 | PRNG State Threading | CRITICAL | UNIMPLEMENTED | Geometry & Engine |
 | GEO-4 | Set Membership on Hex | MEDIUM | UNIMPLEMENTED | Geometry & Engine |
 | GEO-5 | Perimeter Is Derived, Never Stored | MEDIUM | UNIMPLEMENTED | Geometry & Engine |
+| GEO-6 | Factory-Death Clock Is Per-Player Controlled, Not Shared-Pool | HIGH | VALIDATED | Geometry & Engine |
+| GEO-7 | Bootstrap-Only Is the Founding Single Base, Not Every Sub-Perimeter Player | HIGH | VALIDATED | Geometry & Engine |
 | ORCH-1 | Analysis Dispatches Must Persist Findings | HIGH | VALIDATED | Orchestration |
 
 Severity levels: `CRITICAL` (production data loss / security), `HIGH` (correctness bug under predictable conditions), `MEDIUM` (correctness bug under edge cases), `LOW` (cleanliness / clarity).

@@ -1,7 +1,7 @@
 // ABOUTME: applyAction — the engine's pure state-transition function (spec §4/§8).
 // ABOUTME: Task 5.3 implements the build branch; attack lands in Task 5.4. Returns a NEW state, never mutates input.
 
-import { buildBudget, isLegalBasePlacement, isLegalFactoryPlacement } from "./build";
+import { buildBudget, isBootstrapOnly, isLegalBasePlacement, isLegalFactoryPlacement } from "./build";
 import { resolveCombat } from "./combat";
 import { distance, key } from "../geometry/cube";
 import { convexHull, hullArea } from "../geometry/hull";
@@ -39,6 +39,10 @@ function applyBuild(
   const type = pieces[0]!.type;
   if (pieces.some((p) => p.type !== type)) {
     throw new Error("applyAction(build): all pieces must be the same type (one type per round)");
+  }
+
+  if (type === "base" && isBootstrapOnly(state, player)) {
+    throw new Error("applyAction(build): bootstrap budget is factory-only; cannot build a base");
   }
 
   const budget = buildBudget(state, player);

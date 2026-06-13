@@ -59,13 +59,13 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** Phase 1 ✅ shipped (Task 1.1; Task 1.2 ⏳ Sam). Phase 2 ✅ shipped. Phase 3 next.
+**Overall:** Phase 1 ✅ (Task 1.1; Task 1.2 ⏳ Sam) · Phase 2 ✅ (merged) · Phase 3 ✅ shipped (gate narrowed to `baseCount===1` — see Deviations) · Phase 4 next.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
 | 1 — CI gate + dev protection | ✅ Task 1.1 SHIPPED (PR [#11](https://github.com/scarson/industrial-juggernaut/pull/11) merged); Task 1.2 ⏳ Sam | `6763ba8f` (merge `55210819`) | dev branch-protection command prepared+verified, awaiting Sam (admin) — see Phase 1 banner |
-| 2 — Attack validation fixes | ✅ SHIPPED | `66aff888` | dup-attacker + self-defender guards; 316 tests green |
-| 3 — Bootstrap factory-only | ⬜ Not started | — | — |
+| 2 — Attack validation fixes | ✅ SHIPPED (PR [#12](https://github.com/scarson/industrial-juggernaut/pull/12) merged `0e4d601a`) | `66aff888` | dup-attacker + self-defender guards; 316 tests green |
+| 3 — Bootstrap factory-only | ✅ SHIPPED | `e5141074` (+ `de2abfef` pitfalls) | gate `baseCount===1` (NOT `<4`); 320 tests green; GEO-7 added |
 | 4 — Type move + representativeDefender + RNG codec | ⬜ Not started | — | — |
 | 5 — Human-choice setup phase | ⬜ Not started | — | highest-ripple phase |
 | 6 — Public API barrel | ⬜ Not started | — | depends on 2–5 |
@@ -75,7 +75,12 @@ notes and commit messages.
 
 - **Cloudflare "Workers Builds" check fails on every commit (expected, non-blocking).** The repo has a Cloudflare Workers Builds Git integration (account `0387b81a…`, service `industrial-juggernaut`) that auto-builds on each push and FAILS because there is no deployable Worker / `wrangler` config yet (all Cloudflare runtime is deferred to the DO-host plan). This is external to GitHub Actions and is NOT the `check` job. **It does not gate merges:** `dev` is unprotected, and the Task 1.2 protection requires ONLY the `check` context (not "Workers Builds"). Every foundation PR will show this one red ✗ alongside a green `check` — that is normal until the DO-host plan adds the Worker (which should make it pass) or it is disabled in the interim. Merge gate for this plan = the `check` job is green.
 - **Gitflow is mid-cutover (transient state, execution-critical).** The `dev` and `main` branches exist on origin (`dev` is the integration branch holding all design work; local `main` mirrors `origin/main`), BUT the GitHub default branch is still `main`, there is no branch protection yet, and `docs/git-strategy.md` + `CLAUDE.md`/`AGENTS.md` still describe the OLD single-branch "main-only, no commits to local main, PRs to main" flow. **An executor MUST branch off `dev` and target PRs at `dev`** (per this plan and the File ownership table) — do NOT follow the stale `git-strategy.md` main-only instructions until the cutover lands. The full cutover (default-branch flip to `dev`, branch protection on both, the deploy/promote pipeline, `PROMOTE_TOKEN`, and the `git-strategy.md`/CLAUDE.md/AGENTS.md rewrites) is Task 1.2 (dev protection only) + the deferred DO-host plan (everything else, because it needs a deployable Worker). Source: web-client design spec §6 (atomic-cutover finding).
-- **Baseline assumption:** the engine has ~314 passing tests; this plan's TDD builds on that green baseline. The executor MUST confirm `bun run test` is clean on `dev` before starting Phase 2.
+- **Baseline assumption:** the engine has ~314 passing tests; this plan's TDD builds on that green baseline. The executor MUST confirm `bun run test` is clean on `dev` before starting Phase 2. (Confirmed: 314 green on `dev` before Phase 2.)
+- **CODE > rules doc as source of truth (execution-critical; reframes Phase 7).** Sam (2026-06-13): `industrial-juggernaut-rules-v10.md` is the ORIGINAL starting point and predates thousands of rounds of self-play/balance iteration that drove design changes; it was NOT kept in sync. **The engine code + its simulation-validated tests are the source of truth, not the rules doc.** This surfaced in Phase 3 (see Deviations): the rules-doc reading of the bootstrap gate (`<4 bases`) regressed two validated agent tests. **Implication for Phase 7:** the "engine-vs-rulebook fidelity audit" is INVERTED — most code/rules-doc discrepancies are stale-doc, to be catalogued as Digital Edition Rulings (intentional divergences) or rules-doc-update items, NOT engine bugs. Only flag a true bug where the code violates clear *design intent* (balance/correctness), not merely the printed rules. Captured in pitfalls GEO-7 + user memory `code-over-rules-doc-source-of-truth`.
+
+### Deviations
+
+- **Phase 3 — bootstrap gate narrowed to `baseCount === 1`** (from the plan's and spec §5-item-5's `baseCount < 4`, and beyond the planner override's literal `floor(rc/2)===0`). The plan's gate `floor(rc/2)===0 && baseCount<4 && iron>=1 && factories===0` regressed two PRE-EXISTING agent tests (`test/agent/score.test.ts`, `test/agent/heuristic-policy.test.ts`) that pin a multi-base player at resource count 1 building a perimeter-forming 4th base — validated engine behavior. Per Sam's source-of-truth ruling (code > rules doc, see Discoveries), the correct gate is the FOUNDING single-base state: `floor(rc/2)===0 && baseCount===1 && iron>=1 && factories===0`. This keeps all existing tests green with zero changes to them, passes the 3 new bootstrap tests, and adds a direct regression guard plus pitfalls GEO-7. The plan's claim "existing acceptance/agent tests confirm radiating play is intact" was the falsified assumption that surfaced this.
 
 ---
 
@@ -246,7 +251,7 @@ Notes (verified during Phase 1 execution):
 
 ## Phase 2 — Attack validation fixes (`applyOneAttack`)
 
-**Execution Status:** ✅ SHIPPED — `66aff888` on branch `fix/attack-validation`. Both guards added (`/distinct/i`, `/defender cannot be the target/i`); +2 tests, full suite **316 green**, typecheck clean; independent review APPROVED (confirmed `legalActions` already dedupes attackers and excludes target-as-defender, so no legal action regresses). Minor: test action literals use an explicit `: Action` annotation rather than `as const` (`as const` makes `attacks` a readonly tuple incompatible with the mutable `AttackDecl[]`; behavior identical). PR opening — number backfilled at Phase 3.
+**Execution Status:** ✅ SHIPPED — `66aff888` on branch `fix/attack-validation`. Both guards added (`/distinct/i`, `/defender cannot be the target/i`); +2 tests, full suite **316 green**, typecheck clean; independent review APPROVED (confirmed `legalActions` already dedupes attackers and excludes target-as-defender, so no legal action regresses). Minor: test action literals use an explicit `: Action` annotation rather than `as const` (`as const` makes `attacks` a readonly tuple incompatible with the mutable `AttackDecl[]`; behavior identical). Merged via PR [#12](https://github.com/scarson/industrial-juggernaut/pull/12) → `dev` `0e4d601a`.
 
 Two fixes in the same function (`applyOneAttack`, `src/engine/apply.ts`). Do them as one task to avoid same-file churn. Both close holes the future server-authoritative validation relies on (spec §3 Validation; both empirically reproduced in round-1 review).
 
@@ -325,11 +330,13 @@ git commit -m "fix(engine): reject duplicate attackers and self-defending target
 
 ## Phase 3 — Bootstrap is factory-only (budget from the bootstrap term)
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED — `e5141074` (engine + tests) + `de2abfef` (pitfalls GEO-7) on branch `fix/bootstrap-factory-only`. **Gate is `floor(rc/2)===0 && baseCount===1 && iron>=1 && factories===0`** — narrowed from `baseCount<4` during execution (see top-of-plan Deviations + Discoveries: the `<4` gate regressed two validated agent tests; code is source of truth over the rules doc). 320 tests green (3 new bootstrap tests + 1 multi-base regression guard; the 2 agent tests stay green untouched), typecheck clean. PR backfilled at Phase 4.
 
 **Deviation from spec §5 item 5 wording — read this.** The spec (and the round-2 finder) described the bootstrap gate as "baseCount < 4 && iron >= 1 && factories === 0". That is WRONG: it would suppress the legal radiating-phase 2nd/3rd base placement whenever a sub-4-base player controls iron and has no factory yet (the common early game). The correct gate ALSO requires `floor(resourceCount / 2) === 0` — i.e. the build budget comes ONLY from the bootstrap `+1` term. At `rc >= 2` the player has real budget and a base build is legal radiating play. Record this in the plan's Deviations.
 
 ### Task 3.1: `isBootstrapOnly` predicate + factory-only enforcement
+
+> **SHIPPED DEVIATION (read before using the Step 3 code below):** the embedded Step-3 `isBootstrapOnly` uses `baseCount < PERIMETER_BASE_COUNT`, but what SHIPPED is `baseCount === 1` (the founding single base). The `<4` form regressed two validated agent tests; see top-of-plan Deviations + Discoveries and the as-built code in `src/engine/build.ts` (pitfalls GEO-7). The factory-only enforcement in `apply.ts`/`legal.ts` (Steps 4–5) shipped as written.
 
 **Files:**
 - Modify: `src/engine/build.ts` (add `isBootstrapOnly`, ~after `buildBudget` at line 71)
