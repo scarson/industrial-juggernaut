@@ -59,7 +59,7 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** Phase 1 ✅ (Task 1.1; Task 1.2 ⏳ Sam) · Phase 2 ✅ · Phase 3 ✅ (gate `baseCount===1`) · Phase 4 ✅ · Phase 5 ✅ · Phase 6 ✅ shipped (barrel) · Phase 7 🚧 next (fidelity audit, reframed by code-as-truth).
+**Overall:** Phase 1 ✅ (Task 1.1; Task 1.2 ⏳ Sam) · Phases 2–6 ✅ merged · Phase 7 audit COMPLETE (0 bugs; 7 new DERs + 4 UNCERTAINs) — ⏳ awaiting Sam sign-off on the new rulings to close.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
@@ -68,14 +68,15 @@ notes and commit messages.
 | 3 — Bootstrap factory-only | ✅ SHIPPED (PR [#13](https://github.com/scarson/industrial-juggernaut/pull/13) merged `d20887a6`) | `e5141074` (+ `de2abfef` pitfalls) | gate `baseCount===1` (NOT `<4`); 320 tests green; GEO-7 added |
 | 4 — Type move + representativeDefender + RNG codec | ✅ SHIPPED (PR [#14](https://github.com/scarson/industrial-juggernaut/pull/14) merged `86257f6f`) | `b85bc53e` `a955875e` `c1b02e42` | BoardSource move, defender extract, RNG codec; 329 green |
 | 5 — Human-choice setup phase | ✅ SHIPPED (PR [#15](https://github.com/scarson/industrial-juggernaut/pull/15) merged `a9dc804a`) | `4da78345` `9bf26d95` `f7980e1a` `bb6fa5bd` | structurally identical; 5.4 kept (Elo parity); 345 green |
-| 6 — Public API barrel | ✅ SHIPPED | `24cac155` | 24 value + 21 type re-exports; pure; build clean; 346 green |
-| 7 — Engine-vs-rulebook fidelity audit | ⬜ Not started | — | parallelizable; gates the later client plan |
+| 6 — Public API barrel | ✅ SHIPPED (PR [#16](https://github.com/scarson/industrial-juggernaut/pull/16) merged `dabdcdf9`) | `24cac155` | 24 value + 21 type re-exports; pure; build clean; 346 green |
+| 7 — Engine-vs-rulebook fidelity audit | 🟡 Audit complete, ⏳ Sam sign-off (branch `docs/fidelity-audit`) | `2026-06-13-fidelity-audit-findings.md` | 7/7 known DERs confirmed; **0 bugs**; 7 new DERs + 4 UNCERTAINs proposed — see findings doc |
 
 ### Discoveries
 
 - **Cloudflare "Workers Builds" check fails on every commit (expected, non-blocking).** The repo has a Cloudflare Workers Builds Git integration (account `0387b81a…`, service `industrial-juggernaut`) that auto-builds on each push and FAILS because there is no deployable Worker / `wrangler` config yet (all Cloudflare runtime is deferred to the DO-host plan). This is external to GitHub Actions and is NOT the `check` job. **It does not gate merges:** `dev` is unprotected, and the Task 1.2 protection requires ONLY the `check` context (not "Workers Builds"). Every foundation PR will show this one red ✗ alongside a green `check` — that is normal until the DO-host plan adds the Worker (which should make it pass) or it is disabled in the interim. Merge gate for this plan = the `check` job is green.
 - **Gitflow is mid-cutover (transient state, execution-critical).** The `dev` and `main` branches exist on origin (`dev` is the integration branch holding all design work; local `main` mirrors `origin/main`), BUT the GitHub default branch is still `main`, there is no branch protection yet, and `docs/git-strategy.md` + `CLAUDE.md`/`AGENTS.md` still describe the OLD single-branch "main-only, no commits to local main, PRs to main" flow. **An executor MUST branch off `dev` and target PRs at `dev`** (per this plan and the File ownership table) — do NOT follow the stale `git-strategy.md` main-only instructions until the cutover lands. The full cutover (default-branch flip to `dev`, branch protection on both, the deploy/promote pipeline, `PROMOTE_TOKEN`, and the `git-strategy.md`/CLAUDE.md/AGENTS.md rewrites) is Task 1.2 (dev protection only) + the deferred DO-host plan (everything else, because it needs a deployable Worker). Source: web-client design spec §6 (atomic-cutover finding).
 - **Baseline assumption:** the engine has ~314 passing tests; this plan's TDD builds on that green baseline. The executor MUST confirm `bun run test` is clean on `dev` before starting Phase 2. (Confirmed: 314 green on `dev` before Phase 2.)
+- **Fidelity audit result (Phase 7), 2026-06-13:** full report at [`docs/plans/2026-06-13-fidelity-audit-findings.md`](2026-06-13-fidelity-audit-findings.md). Every rulebook section mapped to engine code: **7/7 known DERs present & faithful, 0 BUG candidates, 7 new documentation-only DER candidates (DER-N1…N7), 4 UNCERTAINs for Sam.** The engine is internally consistent and GEO-safe (move-gen exactly mirrors validation; no `Math.random`; epsilon-banded/cube-rounded/canonical-keyed geometry). No engine fix-tasks result. Closing requires Sam's sign-off on the new rulings.
 - **CODE > rules doc as source of truth (execution-critical; reframes Phase 7).** Sam (2026-06-13): `industrial-juggernaut-rules-v10.md` is the ORIGINAL starting point and predates thousands of rounds of self-play/balance iteration that drove design changes; it was NOT kept in sync. **The engine code + its simulation-validated tests are the source of truth, not the rules doc.** This surfaced in Phase 3 (see Deviations): the rules-doc reading of the bootstrap gate (`<4 bases`) regressed two validated agent tests. **Implication for Phase 7:** the "engine-vs-rulebook fidelity audit" is INVERTED — most code/rules-doc discrepancies are stale-doc, to be catalogued as Digital Edition Rulings (intentional divergences) or rules-doc-update items, NOT engine bugs. Only flag a true bug where the code violates clear *design intent* (balance/correctness), not merely the printed rules. Captured in pitfalls GEO-7 + user memory `code-over-rules-doc-source-of-truth`.
 
 ### Deviations
@@ -1075,7 +1076,7 @@ git commit -m "feat(engine): public API barrel (src/index.ts)"
 
 ## Phase 7 — Engine-vs-rulebook fidelity audit (§5 item 9)
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** 🟡 AUDIT COMPLETE, ⏳ awaiting Sam sign-off — branch `docs/fidelity-audit`. Full report: [`docs/plans/2026-06-13-fidelity-audit-findings.md`](2026-06-13-fidelity-audit-findings.md). Result: **7/7 known DERs confirmed present & faithful; 0 BUG candidates** (the auditor specifically hunted the suspicious-clean failure modes — move-gen/validation mismatch, multi-attack PRNG threading, hull-vertex off-by-one — all held); **7 new documentation-only DER candidates** (DER-N1…N7, code is authoritative — no engine change) and **4 UNCERTAINs** for Sam's judgment. Orchestrator spot-verified the key claims against `combat.ts`/`status.ts`. **Next:** Sam signs off → append approved DERs to the spec's Digital Edition Rulings section + resolve UNCERTAINs → mark complete. No fix-tasks/PRs needed (0 bugs).
 
 Parallelizable; not a code-fix task (no TDD cycle). **Completion condition:** read all of `industrial-juggernaut-rules-v10.md` against `src/engine/**`; every discrepancy becomes either a numbered fix (its own task/PR) or a numbered entry in the spec's Digital Edition Rulings section (`docs/superpowers/specs/2026-06-12-web-client-design.md`); the audit is done when no unresolved discrepancy remains AND Sam has signed off on any new rulings. This gates the LATER client plan (which treats the engine as the authority for human play), not this foundation plan.
 
