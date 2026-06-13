@@ -59,14 +59,14 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** Phase 1 ✅ (Task 1.1; Task 1.2 ⏳ Sam) · Phase 2 ✅ · Phase 3 ✅ (merged; gate `baseCount===1` — see Deviations) · Phase 4 🚧 in progress · Phases 5–7 pending.
+**Overall:** Phase 1 ✅ (Task 1.1; Task 1.2 ⏳ Sam) · Phase 2 ✅ · Phase 3 ✅ (gate `baseCount===1` — see Deviations) · Phase 4 ✅ shipped · Phase 5 🚧 next (highest ripple) · Phases 6–7 pending.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
 | 1 — CI gate + dev protection | ✅ Task 1.1 SHIPPED (PR [#11](https://github.com/scarson/industrial-juggernaut/pull/11) merged); Task 1.2 ⏳ Sam | `6763ba8f` (merge `55210819`) | dev branch-protection command prepared+verified, awaiting Sam (admin) — see Phase 1 banner |
 | 2 — Attack validation fixes | ✅ SHIPPED (PR [#12](https://github.com/scarson/industrial-juggernaut/pull/12) merged `0e4d601a`) | `66aff888` | dup-attacker + self-defender guards; 316 tests green |
 | 3 — Bootstrap factory-only | ✅ SHIPPED (PR [#13](https://github.com/scarson/industrial-juggernaut/pull/13) merged `d20887a6`) | `e5141074` (+ `de2abfef` pitfalls) | gate `baseCount===1` (NOT `<4`); 320 tests green; GEO-7 added |
-| 4 — Type move + representativeDefender + RNG codec | 🚧 In progress (branch `refactor/engine-types-defender-codec`) | — | — |
+| 4 — Type move + representativeDefender + RNG codec | ✅ SHIPPED | `b85bc53e` `a955875e` `c1b02e42` | BoardSource move, defender extract, RNG codec; 329 green |
 | 5 — Human-choice setup phase | ⬜ Not started | — | highest-ripple phase |
 | 6 — Public API barrel | ⬜ Not started | — | depends on 2–5 |
 | 7 — Engine-vs-rulebook fidelity audit | ⬜ Not started | — | parallelizable; gates the later client plan |
@@ -459,7 +459,7 @@ git commit -m "fix(engine): bootstrap budget is factory-only (gate on floor(rc/2
 
 ## Phase 4 — Type move + representativeDefender + RNG codec
 
-**Execution Status:** 🚧 IN PROGRESS — branch `refactor/engine-types-defender-codec` (off `dev` `d20887a6`).
+**Execution Status:** ✅ SHIPPED — 4.1 `b85bc53e` (BoardSource→engine types, driver re-exports), 4.2 `a955875e` (extract `representativeDefender`, behavior-preserving), 4.3 `c1b02e42` (RNG codec) + `39f6827c` (review nits) on branch `refactor/engine-types-defender-codec`. 329 tests green, typecheck clean; independent review APPROVED (behavior-preservation of the defender extraction confirmed character-identical; on-board fixtures + genuine equal-distance tie verified; codec round-trips uint64 > 2^53). PR backfilled at Phase 5.
 
 Three independent low-ripple additions. Different files → safe to do in any order.
 
