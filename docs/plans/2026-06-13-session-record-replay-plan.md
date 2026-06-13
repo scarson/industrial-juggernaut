@@ -97,7 +97,7 @@ Every task inherits this block. Each task's final step says "apply the Execution
 **Session purity invariants (MUST hold for every `src/session/` file):**
 - No `Math.random()`; all randomness comes from the engine's threaded `RngState` (GEO-3). The session installs recorded `rngBeforeApply` and re-runs engine functions; it never draws on its own except via the agent closures in `recordGame`.
 - No Node-only APIs (`fs`, `process`, `node:*`), no new runtime dependencies. This module must bundle into a Worker (plan 3) and the browser (the all-agent viewer) unchanged.
-- All bigint↔string conversion goes through `encodeRng`/`decodeRng` (`src/rng/codec.ts`); never `Number()` / `parseFloat()` / `JSON.stringify` a raw bigint.
+- All `RngState` bigint↔string conversion goes through `encodeRng`/`decodeRng` (`src/rng/codec.ts`); never `Number()` / `parseFloat()` / `JSON.stringify` a raw bigint. (The ONE exception is the session `seed` — a plain `bigint`, not an `RngState`: it encodes via `seed.toString()` and decodes via `BigInt(str)`, the same precision-safe pattern, just not through the RngState codec. Every per-entry `rngBeforeApply` DOES go through the codec.)
 - Hex/state collections keyed by the engine's canonical `key(hex)` string, never object identity (GEO-4).
 - `src/session/**` MUST NOT import `src/driver/**`. It MAY import `src/engine/**`, `src/rng/**`, `src/board/**`, `src/geometry/**`, and (in `recordGame` only) `src/agent/**`.
 
@@ -214,8 +214,9 @@ Run `bun run typecheck` → FAIL (`src/session/types.ts` does not exist).
 // ABOUTME: SessionRecord is the JSON interchange shape (seed + rngBeforeApply are decimal strings in the encoded form).
 
 import type { Archetype } from "../agent/archetypes";
+import type { RuleConfig } from "../engine/config"; // RuleConfig lives in config, NOT re-exported by engine/types
 import type {
-  AttackDecl, BoardSource, Hex, PieceKind, PlayerId, RngState, RuleConfig,
+  AttackDecl, BoardSource, Hex, PieceKind, PlayerId, RngState,
 } from "../engine/types";
 
 /** A single build piece (mirrors the engine's build-action piece shape). */
@@ -291,19 +292,31 @@ export type SessionHeader = {
 import type { SeatConfig, SessionHeader } from "../../src/session/types";
 import { defaultConfig } from "../../src/engine/config";
 
-/** An N-seat all-greedy header on the deterministic seed-1n generated board. */
-export function greedyHeader(nPlayers: number, opts?: { seed?: bigint }): SessionHeader {
-  const seats: SeatConfig[] = Array.from({ length: nPlayers }, () => ({
-    kind: "agent" as const, agent: "greedy" as const, archetype: "economic" as const,
-  }));
+function headerWith(seats: SeatConfig[], seed: bigint): SessionHeader {
   return {
     formatVersion: 1,
     replayVersion: "test",
-    seed: opts?.seed ?? 1n,
+    seed,
     config: defaultConfig(),
     boardSource: { kind: "generate", size: 96, ironCount: 14 },
     seats,
   };
+}
+
+/** An N-seat all-greedy header on the deterministic seed-1n generated board. */
+export function greedyHeader(nPlayers: number, opts?: { seed?: bigint }): SessionHeader {
+  return headerWith(
+    Array.from({ length: nPlayers }, () => ({ kind: "agent" as const, agent: "greedy" as const, archetype: "economic" as const })),
+    opts?.seed ?? 1n,
+  );
+}
+
+/** An N-seat all-HEURISTIC header — exercises the variable-draw policy RNG path. */
+export function heuristicHeader(nPlayers: number, opts?: { seed?: bigint }): SessionHeader {
+  return headerWith(
+    Array.from({ length: nPlayers }, () => ({ kind: "agent" as const, agent: "heuristic" as const })),
+    opts?.seed ?? 1n,
+  );
 }
 ```
 
@@ -558,6 +571,8 @@ git commit -m "feat(session): deterministic structural stateHash (FNV-1a over ca
 
 The heart of replay: one function that, given a state and a `LogEntry`, installs the entry's `rngBeforeApply` and runs exactly the right engine steps for that kind — the per-declaration canonical composition for actions, `advanceRound` for round-closing kinds, with `status()` consulted once at the close. **This is the single source of truth both `recordGame` and `replayLog` route through** (record calls it to advance live state; replay calls it to reconstruct), so the two halves cannot drift.
 
+> **Assumption (documented, not enforced here):** `applyEntry` uses `entry.player` as the acting player for the composition's `applyEliminations(entry.player)` and trusts that `entry.player === currentPlayer(state)`. For logs produced by `recordGame` (and, later, by the command-validated interactive session) this always holds — the producer stamps the current player. `applyEntry` does NOT defensively re-derive or assert it, because the command-eligibility validation that guards against a forged/out-of-turn `entry.player` belongs to the interactive `GameSession`/DO layer (plan 2/3), not this pure reconstruction primitive. (Codex round-2 P2: a corrupt EXTERNAL log could exploit this; closing that is plan 2/3's validation job, called out here so it isn't lost.)
+
 ### Task 3.1: `applyEntry`
 
 **Files:**
@@ -575,7 +590,7 @@ The heart of replay: one function that, given a state and a `LogEntry`, installs
 | `endRound` | `status()`; if not victory, `advanceRound` (no `applyAction` — the chain's battles already applied per-attack) | yes |
 | `roundSkipped` | `status()`; if not victory, `advanceRound` (eliminated seat's empty slot) | yes |
 
-`applyEntry` returns the new state, the engine events produced, whether it closed a round (`advanced`), and the terminal status if the round-closing `status()` found a victory (so the caller stops without `advanceRound`-ing past a finished game). Replay and record both honor `terminal` by stopping.
+`applyEntry` returns the new state, the engine events produced, whether it closed a round (`advanced`), and the terminal status if the round-closing `status()` found a victory (so the round-closing `advanceRound` is SKIPPED — you never advance past a finished game). **Who honors `terminal`:** `recordGame` honors it by stopping (it won't generate entries past a victory). `replayLog` does NOT consult `status`/`terminal` to stop — it faithfully applies the FULL recorded log, which already ends at the terminal entry (because `recordGame` stopped there), so it reaches the same terminal state. The recorded log is the authority on where the game ended; for a well-formed `SessionRecord` the two paths agree. (`applyEntry` still SKIPS `advanceRound` when it computes a victory, so even an over-long external log won't advance past a finished game — but generating such a log is out of scope here.)
 
 - [ ] **Step 1: Write the failing tests** (`test/session/round.test.ts`). Use `recordGame` is NOT available yet, so drive setup by hand and craft a couple of entries whose `rngBeforeApply` is the live threaded state (so they are correct by construction):
 
@@ -798,6 +813,64 @@ test("recordGame rejects a human seat (interactive play is plan 2)", () => {
 });
 ```
 
+> **CRITICAL — break the record↔replay tautology (codex round-2 finding).** `recordGame` and `replayLog` both route through `applyEntry`, so a wrong `applyEntry` (e.g. capturing PRE-agent-selection rng) could make record and replay agree while BOTH diverge from live engine semantics. The replay-equivalence tests alone would not catch it. Add TWO cross-checks against the **trusted live driver** in this same test file:
+
+```ts
+import { runGame } from "../../src/driver/run.ts"; // NOTE: test-only import of the driver — allowed in TESTS, never from src/session/**
+import { stepRound } from "../../src/engine/round";
+import { status } from "../../src/engine/status";
+import { advanceRound, currentPlayer, placeFirstBase, representativeFirstBase } from "../../src/engine/turn";
+import { initGame } from "../../src/engine/init";
+import { greedyAgent } from "../../src/agent/agent";
+import { defaultConfig } from "../../src/engine/config";
+
+// (1) Trusted-code cross-check: recordGame must reach the SAME game OUTCOME as runGame
+// (src/driver/run.ts) for the same seed/agents. A wrong rng capture changes combat -> a
+// different game -> a different winner/turn-count, which this catches via battle-tested code.
+test("recordGame's outcome matches runGame (same seed/agents) — trusted-driver cross-check", () => {
+  for (const s of [1n, 2n, 3n, 7n, 11n]) {
+    const rec = recordGame(greedyHeader(4, { seed: s }), { turnCap: 300 });
+    const gr = runGame({ seed: s, boardSource: { kind: "generate", size: 96, ironCount: 14 }, nPlayers: 4,
+      archetypes: ["economic", "economic", "economic", "economic"], config: defaultConfig(), turnCap: 300 });
+    expect(rec.finalState.phase.turn).toBe(gr.turns);
+    expect(rec.hitTurnCap).toBe(gr.hitTurnCap);
+    const st = status(rec.finalState);
+    if (gr.victoryType !== "none") {
+      expect(st.kind).toBe("victory");
+      expect([...(st as any).players].sort()).toEqual([...gr.winnerOrCoalition].sort());
+    }
+  }
+});
+
+// (2) Rigorous full-state pin: recordGame's finalState must DEEP-EQUAL a stepRound-driven
+// reference that mirrors src/driver/run.ts's loop exactly (read run.ts:37-128 and match it).
+// This proves applyEntry's per-declaration composition == the live stepRound composition.
+function referenceFinalState(seed: bigint, n: number, turnCap: number) {
+  const agents = Array.from({ length: n }, () => greedyAgent("economic"));
+  let state = initGame({ seed, boardSource: { kind: "generate", size: 96, ironCount: 14 }, nPlayers: n, config: defaultConfig() });
+  for (let i = 0; i < n; i++) { const p = state.phase.order[state.phase.indexInOrder]!; state = placeFirstBase(state, p, representativeFirstBase(state, p)); }
+  if (status(state).kind === "victory") return state;
+  for (;;) {
+    const p = currentPlayer(state);
+    if (!state.players[p]!.eliminated) {
+      const choice = agents[p]!(state, p);
+      state = stepRound(choice.state, choice.action).state; // post-selection rng is carried in choice.state
+    }
+    if (status(state).kind === "victory") return state;
+    state = advanceRound(state);
+    if (state.phase.turn > turnCap) return state;
+  }
+}
+
+test("recordGame.finalState deep-equals a stepRound-driven live reference (full-state tautology break)", () => {
+  for (const s of [1n, 2n, 3n, 7n, 11n]) {
+    expect(recordGame(greedyHeader(4, { seed: s }), { turnCap: 300 }).finalState).toEqual(referenceFinalState(s, 4, 300));
+  }
+});
+```
+
+> If either cross-check fails, `applyEntry`'s composition (or the `rngBeforeApply` capture) diverges from the live driver — STOP and fix `applyEntry`/`recordGame`, do NOT adjust the reference to match. The reference deliberately uses the BATTLE-TESTED `stepRound`/`runGame`; if it and `recordGame` disagree, the new session code is the suspect. (The `referenceFinalState` loop MUST mirror `src/driver/run.ts:37-128`; read that file and match its status/advance ordering exactly — a wrong reference makes a false cross-check.)
+
 Run `bun run test -- session/record` → FAIL (module missing).
 
 - [ ] **Step 2: Implement `src/session/record.ts`.** Compose `applyEntry` (Phase 3), the engine `initGame`/`status`/`currentPlayer`/`representativeFirstBase`, and the agent closures. The exact structure:
@@ -813,7 +886,7 @@ import { greedyAgent, type Agent } from "../agent/agent";
 import { heuristicAgent } from "../agent/heuristic-agent";
 import { applyEntry } from "./round";
 import { stateHash } from "./hash";
-import type { GameState } from "../engine/types";
+import type { GameEvent, GameState } from "../engine/types";
 import type { LogEntry, SeatConfig, SessionHeader } from "./types";
 
 function agentForSeat(seat: SeatConfig): Agent {
@@ -827,6 +900,7 @@ export type RecordResult = {
   header: SessionHeader;
   log: LogEntry[];
   boundaryHashes: string[];
+  events: GameEvent[]; // all engine events across the game, in order (for §7 edge tests + the all-agent viewer narration)
   finalState: GameState;
   hitTurnCap: boolean;
 };
@@ -836,49 +910,43 @@ export function recordGame(header: SessionHeader, opts: { turnCap: number }): Re
   let state = initGame({ seed: header.seed, boardSource: header.boardSource, nPlayers: header.seats.length, config: header.config });
   const log: LogEntry[] = [];
   const boundaryHashes: string[] = [];
+  const events: GameEvent[] = [];
+  const finalize = (hitTurnCap: boolean): RecordResult => ({ header, log, boundaryHashes, events, finalState: state, hitTurnCap });
+  // Apply one entry: thread state, push the entry + its events, record a boundary hash on close.
+  const step = (entry: LogEntry): ReturnType<typeof applyEntry> => {
+    const out = applyEntry(state, entry);
+    state = out.state; log.push(entry); events.push(...out.events);
+    if (out.advanced) boundaryHashes.push(stateHash(state));
+    return out;
+  };
 
-  // Setup: log a placeFirstBase for every seat in placement order.
+  // Setup: log a placeFirstBase for every seat in placement order (no boundary — setup never advances a round).
   while (state.phase.turn === 0) {
     const p = state.phase.order[state.phase.indexInOrder]!;
-    const hex = representativeFirstBase(state, p);
-    const entry: LogEntry = { player: p, kind: "placeFirstBase", hex, rngBeforeApply: state.rngState };
-    const out = applyEntry(state, entry);
-    state = out.state; log.push(entry);
+    step({ player: p, kind: "placeFirstBase", hex: representativeFirstBase(state, p), rngBeforeApply: state.rngState });
   }
 
-  // Born-terminal.
-  if (status(state).kind === "victory") return { header, log, boundaryHashes, finalState: state, hitTurnCap: false };
+  if (status(state).kind === "victory") return finalize(false); // born-terminal
 
   for (;;) {
     const p = currentPlayer(state);
     if (state.players[p]!.eliminated) {
-      const entry: LogEntry = { player: p, kind: "roundSkipped", rngBeforeApply: state.rngState };
-      const out = applyEntry(state, entry);
-      state = out.state; log.push(entry); if (out.advanced) boundaryHashes.push(stateHash(state));
-      if (out.terminal) return { header, log, boundaryHashes, finalState: state, hitTurnCap: false };
+      if (step({ player: p, kind: "roundSkipped", rngBeforeApply: state.rngState }).terminal) return finalize(false);
     } else {
       const choice = agents[p]!(state, p);
-      const rng = choice.state.rngState;
+      const rng = choice.state.rngState; // post-selection, pre-apply
       const action = choice.action;
       if (action.kind === "build") {
-        const entry: LogEntry = { player: p, kind: "build", pieces: action.pieces.map((x) => ({ type: x.type, hex: x.hex })), rngBeforeApply: rng };
-        const out = applyEntry(state, entry); state = out.state; log.push(entry); boundaryHashes.push(stateHash(state));
-        if (out.terminal) return { header, log, boundaryHashes, finalState: state, hitTurnCap: false };
+        if (step({ player: p, kind: "build", pieces: action.pieces.map((x) => ({ type: x.type, hex: x.hex })), rngBeforeApply: rng }).terminal) return finalize(false);
       } else if (action.kind === "pass") {
-        const entry: LogEntry = { player: p, kind: "pass", rngBeforeApply: rng };
-        const out = applyEntry(state, entry); state = out.state; log.push(entry); boundaryHashes.push(stateHash(state));
-        if (out.terminal) return { header, log, boundaryHashes, finalState: state, hitTurnCap: false };
-      } else { // attack
+        if (step({ player: p, kind: "pass", rngBeforeApply: rng }).terminal) return finalize(false);
+      } else { // attack — single decl + auto endRound
         if (action.attacks.length !== 1) throw new Error("recordGame: v1 agents must emit single-declaration attacks");
-        const atk: LogEntry = { player: p, kind: "attack", decl: action.attacks[0]!, rngBeforeApply: rng };
-        const o1 = applyEntry(state, atk); state = o1.state; log.push(atk); // does not close
-        const close: LogEntry = { player: p, kind: "endRound", rngBeforeApply: state.rngState };
-        const o2 = applyEntry(state, close); state = o2.state; log.push(close); boundaryHashes.push(stateHash(state));
-        if (o2.terminal) return { header, log, boundaryHashes, finalState: state, hitTurnCap: false };
+        step({ player: p, kind: "attack", decl: action.attacks[0]!, rngBeforeApply: rng }); // does not close the round
+        if (step({ player: p, kind: "endRound", rngBeforeApply: state.rngState }).terminal) return finalize(false);
       }
     }
-    // turn cap: stop once a NEW turn would exceed the cap.
-    if (state.phase.turn > opts.turnCap) return { header, log, boundaryHashes, finalState: state, hitTurnCap: true };
+    if (state.phase.turn > opts.turnCap) return finalize(true);
   }
 }
 ```
@@ -922,7 +990,7 @@ import * as fc from "fast-check";
 import { recordGame } from "../../src/session/record";
 import { replayLog } from "../../src/session/replay";
 import { encodeRecord, decodeRecord } from "../../src/session/codec";
-import { greedyHeader } from "./helpers";
+import { greedyHeader, heuristicHeader } from "./helpers";
 
 test("record -> replay reproduces the terminal state and every boundary hash (fixed seeds)", () => {
   for (const s of [1n, 2n, 3n, 7n, 11n]) {
@@ -956,6 +1024,17 @@ test("a SessionRecord that round-trips through JSON replays identically", () => 
   const replay = replayLog(header, log);
   expect(replay.state).toEqual(rec.finalState);
   expect(replay.boundaryHashes).toEqual(rec.boundaryHashes);
+});
+
+// HEURISTIC seats consume a VARIABLE number of policy draws during selection (samplePolicy),
+// a riskier rngBeforeApply path than greedy — pin replay equivalence on it too (codex round-2).
+test("record -> replay reproduces heuristic-seat games (variable-draw policy RNG path)", () => {
+  for (const s of [1n, 4n, 9n]) {
+    const rec = recordGame(heuristicHeader(4, { seed: s }), { turnCap: 150 });
+    const replay = replayLog(rec.header, rec.log);
+    expect(replay.state).toEqual(rec.finalState);
+    expect(replay.boundaryHashes).toEqual(rec.boundaryHashes);
+  }
 });
 ```
 
@@ -1005,13 +1084,11 @@ git commit -m "feat(session): replayLog + replay-equivalence property tests (rec
 
 §7 calls out specific regimes that the random property test may under-sample. Add targeted record→replay tests that deliberately reach them, asserting `replay.state.toEqual(rec.finalState)` and `boundaryHashes` equality for each:
 
-- [ ] **Step 1: Write tests that force the regimes.** For each, search a handful of seeds until the recorded log exhibits the regime (assert the regime actually occurred, so the test cannot silently pass without exercising it):
-  - **Mid-turn elimination:** a recorded game whose log contains a `roundSkipped` entry (an eliminated seat's slot) AND an elimination `GameEvent` mid-game. Assert `replay.state.toEqual(rec.finalState)`.
-  - **Bounty/stranding timing:** a game whose events include `baseReplaced`/`baseDestroyed` and at least one elimination, replayed identically (the per-declaration composition's elimination/stranding order is the thing under test).
-  - **Regime boundary 3↔4 bases:** a game where some player crosses from 3 to 4 bases (radiating→perimeter); replay identical.
-  - **Commitment levels:** a game with `combat` events at ≥2 distinct commitment values; replay identical.
-
-  Each test MUST include an `expect(...).toBe(true)` that the regime was present in `rec` (e.g. `expect(rec.log.some(e => e.kind === "roundSkipped")).toBe(true)`), then the `toEqual` replay assertion. If no seed in your search reaches the regime, widen the search (more seeds / players), do not delete the test. **Do NOT add or modify engine code to force a regime** — only search seeds (and, if truly necessary, hand-build a `GameState` via `mkState` and feed it through `recordGame`-style stepping). The engine is frozen for this plan; a regime that is genuinely unreachable is a finding to raise, not to engineer around.
+- [ ] **Step 1: Write tests that force the regimes.** Search a handful of seeds until `rec` exhibits the regime, **assert the regime actually occurred** (so the test can't silently pass without exercising it), THEN assert `replayLog(rec.header, rec.log).state.toEqual(rec.finalState)` and the boundary-hash equality. Detection signals (use `rec.events` — added to `RecordResult` — and `rec.log`):
+  - **Mid-turn elimination:** `expect(rec.events.some(e => e.kind === "eliminated")).toBe(true)` (and typically a `roundSkipped` entry appears after). Then replay-identical.
+  - **Bounty/stranding timing:** `expect(rec.events.some(e => e.kind === "baseReplaced" || e.kind === "baseDestroyed")).toBe(true)` AND an `eliminated` event present (the per-declaration composition's elimination/stranding/bounty order is the thing under test). Then replay-identical.
+  - **Regime boundary 3↔4 bases:** some player reaches ≥4 bases (radiating→perimeter). Detect by replaying with a per-step base-count snapshot, or simply `expect(rec.finalState.bases.filter(b => b.owner === SOME_P).length >= 4).toBe(true)` for a seed where a player perimetered. Then replay-identical.
+  - **Commitment levels:** LOG-derivable (no events needed) — `const commits = rec.log.filter(e => e.kind === "attack").map(e => (e as any).decl.attackers.length); expect(new Set(commits).size).toBeGreaterThanOrEqual(2);`. Then replay-identical. If no seed in your search reaches the regime, widen the search (more seeds / players), do not delete the test. **Do NOT add or modify engine code to force a regime** — only search seeds (and, if truly necessary, hand-build a `GameState` via `mkState` and feed it through `recordGame`-style stepping). The engine is frozen for this plan; a regime that is genuinely unreachable is a finding to raise, not to engineer around.
 
 - [ ] **Step 2: Run** `bun run test -- session/replay-edges` → green. Full `bun run test` + typecheck → green.
 
@@ -1032,19 +1109,20 @@ git commit -m "test(session): replay equivalence at mid-turn elimination + regim
 
 The named session-layer checks from spec §3 "Validation (defense in depth)". These back the §5 engine fixes and will be consumed by the interactive `GameSession` (plan 2) and the DO (plan 3). They operate on a `GameState` + a proposed action/entry; they NEVER membership-test against `legalActions` (representatives ≠ the legal space) — but **derived existence/eligibility checks are sanctioned and required**.
 
-### Task 6.1: `validateCommand` checks
+### Task 6.1: session validation predicates (defense in depth)
 
 **Files:**
 - Create: `src/session/validation.ts`
 - Test: `test/session/validation.test.ts`
 
-Implement the five checks (spec §3 Validation 1–5) as small pure predicates returning either `null` (ok) or a structured `{ code, message }` error. Reuse engine helpers (`legalActions` for forced-pass detection ONLY, `representativeDefender` for defender eligibility, `key` for hex-set duplicate checks).
+Implement the spec §3 Validation checks as small pure predicates returning either `null` (ok) or a structured `{ code, message }` error. Reuse engine helpers (`legalActions` for forced-pass detection ONLY, `representativeDefender` for defender eligibility, `distance`/`key` for the base/hex checks). This task covers the **state-level predicates** (checks 1, 3, 4-both-facets, 5); check 2 (single-declaration / `attacks:[]` rejection) is the interactive command parser's job in plan 2 — out of scope here.
 
-The five checks:
+The state-level checks:
 1. **`pass`** accepted only when `config.allowPass` OR `legalActions(state)` yields only `pass` (forced-pass).
-2. **`attack`** carries exactly one declaration (`attacks.length === 1`); reject `attacks: []`.
 3. Attack declaration has **no duplicate attacker hexes** (Set on `key(hex)`) and `key(defender) !== key(target)`.
-4. **Defender eligibility non-empty** at declaration: `representativeDefender(state, target, owner) !== null` (the no-eligible-defender target is unattackable this round).
+4. **Two facets (spec §3 line 170 — "Defender eligibility non-empty at declaration; substituted defender re-validated"):**
+   - (4a) the target is attackable at all — `representativeDefender(state, target, defenderOwner) !== null` (the no-eligible-defender target is unattackable this round; used to grey targets out BEFORE a defender is proposed).
+   - (4b) the **submitted/substituted defender is re-validated** — `decl.defender` must be a base that is owned by `defenderOwner`, `state === "fresh"`, within `config.attackRange` of `decl.target`, and `!== decl.target`. (Mirrors the engine's defender checks at `src/engine/apply.ts:175-185` as a session-layer pre-check — defense in depth, so a bad proposed/substituted defender returns a structured error instead of an unstructured engine throw.)
 5. **Build pieces** are a duplicate-free set (`key(hex)`) of one piece `type`.
 
 - [ ] **Step 1: Write the failing tests** (`test/session/validation.test.ts`) — drive each check with `mkState` fixtures using verified on-board coords (read `test/engine/apply-attack.test.ts` for them), asserting on the error `code`/`message` regex:
@@ -1053,7 +1131,7 @@ The five checks:
 // ABOUTME: Tests for session validation — the §3 defense-in-depth checks (forced-pass, single-decl, dup/defender, build set).
 // ABOUTME: Asserts on structured error codes; reuses verified on-board coordinates from apply-attack fixtures.
 import { test, expect } from "vitest";
-import { validatePass, validateAttackDecl, validateBuildPieces } from "../../src/session/validation";
+import { validatePass, validateTargetAttackable, validateAttackDecl, validateBuildPieces } from "../../src/session/validation";
 import { hex } from "../../src/geometry/cube";
 import { mkState } from "../helpers/state";
 import { defaultConfig } from "../../src/engine/config";
@@ -1086,16 +1164,19 @@ test("build pieces of mixed type or duplicate hex are rejected; a clean single-t
 });
 ```
 
-> Run the fixtures first; if any coordinate is off-board or a regime doesn't hold (e.g. `validatePass` needs a state where `legalActions` yields more than pass), adjust the fixture using verified coords — do NOT loosen the assertion. **Add one more test** for check 4 (`validateAttackDecl`'s no-eligible-defender path): build a fixture where the target is the opponent's ONLY base (so `representativeDefender(state, target, owner)` is `null`) and assert `validateAttackDecl(state, owner, declWithThatTarget)?.code === "NO_ELIGIBLE_DEFENDER"`. (Reuse `hex(2,-2,0)` as the lone opponent base with three in-range p0 attackers; the defender field can be any hex since the eligibility check fires first.)
+> Run the fixtures first; if any coordinate is off-board or a regime doesn't hold (e.g. `validatePass` needs a state where `legalActions` yields more than pass), adjust the fixture using verified coords — do NOT loosen the assertion. **Add two more tests:**
+> - check 4a: target is the opponent's ONLY base (so `representativeDefender(state, target, defenderOwner)` is `null`) → `expect(validateTargetAttackable(state, hex(2,-2,0), 1)?.code).toBe("NO_ELIGIBLE_DEFENDER")`.
+> - check 4b: a submitted defender that is FATIGUED or out-of-range → `expect(validateAttackDecl(state, 1, declWithBadDefender)?.code).toBe("DEFENDER_INELIGIBLE")`. Build a fixture where the opponent (p1) has a target base plus a real but fatigued/out-of-range defender base; set `decl.defender` to that base. (To fatigue a base in `mkState`, mutate `state.bases[idx].state = "fatigued"` as the existing engine tests do; verify the coord is on-board.)
 
 Run `bun run test -- session/validation` → FAIL (module missing).
 
-- [ ] **Step 2: Implement `src/session/validation.ts`.** Three exported predicates, each returning `{ code: string; message: string } | null`:
-> - `validatePass(state): SessionError | null` — check 1. Returns `PASS_NOT_FORCED` when `!config.allowPass` AND `legalActions(state)` contains an action whose `kind !== "pass"`. (`legalActions` is used here ONLY for forced-pass detection — the one sanctioned `legalActions` use; never for membership-testing a submitted action.)
-> - `validateAttackDecl(state, defenderOwner: PlayerId, decl: AttackDecl): SessionError | null` — checks 2–4, in order: `ATTACK_NOT_SINGLE_DECL` is NOT this function's job (single-decl is enforced where the `attack` command is parsed — see note); this function checks the single decl: `DUP_ATTACKERS` (Set on `key(hex)` over `decl.attackers`), `DEFENDER_IS_TARGET` (`key(decl.defender) === key(decl.target)`), then `NO_ELIGIBLE_DEFENDER` (`representativeDefender(state, decl.target, defenderOwner) === null`). First failing check wins.
+- [ ] **Step 2: Implement `src/session/validation.ts`.** Export a `SessionError = { code: string; message: string }` type and FOUR pure predicates, each returning `SessionError | null`. Messages MUST be human-readable (they surface as rule explanations per §4).
+> - `validatePass(state): SessionError | null` — check 1. Returns `PASS_NOT_FORCED` when `!state.config.allowPass` AND `legalActions(state)` contains an action whose `kind !== "pass"`. (`legalActions` is used here ONLY for forced-pass detection — the one sanctioned `legalActions` use; never for membership-testing a submitted action.)
+> - `validateTargetAttackable(state, target: Hex, defenderOwner: PlayerId): SessionError | null` — check 4a. Returns `NO_ELIGIBLE_DEFENDER` when `representativeDefender(state, target, defenderOwner) === null` (target unattackable this round; the client greys it out).
+> - `validateAttackDecl(state, defenderOwner: PlayerId, decl: AttackDecl): SessionError | null` — checks 3 + 4b on a COMPLETE proposed declaration, first failing check wins: `DUP_ATTACKERS` (Set on `key(hex)` over `decl.attackers`), `DEFENDER_IS_TARGET` (`key(decl.defender) === key(decl.target)`), then `DEFENDER_INELIGIBLE` — the submitted `decl.defender` must be a base that is owned by `defenderOwner`, `state === "fresh"`, and within `state.config.attackRange` (`distance`) of `decl.target` (re-validate the substituted defender; mirrors `src/engine/apply.ts:175-185`).
 > - `validateBuildPieces(pieces: Piece[]): SessionError | null` — check 5: `MIXED_PIECE_TYPES` (more than one distinct `type`), `DUP_PIECES` (duplicate `key(hex)`). Budget is the engine's job at apply time, not here.
 >
-> Export a `SessionError = { code: string; message: string }` type. Messages MUST be human-readable (they surface as rule explanations per §4). Exact codes: `PASS_NOT_FORCED`, `DUP_ATTACKERS`, `DEFENDER_IS_TARGET`, `NO_ELIGIBLE_DEFENDER`, `MIXED_PIECE_TYPES`, `DUP_PIECES`. (Check 2's single-declaration / `attacks:[]` rejection — code `ATTACK_NOT_SINGLE_DECL` — lives in the command parser of the interactive `GameSession`, plan 2, not in these state-level predicates; it is listed here for traceability to spec §3 Validation but is explicitly out of scope for this task. Do NOT add an `attacks[]` param to `validateAttackDecl`.)
+> Exact codes: `PASS_NOT_FORCED`, `NO_ELIGIBLE_DEFENDER`, `DUP_ATTACKERS`, `DEFENDER_IS_TARGET`, `DEFENDER_INELIGIBLE`, `MIXED_PIECE_TYPES`, `DUP_PIECES`. (Check 2's single-declaration / `attacks:[]` rejection — code `ATTACK_NOT_SINGLE_DECL` — lives in the command parser of the interactive `GameSession`, plan 2; it is named here for traceability to spec §3 but is explicitly OUT of scope for this task. Do NOT add an `attacks[]` param to any predicate here.)
 
 - [ ] **Step 3: Run** `bun run test -- session/validation` → PASS. Full `bun run test` + typecheck → green.
 
@@ -1103,7 +1184,7 @@ Run `bun run test -- session/validation` → FAIL (module missing).
 
 ```bash
 git add src/session/validation.ts test/session/validation.test.ts
-git commit -m "feat(session): defense-in-depth validation (forced-pass, single-decl, dup/defender, build set)"
+git commit -m "feat(session): defense-in-depth validation predicates (forced-pass, target-attackable, attack-decl re-validation, build set)"
 ```
 
 - [ ] **Step 5: Apply the Execution Discipline block.**
@@ -1123,7 +1204,7 @@ git commit -m "feat(session): defense-in-depth validation (forced-pass, single-d
 import { test, expect } from "vitest";
 import * as S from "../../src/session/index";
 test("session barrel exposes record/replay/codec/hash/validation", () => {
-  for (const name of ["recordGame","replayLog","applyEntry","stateHash","encodeRecord","decodeRecord","encodeEntry","decodeEntry","validatePass","validateAttackDecl","validateBuildPieces"]) {
+  for (const name of ["recordGame","replayLog","applyEntry","stateHash","encodeRecord","decodeRecord","encodeEntry","decodeEntry","validatePass","validateTargetAttackable","validateAttackDecl","validateBuildPieces"]) {
     expect(typeof (S as any)[name]).toBe("function");
   }
 });
@@ -1141,7 +1222,8 @@ export { replayLog } from "./replay";
 export { applyEntry } from "./round";
 export { stateHash } from "./hash";
 export { encodeRecord, decodeRecord, encodeEntry, decodeEntry } from "./codec";
-export { validatePass, validateAttackDecl, validateBuildPieces } from "./validation";
+export { validatePass, validateTargetAttackable, validateAttackDecl, validateBuildPieces } from "./validation";
+export type { SessionError } from "./validation";
 export type { SessionRecord, EncodedLogEntry, LogEntry, SessionHeader, SeatConfig, Piece, LogEntryKind } from "./types";
 export type { RecordResult } from "./record";
 export type { ApplyEntryResult } from "./round";
