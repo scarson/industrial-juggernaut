@@ -59,11 +59,14 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** Not started.
+**Overall:** 🚧 Executing on branch `feat/session-record-replay` (off `dev` `c817f3f2`). Phase 1 in progress.
+
+### Deviations
+- **Execution consolidated onto ONE branch + ONE PR** (not per-phase PRs). The `src/session/` files are all-new and disjoint; the cross-task dependencies (codec→types, applyEntry→types, record→applyEntry, replay→record) are satisfied by ordered commits on a single branch in one subagent-driven session, so the "merge to dev between phases" rule (written for parallel phase branches) is met by sequential same-branch commits. Per-task TDD + per-phase review checkpoints are preserved.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
-| 1 — Wire-format types + SessionRecord/LogEntry codec | ⬜ Not started | — | — |
+| 1 — Wire-format types + SessionRecord/LogEntry codec | 🚧 In progress | — | — |
 | 2 — `stateHash` (deterministic divergence checksum) | ⬜ Not started | — | — |
 | 3 — `applyEntry` round state machine | ⬜ Not started | — | depends on 1 |
 | 4 — `recordGame` all-agent record driver | ⬜ Not started | — | depends on 1,3 |
