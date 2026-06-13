@@ -59,12 +59,12 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** Phase 1 ✅ shipped (Task 1.1; Task 1.2 ⏳ Sam). Phase 2 🚧 in progress.
+**Overall:** Phase 1 ✅ shipped (Task 1.1; Task 1.2 ⏳ Sam). Phase 2 ✅ shipped. Phase 3 next.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
 | 1 — CI gate + dev protection | ✅ Task 1.1 SHIPPED (PR [#11](https://github.com/scarson/industrial-juggernaut/pull/11) merged); Task 1.2 ⏳ Sam | `6763ba8f` (merge `55210819`) | dev branch-protection command prepared+verified, awaiting Sam (admin) — see Phase 1 banner |
-| 2 — Attack validation fixes | 🚧 In progress (branch `fix/attack-validation`) | — | — |
+| 2 — Attack validation fixes | ✅ SHIPPED | `66aff888` | dup-attacker + self-defender guards; 316 tests green |
 | 3 — Bootstrap factory-only | ⬜ Not started | — | — |
 | 4 — Type move + representativeDefender + RNG codec | ⬜ Not started | — | — |
 | 5 — Human-choice setup phase | ⬜ Not started | — | highest-ripple phase |
@@ -246,7 +246,7 @@ Notes (verified during Phase 1 execution):
 
 ## Phase 2 — Attack validation fixes (`applyOneAttack`)
 
-**Execution Status:** 🚧 IN PROGRESS — branch `fix/attack-validation` (off `dev` `55210819`).
+**Execution Status:** ✅ SHIPPED — `66aff888` on branch `fix/attack-validation`. Both guards added (`/distinct/i`, `/defender cannot be the target/i`); +2 tests, full suite **316 green**, typecheck clean; independent review APPROVED (confirmed `legalActions` already dedupes attackers and excludes target-as-defender, so no legal action regresses). Minor: test action literals use an explicit `: Action` annotation rather than `as const` (`as const` makes `attacks` a readonly tuple incompatible with the mutable `AttackDecl[]`; behavior identical). PR opening — number backfilled at Phase 3.
 
 Two fixes in the same function (`applyOneAttack`, `src/engine/apply.ts`). Do them as one task to avoid same-file churn. Both close holes the future server-authoritative validation relies on (spec §3 Validation; both empirically reproduced in round-1 review).
 
