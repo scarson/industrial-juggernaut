@@ -6,6 +6,37 @@ import { convexHull, hullArea } from "../geometry/hull";
 import { buildBudget, isBootstrapOnly, isLegalBasePlacement, isLegalFactoryPlacement } from "./build";
 import type { Action, Base, GameState, Hex, PlayerId } from "./types";
 
+/**
+ * The engine's deterministic representative defender for an attack on `target`
+ * owned by `defenderOwner`: the nearest fresh in-range base (distance asc, tie by
+ * ascending canonical key), EXCLUDING the target itself. Null when no eligible
+ * defender exists (target is then not attackable this round). Shared by
+ * legalActions and the future server-side defender policy / timeout auto-pick.
+ */
+export function representativeDefender(
+  state: GameState,
+  target: Hex,
+  defenderOwner: PlayerId,
+): Hex | null {
+  const range = state.config.attackRange;
+  const eligible = state.bases
+    .filter(
+      (b) =>
+        b.owner === defenderOwner &&
+        b.state === "fresh" &&
+        key(b.hex) !== key(target) &&
+        distance(b.hex, target) <= range,
+    )
+    .slice()
+    .sort((a, b) => {
+      const da = distance(a.hex, target);
+      const db = distance(b.hex, target);
+      if (da !== db) return da - db;
+      return key(a.hex) < key(b.hex) ? -1 : key(a.hex) > key(b.hex) ? 1 : 0;
+    });
+  return eligible.length ? eligible[0]!.hex : null;
+}
+
 const MIN_ATTACKERS = 3;
 const MAX_ATTACKERS = 6;
 const PERIMETER_BASE_COUNT = 4;
@@ -93,20 +124,8 @@ export function legalActions(state: GameState): Action[] {
       });
     if (eligibleAttackers.length < MIN_ATTACKERS) continue;
 
-    // Eligible defenders: opponent fresh bases within range of t, EXCLUDING t
-    // itself (the target cannot also defend itself — that would be no defending
-    // base). Chosen defender = nearest t, tie by smallest key.
-    const eligibleDefenders = oppBases
-      .filter((b) => b.state === "fresh" && key(b.hex) !== key(t) && distance(b.hex, t) <= range)
-      .slice()
-      .sort((a, b) => {
-        const da = distance(a.hex, t);
-        const db = distance(b.hex, t);
-        if (da !== db) return da - db;
-        return key(a.hex) < key(b.hex) ? -1 : key(a.hex) > key(b.hex) ? 1 : 0;
-      });
-    if (eligibleDefenders.length === 0) continue;
-    const defender = eligibleDefenders[0]!.hex;
+    const defender = representativeDefender(state, t, opponent);
+    if (defender === null) continue;
 
     const maxCommit = Math.min(MAX_ATTACKERS, eligibleAttackers.length);
     for (let c = MIN_ATTACKERS; c <= maxCommit; c++) {
