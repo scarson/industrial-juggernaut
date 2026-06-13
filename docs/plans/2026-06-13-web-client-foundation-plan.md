@@ -59,12 +59,12 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** Phase 1 in flight (PR [#11](https://github.com/scarson/industrial-juggernaut/pull/11)).
+**Overall:** Phase 1 ✅ shipped (Task 1.1; Task 1.2 ⏳ Sam). Phase 2 🚧 in progress.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
-| 1 — CI gate + dev protection | 🚧 Task 1.1 in PR #11 (CI verifying); Task 1.2 ⏳ Sam | `6763ba8f` | Task 1.2 dev branch-protection prepared, awaiting Sam (admin) — see Phase 1 banner |
-| 2 — Attack validation fixes | ⬜ Not started | — | — |
+| 1 — CI gate + dev protection | ✅ Task 1.1 SHIPPED (PR [#11](https://github.com/scarson/industrial-juggernaut/pull/11) merged); Task 1.2 ⏳ Sam | `6763ba8f` (merge `55210819`) | dev branch-protection command prepared+verified, awaiting Sam (admin) — see Phase 1 banner |
+| 2 — Attack validation fixes | 🚧 In progress (branch `fix/attack-validation`) | — | — |
 | 3 — Bootstrap factory-only | ⬜ Not started | — | — |
 | 4 — Type move + representativeDefender + RNG codec | ⬜ Not started | — | — |
 | 5 — Human-choice setup phase | ⬜ Not started | — | highest-ripple phase |
@@ -73,6 +73,7 @@ notes and commit messages.
 
 ### Discoveries
 
+- **Cloudflare "Workers Builds" check fails on every commit (expected, non-blocking).** The repo has a Cloudflare Workers Builds Git integration (account `0387b81a…`, service `industrial-juggernaut`) that auto-builds on each push and FAILS because there is no deployable Worker / `wrangler` config yet (all Cloudflare runtime is deferred to the DO-host plan). This is external to GitHub Actions and is NOT the `check` job. **It does not gate merges:** `dev` is unprotected, and the Task 1.2 protection requires ONLY the `check` context (not "Workers Builds"). Every foundation PR will show this one red ✗ alongside a green `check` — that is normal until the DO-host plan adds the Worker (which should make it pass) or it is disabled in the interim. Merge gate for this plan = the `check` job is green.
 - **Gitflow is mid-cutover (transient state, execution-critical).** The `dev` and `main` branches exist on origin (`dev` is the integration branch holding all design work; local `main` mirrors `origin/main`), BUT the GitHub default branch is still `main`, there is no branch protection yet, and `docs/git-strategy.md` + `CLAUDE.md`/`AGENTS.md` still describe the OLD single-branch "main-only, no commits to local main, PRs to main" flow. **An executor MUST branch off `dev` and target PRs at `dev`** (per this plan and the File ownership table) — do NOT follow the stale `git-strategy.md` main-only instructions until the cutover lands. The full cutover (default-branch flip to `dev`, branch protection on both, the deploy/promote pipeline, `PROMOTE_TOKEN`, and the `git-strategy.md`/CLAUDE.md/AGENTS.md rewrites) is Task 1.2 (dev protection only) + the deferred DO-host plan (everything else, because it needs a deployable Worker). Source: web-client design spec §6 (atomic-cutover finding).
 - **Baseline assumption:** the engine has ~314 passing tests; this plan's TDD builds on that green baseline. The executor MUST confirm `bun run test` is clean on `dev` before starting Phase 2.
 
@@ -149,7 +150,7 @@ Test files are per-task (`test/engine/setup-phase.test.ts` is shared by 5.1 and 
 
 ## Phase 1 — CI gate + dev branch protection
 
-**Execution Status:** 🚧 Task 1.1 in PR [#11](https://github.com/scarson/industrial-juggernaut/pull/11) (`6763ba8f`), CI verifying. Task 1.2 (dev branch protection) ⏳ awaiting Sam — command prepared below.
+**Execution Status:** ✅ Task 1.1 SHIPPED — `6763ba8f` in PR [#11](https://github.com/scarson/industrial-juggernaut/pull/11) (merged to `dev` `55210819`); the `check` job ran green. Task 1.2 (dev branch protection) ⏳ awaiting Sam — verified command in Task 1.2 below.
 
 CI is config, not production code (TDD does not apply per CLAUDE.md scope), but the workflow MUST be verified green on a real PR before the phase is complete.
 
@@ -214,7 +215,26 @@ gh api -X PUT repos/scarson/industrial-juggernaut/branches/dev/protection \
   -F restrictions=
 ```
 
-(If the personal-repo API shape rejects this, fall back to a repository ruleset requiring the `check` status check on `dev`. Record whichever was used in the plan's Deviations.)
+**VERIFIED COMMAND (run by Sam — admin). Prefer this over the `-F` form above:** the classic-protection PUT requires all four top-level keys present and nullable, and `restrictions` MUST be `null` on a user (non-org) repo — `-F restrictions=` sends an empty string, not null, and is rejected. A JSON body via stdin sends proper nulls:
+
+```bash
+gh api -X PUT repos/scarson/industrial-juggernaut/branches/dev/protection \
+  --input - <<'JSON'
+{
+  "required_status_checks": { "strict": true, "checks": [{ "context": "check" }] },
+  "enforce_admins": false,
+  "required_pull_request_reviews": null,
+  "restrictions": null
+}
+JSON
+```
+
+Notes (verified during Phase 1 execution):
+- The required status-check context is **`check`** (the job key in workflow `CI`; confirmed from PR #11's run, which surfaced the check as `check`). It deliberately does NOT require the external Cloudflare **"Workers Builds"** check, which fails until a Worker exists (see Discoveries).
+- `enforce_admins: false` keeps an admin/break-glass bypass.
+- `strict: true` requires a PR branch be up to date with `dev` before merging — fine for sequential single-merger execution.
+- Confirmed: the executing agent's token is admin on the repo, but per this plan Sam runs the protection change (the agent prepares + hands off, does not mutate protection).
+- Fallback if the classic endpoint is rejected: a repository ruleset (`POST repos/scarson/industrial-juggernaut/rulesets`) with a `required_status_checks` rule on `dev` requiring context `check`. Record whichever was used in the plan's Deviations.
 
 - [ ] **Step 2: Note the deferral of `main` protection + deploy pipeline.**
 
@@ -226,7 +246,7 @@ gh api -X PUT repos/scarson/industrial-juggernaut/branches/dev/protection \
 
 ## Phase 2 — Attack validation fixes (`applyOneAttack`)
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** 🚧 IN PROGRESS — branch `fix/attack-validation` (off `dev` `55210819`).
 
 Two fixes in the same function (`applyOneAttack`, `src/engine/apply.ts`). Do them as one task to avoid same-file churn. Both close holes the future server-authoritative validation relies on (spec §3 Validation; both empirically reproduced in round-1 review).
 
