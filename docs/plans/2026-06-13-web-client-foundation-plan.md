@@ -59,14 +59,14 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** Phase 1 ✅ (Task 1.1; Task 1.2 ⏳ Sam) · Phase 2 ✅ (merged) · Phase 3 ✅ shipped (gate narrowed to `baseCount===1` — see Deviations) · Phase 4 next.
+**Overall:** Phase 1 ✅ (Task 1.1; Task 1.2 ⏳ Sam) · Phase 2 ✅ · Phase 3 ✅ (merged; gate `baseCount===1` — see Deviations) · Phase 4 🚧 in progress · Phases 5–7 pending.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
 | 1 — CI gate + dev protection | ✅ Task 1.1 SHIPPED (PR [#11](https://github.com/scarson/industrial-juggernaut/pull/11) merged); Task 1.2 ⏳ Sam | `6763ba8f` (merge `55210819`) | dev branch-protection command prepared+verified, awaiting Sam (admin) — see Phase 1 banner |
 | 2 — Attack validation fixes | ✅ SHIPPED (PR [#12](https://github.com/scarson/industrial-juggernaut/pull/12) merged `0e4d601a`) | `66aff888` | dup-attacker + self-defender guards; 316 tests green |
-| 3 — Bootstrap factory-only | ✅ SHIPPED | `e5141074` (+ `de2abfef` pitfalls) | gate `baseCount===1` (NOT `<4`); 320 tests green; GEO-7 added |
-| 4 — Type move + representativeDefender + RNG codec | ⬜ Not started | — | — |
+| 3 — Bootstrap factory-only | ✅ SHIPPED (PR [#13](https://github.com/scarson/industrial-juggernaut/pull/13) merged `d20887a6`) | `e5141074` (+ `de2abfef` pitfalls) | gate `baseCount===1` (NOT `<4`); 320 tests green; GEO-7 added |
+| 4 — Type move + representativeDefender + RNG codec | 🚧 In progress (branch `refactor/engine-types-defender-codec`) | — | — |
 | 5 — Human-choice setup phase | ⬜ Not started | — | highest-ripple phase |
 | 6 — Public API barrel | ⬜ Not started | — | depends on 2–5 |
 | 7 — Engine-vs-rulebook fidelity audit | ⬜ Not started | — | parallelizable; gates the later client plan |
@@ -330,7 +330,7 @@ git commit -m "fix(engine): reject duplicate attackers and self-defending target
 
 ## Phase 3 — Bootstrap is factory-only (budget from the bootstrap term)
 
-**Execution Status:** ✅ SHIPPED — `e5141074` (engine + tests) + `de2abfef` (pitfalls GEO-7) on branch `fix/bootstrap-factory-only`. **Gate is `floor(rc/2)===0 && baseCount===1 && iron>=1 && factories===0`** — narrowed from `baseCount<4` during execution (see top-of-plan Deviations + Discoveries: the `<4` gate regressed two validated agent tests; code is source of truth over the rules doc). 320 tests green (3 new bootstrap tests + 1 multi-base regression guard; the 2 agent tests stay green untouched), typecheck clean. PR backfilled at Phase 4.
+**Execution Status:** ✅ SHIPPED — `e5141074` (engine + tests) + `de2abfef` (pitfalls GEO-7) on branch `fix/bootstrap-factory-only`. **Gate is `floor(rc/2)===0 && baseCount===1 && iron>=1 && factories===0`** — narrowed from `baseCount<4` during execution (see top-of-plan Deviations + Discoveries: the `<4` gate regressed two validated agent tests; code is source of truth over the rules doc). 320 tests green (3 new bootstrap tests + 1 multi-base regression guard; the 2 agent tests stay green untouched), typecheck clean. Merged via PR [#13](https://github.com/scarson/industrial-juggernaut/pull/13) → `dev` `d20887a6`.
 
 **Deviation from spec §5 item 5 wording — read this.** The spec (and the round-2 finder) described the bootstrap gate as "baseCount < 4 && iron >= 1 && factories === 0". That is WRONG: it would suppress the legal radiating-phase 2nd/3rd base placement whenever a sub-4-base player controls iron and has no factory yet (the common early game). The correct gate ALSO requires `floor(resourceCount / 2) === 0` — i.e. the build budget comes ONLY from the bootstrap `+1` term. At `rc >= 2` the player has real budget and a base build is legal radiating play. Record this in the plan's Deviations.
 
@@ -459,7 +459,7 @@ git commit -m "fix(engine): bootstrap budget is factory-only (gate on floor(rc/2
 
 ## Phase 4 — Type move + representativeDefender + RNG codec
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** 🚧 IN PROGRESS — branch `refactor/engine-types-defender-codec` (off `dev` `d20887a6`).
 
 Three independent low-ripple additions. Different files → safe to do in any order.
 
