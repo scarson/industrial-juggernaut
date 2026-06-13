@@ -59,7 +59,7 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** 🚧 Executing on branch `feat/session-record-replay` (off `dev` `c817f3f2`). Phase 1 in progress.
+**Overall:** ✅ ALL PHASES COMPLETE on branch `feat/session-record-replay` (off `dev` `c817f3f2`). Phase 6 shipped 2026-06-13.
 
 ### Deviations
 - **Execution consolidated onto ONE branch + ONE PR** (not per-phase PRs). The `src/session/` files are all-new and disjoint; the cross-task dependencies (codec→types, applyEntry→types, record→applyEntry, replay→record) are satisfied by ordered commits on a single branch in one subagent-driven session, so the "merge to dev between phases" rule (written for parallel phase branches) is met by sequential same-branch commits. Per-task TDD + per-phase review checkpoints are preserved.
@@ -71,7 +71,7 @@ notes and commit messages.
 | 3 — `applyEntry` round state machine | ✅ Shipped | `2af3f451` | 2026-06-13 |
 | 4 — `recordGame` all-agent record driver | ✅ Shipped | `2d77e128` | 2026-06-13 |
 | 5 — `replayLog` + §7 replay-equivalence property tests | ✅ Shipped | `7c255aab`, `4a9f5dfb` | 2026-06-13 |
-| 6 — Session validation (defense in depth) | ⬜ Not started | — | depends on 1 |
+| 6 — Session validation (defense in depth) | ✅ Shipped | `b08d92f0`, `41fa80e1` | 2026-06-13 |
 
 ### Discoveries
 
@@ -1108,7 +1108,7 @@ git commit -m "test(session): replay equivalence at mid-turn elimination + regim
 
 ## Phase 6 — Session validation (defense in depth) + barrel
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED — Task 6.1: `b08d92f0`, Task 6.2: `41fa80e1` (2026-06-13)
 
 The named session-layer checks from spec §3 "Validation (defense in depth)". These back the §5 engine fixes and will be consumed by the interactive `GameSession` (plan 2) and the DO (plan 3). They operate on a `GameState` + a proposed action/entry; they NEVER membership-test against `legalActions` (representatives ≠ the legal space) — but **derived existence/eligibility checks are sanctioned and required**.
 
