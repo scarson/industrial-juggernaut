@@ -3,14 +3,12 @@
 // ABOUTME: randomness threads through the seeded PRNG carried in GameState). See Task 7.1.
 
 import { chooseAction } from "../agent/greedy";
-import { generateBoard } from "../board/generate";
-import { loadBoard } from "../board/load";
 import { control } from "../engine/control";
+import { initGame } from "../engine/init";
 import { stepRound } from "../engine/round";
 import { status } from "../engine/status";
-import { advanceRound, currentPlayer, setupGame } from "../engine/turn";
-import { seed } from "../rng/pcg";
-import type { Board, GameState, PlayerId } from "../engine/types";
+import { advanceRound, currentPlayer, placeFirstBase, representativeFirstBase } from "../engine/turn";
+import type { GameState, PlayerId } from "../engine/types";
 import type { GameResult, RunOptions } from "./record";
 
 /**
@@ -35,22 +33,17 @@ function snapshot(state: GameState): number[] {
  * `turnCap`, recorded as `hitTurnCap`.
  */
 export function runGame(opts: RunOptions): GameResult {
-  // 1. Seed the PRNG and build the board, threading rng forward (GEO-3).
-  let rng = seed(opts.seed);
-  let board: Board;
-  if (opts.boardSource.kind === "generate") {
-    const g = generateBoard(rng, {
-      size: opts.boardSource.size,
-      ironCount: opts.boardSource.ironCount,
-    });
-    board = g.board;
-    rng = g.rng;
-  } else {
-    board = loadBoard(opts.boardSource.def);
+  // 1. Board source + setup-phase state (rng threading per GEO-3 handled by initGame).
+  let state = initGame({
+    seed: opts.seed,
+    boardSource: opts.boardSource,
+    nPlayers: opts.nPlayers,
+    config: opts.config,
+  });
+  for (let i = 0; i < opts.nPlayers; i++) {
+    const p = state.phase.order[state.phase.indexInOrder]!;
+    state = placeFirstBase(state, p, representativeFirstBase(state, p));
   }
-
-  // 2. Initial state.
-  let state = setupGame(rng, board, opts.nPlayers, opts.config);
 
   const ironOverTime: number[][] = [];
 

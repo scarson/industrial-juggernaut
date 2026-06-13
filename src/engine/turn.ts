@@ -10,7 +10,7 @@ import type {
   Base,
   Board,
   GameState,
-  Phase,
+  Hex,
   Player,
   PlayerId,
   RngState,
@@ -52,6 +52,82 @@ function hexAngle(h: { x: number; z: number }): number {
   return Math.atan2(py, px);
 }
 
+/** Outer-ring hexes (ringDepthFromEdge === 0), sorted by projected angle then key. */
+function outerRingSorted(board: Board): Hex[] {
+  return board.hexes
+    .filter((h) => ringDepthFromEdge(h, board.hexes) === 0)
+    .sort((a, b) => {
+      const angA = hexAngle(a);
+      const angB = hexAngle(b);
+      if (angA !== angB) return angA - angB;
+      return key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0;
+    });
+}
+
+/**
+ * The deterministic auto-pick first base for `player`: the ideal evenly-spaced
+ * outer-ring index (`floor(player * outerCount / playerCount)`), then a forward
+ * (wrapping) scan for the first UNOCCUPIED outer-ring hex. In all-agent setup the
+ * ideal indices are distinct, so the ideal hex is always free and this returns it
+ * unchanged — all-agent seating is collision-free and deterministic. The skip only
+ * triggers in MIXED setup, when a human has taken a hex an agent's ideal would land on.
+ */
+export function representativeFirstBase(state: GameState, player: PlayerId): Hex {
+  const outer = outerRingSorted(state.board);
+  const occupied = new Set(state.bases.map((b) => key(b.hex)));
+  const ideal = Math.floor((player * outer.length) / state.players.length);
+  for (let i = 0; i < outer.length; i++) {
+    const h = outer[(ideal + i) % outer.length]!;
+    if (!occupied.has(key(h))) return h;
+  }
+  return outer[ideal]!; // unreachable while outer-ring count >= player count
+}
+
+/** The pre-placement setup-phase state: turn 0, id-order placement, no bases yet. */
+export function setupPhaseState(rng: RngState, board: Board, nPlayers: number, config: RuleConfig): GameState {
+  const players: Player[] = [];
+  for (let id = 0; id < nPlayers; id++) {
+    players.push({ id, basesInHand: config.baseLimit, alliance: [id], eliminated: false });
+  }
+  return {
+    board, bases: [], factories: [], players,
+    phase: { turn: 0, order: players.map((p) => p.id), indexInOrder: 0 },
+    factorySupply: config.factorySupply, config, rngState: rng,
+  };
+}
+
+/** Unoccupied outermost-ring hexes — the legal first-base placements during setup. */
+export function legalFirstBaseHexes(state: GameState): Hex[] {
+  const occupied = new Set(state.bases.map((b) => key(b.hex)));
+  return outerRingSorted(state.board).filter((h) => !occupied.has(key(h)));
+}
+
+/**
+ * Place `player`'s first base during the setup phase (turn 0). Validates: setup
+ * phase active, `player` is the current placer, `hex` is an unoccupied outermost-
+ * ring hex. On the LAST placement, draws the turn-1 order and transitions to turn 1.
+ * Consumes NO rng for placement; the turn-1 order is drawn by a single
+ * shuffle(rng, allIds) at the setup→play transition.
+ */
+export function placeFirstBase(state: GameState, player: PlayerId, hex: Hex): GameState {
+  if (state.phase.turn !== 0) throw new Error("placeFirstBase: not in setup phase");
+  const placer = state.phase.order[state.phase.indexInOrder];
+  if (placer !== player) throw new Error("placeFirstBase: not this player's setup turn");
+  if (!state.board.hexes.some((h) => key(h) === key(hex))) throw new Error("placeFirstBase: hex is not on the board");
+  if (ringDepthFromEdge(hex, state.board.hexes) !== 0) throw new Error("placeFirstBase: hex must be an outermost-ring hex");
+  if (state.bases.some((b) => key(b.hex) === key(hex))) throw new Error("placeFirstBase: hex is already occupied");
+
+  const bases = [...state.bases, { owner: player, hex, state: "fresh" as const, order: player }];
+  const players = state.players.map((p) => (p.id === player ? { ...p, basesInHand: p.basesInHand - 1 } : p));
+  const nextIdx = state.phase.indexInOrder + 1;
+  if (nextIdx < state.phase.order.length) {
+    return { ...state, bases, players, phase: { ...state.phase, indexInOrder: nextIdx } };
+  }
+  const allIds = players.map((p) => p.id);
+  const { result: order, rng } = shuffle(state.rngState, allIds);
+  return { ...state, bases, players, rngState: rng, phase: { turn: 1, order, indexInOrder: 0 } };
+}
+
 /**
  * Assemble the initial game state for `nPlayers`.
  *
@@ -67,50 +143,12 @@ export function setupGame(
   nPlayers: number,
   config: RuleConfig,
 ): GameState {
-  // Players: ids 0..nPlayers-1, one base placed below so basesInHand = baseLimit-1.
-  const players: Player[] = [];
-  for (let id = 0; id < nPlayers; id++) {
-    players.push({
-      id,
-      basesInHand: config.baseLimit - 1,
-      alliance: [id],
-      eliminated: false,
-    });
+  let state = setupPhaseState(rng, board, nPlayers, config);
+  for (let i = 0; i < nPlayers; i++) {
+    const p = state.phase.order[state.phase.indexInOrder]!;
+    state = placeFirstBase(state, p, representativeFirstBase(state, p));
   }
-
-  // Outer-ring hexes, deterministically sorted by projected angle then key.
-  const outer = board.hexes
-    .filter((h) => ringDepthFromEdge(h, board.hexes) === 0)
-    .sort((a, b) => {
-      const angA = hexAngle(a);
-      const angB = hexAngle(b);
-      if (angA !== angB) return angA - angB;
-      return key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0;
-    });
-
-  const bases: Base[] = [];
-  for (let id = 0; id < nPlayers; id++) {
-    const idx = Math.floor((id * outer.length) / nPlayers);
-    const hexAt = outer[idx] as Board["hexes"][number];
-    bases.push({ owner: id, hex: hexAt, state: "fresh", order: id });
-  }
-
-  // Turn 1 order: uniform over all player ids.
-  const allIds = players.map((p) => p.id);
-  const { result: order, rng: rngState } = shuffle(rng, allIds);
-
-  const phase: Phase = { turn: 1, order, indexInOrder: 0 };
-
-  return {
-    board,
-    bases,
-    factories: [],
-    players,
-    phase,
-    factorySupply: config.factorySupply,
-    config,
-    rngState,
-  };
+  return state;
 }
 
 /** The player whose round it currently is. */
@@ -195,6 +233,8 @@ function drawTurnOrder(
 /**
  * Advance to the next player's round; roll over to a new turn when the current
  * turn's order is exhausted. PURE (returns a new state, threads rng per GEO-3).
+ * Requires play to have begun (`phase.turn >= 1`); throws on a setup-phase
+ * (turn 0) state, where `placeFirstBase` drives placement instead.
  *
  * - Intra-turn (more players remain this turn): bump indexInOrder; no refresh.
  * - Rollover (turn complete): increment turn, refresh ALL bases to "fresh"
@@ -202,6 +242,9 @@ function drawTurnOrder(
  *   (per `drawTurnOrder`), and reset indexInOrder to 0.
  */
 export function advanceRound(state: GameState): GameState {
+  if (state.phase.turn === 0) {
+    throw new Error("advanceRound: cannot advance during the setup phase (turn 0); place all first bases first");
+  }
   const { order, indexInOrder } = state.phase;
 
   if (indexInOrder + 1 < order.length) {
