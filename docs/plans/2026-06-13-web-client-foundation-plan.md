@@ -59,7 +59,7 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** Phase 1 ✅ (Task 1.1; Task 1.2 ⏳ Sam) · Phase 2 ✅ · Phase 3 ✅ (gate `baseCount===1`) · Phase 4 ✅ · Phase 5 ✅ shipped (setup phase, structurally identical; 5.4 kept) · Phase 6 🚧 next · Phase 7 pending.
+**Overall:** Phase 1 ✅ (Task 1.1; Task 1.2 ⏳ Sam) · Phase 2 ✅ · Phase 3 ✅ (gate `baseCount===1`) · Phase 4 ✅ · Phase 5 ✅ · Phase 6 ✅ shipped (barrel) · Phase 7 🚧 next (fidelity audit, reframed by code-as-truth).
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
@@ -67,8 +67,8 @@ notes and commit messages.
 | 2 — Attack validation fixes | ✅ SHIPPED (PR [#12](https://github.com/scarson/industrial-juggernaut/pull/12) merged `0e4d601a`) | `66aff888` | dup-attacker + self-defender guards; 316 tests green |
 | 3 — Bootstrap factory-only | ✅ SHIPPED (PR [#13](https://github.com/scarson/industrial-juggernaut/pull/13) merged `d20887a6`) | `e5141074` (+ `de2abfef` pitfalls) | gate `baseCount===1` (NOT `<4`); 320 tests green; GEO-7 added |
 | 4 — Type move + representativeDefender + RNG codec | ✅ SHIPPED (PR [#14](https://github.com/scarson/industrial-juggernaut/pull/14) merged `86257f6f`) | `b85bc53e` `a955875e` `c1b02e42` | BoardSource move, defender extract, RNG codec; 329 green |
-| 5 — Human-choice setup phase | ✅ SHIPPED | `4da78345` `9bf26d95` `f7980e1a` `bb6fa5bd` | structurally identical; 5.4 kept (Elo parity); 345 green |
-| 6 — Public API barrel | ⬜ Not started | — | depends on 2–5 |
+| 5 — Human-choice setup phase | ✅ SHIPPED (PR [#15](https://github.com/scarson/industrial-juggernaut/pull/15) merged `a9dc804a`) | `4da78345` `9bf26d95` `f7980e1a` `bb6fa5bd` | structurally identical; 5.4 kept (Elo parity); 345 green |
+| 6 — Public API barrel | ✅ SHIPPED | `24cac155` | 24 value + 21 type re-exports; pure; build clean; 346 green |
 | 7 — Engine-vs-rulebook fidelity audit | ⬜ Not started | — | parallelizable; gates the later client plan |
 
 ### Discoveries
@@ -996,7 +996,7 @@ git commit -m "feat(engine): initGame shared init (board source + setup-phase st
 
 ## Phase 6 — Public API barrel
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED — `24cac155` on branch `feat/public-api-barrel`. Barrel populated (24 value + 21 type re-exports); smoke test pins every value export, typecheck pins the type exports, `bun run build` emits `dist/` clean. Purity re-confirmed: no value-level agent/driver import reachable from the barrel (Worker/browser-safe). 346 tests green. (Mechanical re-export, all symbols pre-verified — reviewed at the orchestrator level rather than a separate dispatch, since correctness is fully verifiable: symbols-exist + typecheck + build + purity.) PR backfilled at completion.
 
 Depends on Phases 2–5 (so all new symbols exist). Creates the surface a future Worker/client imports, per spec §5 item 1.
 
