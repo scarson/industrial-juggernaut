@@ -59,13 +59,13 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** Phase 1 ✅ shipped (Task 1.1; Task 1.2 ⏳ Sam). Phase 2 ✅ shipped. Phase 3 next.
+**Overall:** Phase 1 ✅ (Task 1.1; Task 1.2 ⏳ Sam) · Phase 2 ✅ (merged) · Phase 3 🚧 in progress.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
 | 1 — CI gate + dev protection | ✅ Task 1.1 SHIPPED (PR [#11](https://github.com/scarson/industrial-juggernaut/pull/11) merged); Task 1.2 ⏳ Sam | `6763ba8f` (merge `55210819`) | dev branch-protection command prepared+verified, awaiting Sam (admin) — see Phase 1 banner |
-| 2 — Attack validation fixes | ✅ SHIPPED | `66aff888` | dup-attacker + self-defender guards; 316 tests green |
-| 3 — Bootstrap factory-only | ⬜ Not started | — | — |
+| 2 — Attack validation fixes | ✅ SHIPPED (PR [#12](https://github.com/scarson/industrial-juggernaut/pull/12) merged `0e4d601a`) | `66aff888` | dup-attacker + self-defender guards; 316 tests green |
+| 3 — Bootstrap factory-only | 🚧 In progress (branch `fix/bootstrap-factory-only`) | — | — |
 | 4 — Type move + representativeDefender + RNG codec | ⬜ Not started | — | — |
 | 5 — Human-choice setup phase | ⬜ Not started | — | highest-ripple phase |
 | 6 — Public API barrel | ⬜ Not started | — | depends on 2–5 |
@@ -246,7 +246,7 @@ Notes (verified during Phase 1 execution):
 
 ## Phase 2 — Attack validation fixes (`applyOneAttack`)
 
-**Execution Status:** ✅ SHIPPED — `66aff888` on branch `fix/attack-validation`. Both guards added (`/distinct/i`, `/defender cannot be the target/i`); +2 tests, full suite **316 green**, typecheck clean; independent review APPROVED (confirmed `legalActions` already dedupes attackers and excludes target-as-defender, so no legal action regresses). Minor: test action literals use an explicit `: Action` annotation rather than `as const` (`as const` makes `attacks` a readonly tuple incompatible with the mutable `AttackDecl[]`; behavior identical). PR opening — number backfilled at Phase 3.
+**Execution Status:** ✅ SHIPPED — `66aff888` on branch `fix/attack-validation`. Both guards added (`/distinct/i`, `/defender cannot be the target/i`); +2 tests, full suite **316 green**, typecheck clean; independent review APPROVED (confirmed `legalActions` already dedupes attackers and excludes target-as-defender, so no legal action regresses). Minor: test action literals use an explicit `: Action` annotation rather than `as const` (`as const` makes `attacks` a readonly tuple incompatible with the mutable `AttackDecl[]`; behavior identical). Merged via PR [#12](https://github.com/scarson/industrial-juggernaut/pull/12) → `dev` `0e4d601a`.
 
 Two fixes in the same function (`applyOneAttack`, `src/engine/apply.ts`). Do them as one task to avoid same-file churn. Both close holes the future server-authoritative validation relies on (spec §3 Validation; both empirically reproduced in round-1 review).
 
@@ -325,7 +325,7 @@ git commit -m "fix(engine): reject duplicate attackers and self-defending target
 
 ## Phase 3 — Bootstrap is factory-only (budget from the bootstrap term)
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** 🚧 IN PROGRESS — branch `fix/bootstrap-factory-only` (off `dev` `0e4d601a`). Implementing the corrected gate `floor(rc/2)===0` (NOT `baseCount<4`), with the radiating-phase regression guard.
 
 **Deviation from spec §5 item 5 wording — read this.** The spec (and the round-2 finder) described the bootstrap gate as "baseCount < 4 && iron >= 1 && factories === 0". That is WRONG: it would suppress the legal radiating-phase 2nd/3rd base placement whenever a sub-4-base player controls iron and has no factory yet (the common early game). The correct gate ALSO requires `floor(resourceCount / 2) === 0` — i.e. the build budget comes ONLY from the bootstrap `+1` term. At `rc >= 2` the player has real budget and a base build is legal radiating play. Record this in the plan's Deviations.
 
