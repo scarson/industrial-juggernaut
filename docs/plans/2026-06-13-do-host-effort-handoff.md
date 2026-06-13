@@ -2,6 +2,8 @@
 
 Durable consolidation for the next session. Detail lives in the linked artifacts; this doc is the map + the priority queue + a paste-ready continuation prompt. Points at artifacts rather than duplicating them.
 
+> **⚡ UPDATE (later same session): plan 1 is now EXECUTED + merged** ([PR #20](https://github.com/scarson/industrial-juggernaut/pull/20), `dev` tip `915bbdba`). The `src/session/` Session Record & Replay Core ships: 8 source files, 40 new tests (engine now **386 green**), determinism proven by the live-driver cross-checks + replay-equivalence property tests, `src/index.ts` agent-free purity preserved. Plan 1's own Execution Status banners are all ✅. **Priority queue and continuation prompt below are updated accordingly — the new top item is "draft plan 2", NOT "execute plan 1".** The 4-plan table and "what shipped" below still say "plan 1 ready to execute" in places (point-in-time when this doc was written); the authoritative current state is this banner + plan 1's own ✅ banners.
+
 ## Headline state
 
 - **Branch / tip:** `dev` at `dfe7107e` (all work merged). Local `claude/kind-dewdney-6a6267` mirrors `origin/dev`, clean tree. Worktree: `.claude/worktrees/kind-dewdney-6a6267`.
@@ -50,19 +52,20 @@ Spec §3 says "the DO is a thin host (sockets, storage, one alarm) around a **pu
 
 ## Priority queue (numbered, with dependencies)
 
-1. **Execute plan 1** (`docs/plans/2026-06-13-session-record-replay-plan.md`) via `superpowers:subagent-driven-development` — 6 phases, all-new `src/session/` files, bun/vitest only, no infra. Produces the session record/replay core + the all-agent-viewer backend. Self-contained; ready now. **(Recommended first — concrete code, low risk, fully reviewed plan.)**
-2. **Draft plan 2** (interactive `GameSession` reducer) from spec §3 (Wire protocol + Pending decisions + the agent-drive invariant). Still pure/vitest. Depends on plan 1's symbols existing (best after #1 lands, but the plan doc can be written against plan 1's documented API anytime).
-3. **Sam: run Task 1.2** branch-protection command (independent).
-4. **Draft plan 3** (DO host + staging deploy) — needs Cloudflare research (use the `durable-objects`/`cloudflare`/`wrangler` skills). Largest infra surface.
-5. **Draft plan 4** (production cutover) — after plan 3 produces a staging-validated Worker.
+0. ~~**Execute plan 1**~~ — ✅ DONE (PR #20, merged to `dev`; `src/session/` ships, 386 tests green).
+1. **Draft plan 2** (interactive `GameSession` reducer) from spec §3 (Wire protocol + Pending decisions + the agent-drive invariant). Still pure/vitest. Builds on plan 1's now-shipped `applyEntry`/`validation`/`recordGame`/`replayLog` (real symbols on `dev` — `src/session/index.ts` barrel). Use the proven plan-flow: `superpowers:writing-plans-enhanced` → `plan-review-cycle` (incl. a cross-model codex round). **(Recommended next.)**
+2. **Sam: run Task 1.2** branch-protection command (independent).
+3. **Draft plan 3** (DO host + staging deploy) — needs Cloudflare research (use the `durable-objects`/`cloudflare`/`wrangler`/`workers-best-practices` skills). Largest infra surface. Wraps plan 1+2's pure `GameSession`.
+4. **Draft plan 4** (production cutover) — after plan 3 produces a staging-validated Worker.
+5. **(Optional) wire up §4's all-agent viewer** — plan 1's `recordGame`/`replayLog` are the backend; a Phase-1 minimal viewer (step through a recorded game) can be built on them independently of the DO host.
 
 ## Continuation prompt (paste-ready for a fresh session)
 
-> Continue the Industrial Juggernaut DO-host effort. State: web-client foundation (Phase 1a) is COMPLETE and merged to `dev` (tip is whatever `git log origin/dev` shows; 346 tests green). The 4-plan decomposition + status is in `docs/plans/2026-06-13-do-host-effort-handoff.md`. **Read that handoff first**, then `docs/plans/2026-06-13-session-record-replay-plan.md` (plan 1, ready to execute) and CLAUDE.md + `docs/pitfalls/*`.
+> Continue the Industrial Juggernaut DO-host effort. State: web-client foundation (Phase 1a) AND DO-host **plan 1 (Session Record & Replay Core)** are both COMPLETE and merged to `dev` (tip is whatever `git log origin/dev` shows; **386 tests green**; the `src/session/` module ships record/replay/validation). The 4-plan decomposition + current status is in `docs/plans/2026-06-13-do-host-effort-handoff.md` (read its ⚡ UPDATE banner). **Read that handoff first**, then CLAUDE.md + `docs/pitfalls/*` + the spec `docs/superpowers/specs/2026-06-12-web-client-design.md`.
 >
-> Branch off `dev` (NOT main — the repo's git-strategy.md is stale; see the handoff), PR to `dev`, merge on green `check` (the red "Workers Builds" check is expected noise, not a gate). `bun run test` (never `bun test`); bun-only machine.
+> Branch off `dev` (NOT main — the repo's git-strategy.md is stale; see the handoff), PR to `dev`, merge on green `check` (the red "Workers Builds" check is expected noise, not a gate). `bun run test` (never `bun test`); bun-only machine. Git gotchas: branch from `origin/dev` (can't `git checkout dev` — it's checked out in the main worktree); merge with `gh pr merge <N> --merge` then delete the branch manually (`--delete-branch` errors locally).
 >
-> **Default task: execute plan 1** via `superpowers:subagent-driven-development` — fresh subagent per task, TDD red→green, review between tasks, one PR per phase (or one PR for the cohesive new `src/session/` module — executor's call, note it as a deviation). Confirm `bun run test` is green on `dev` first. The plan is subagent-ready with exact code; honor its Execution Discipline block and the anti-tautology cross-checks in Task 4.1. If instead Sam wants more PLANS first, draft plan 2 (interactive reducer) per the handoff's priority queue.
+> **Default task: draft plan 2 — the interactive `GameSession` reducer** from spec §3 (Wire protocol: command envelope + `expectedLogIndex` + seat-claim + resync; Pending decisions: defender proposal/substitution + timeout; the agent-drive invariant). It's pure/vitest (no workerd), building on plan 1's shipped `applyEntry`/`recordGame`/`replayLog`/validation (`src/session/index.ts`). Use `superpowers:writing-plans-enhanced` → then `plan-review-cycle` (≥3 rounds incl. a cross-model codex round — that round caught the highest-value bugs in plan 1). If instead Sam wants to first build §4's minimal all-agent VIEWER on plan 1's record/replay, that's priority-queue item 5. Confirm `bun run test` is green on `dev` before any code.
 
 ## Adversarial review of this handoff
 
