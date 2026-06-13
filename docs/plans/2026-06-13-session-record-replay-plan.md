@@ -141,7 +141,7 @@ Execute phases in numeric order. Within shared-file sets, the earlier task MUST 
 | `src/session/record.ts` | 4.1 (create `recordGame`) | after 3.1 |
 | `src/session/replay.ts` | 5.1 (create `replayLog`) | after 3.1, 2.1 |
 | `src/session/validation.ts` | 6.1 (create) | after 1.1 |
-| `src/index.ts` (barrel) | 6.2 (add session exports) | after 1–6 |
+| `src/session/index.ts` (session barrel) | 6.2 (create — NOT `src/index.ts`) | after 1–6 |
 
 **Safe to parallelize** (file-disjoint): Phase 2 (`hash.ts`) is independent of Phase 1 and may run anytime after `src/session/types.ts` is unnecessary for it (it only needs `GameState` from the engine). Everything else is sequential through the `types.ts → round.ts → record.ts → replay.ts` chain.
 
@@ -648,7 +648,7 @@ import { applyAction } from "../engine/apply";
 import { applyEliminations, status } from "../engine/status";
 import { removeEncircledStrandedBases } from "../engine/stranded";
 import { advanceRound, placeFirstBase } from "../engine/turn";
-import type { Action, GameEvent, GameState } from "../engine/types";
+import type { Action, GameEvent, GameState, PlayerId } from "../engine/types";
 import type { LogEntry } from "./types";
 
 export type ApplyEntryResult = {
@@ -659,7 +659,7 @@ export type ApplyEntryResult = {
 };
 
 /** The per-declaration canonical composition: applyAction -> applyEliminations(actor) -> removeStranded. */
-function compose(state: GameState, player: GameState["players"][number]["id"], action: Action): { state: GameState; events: GameEvent[] } {
+function compose(state: GameState, player: PlayerId, action: Action): { state: GameState; events: GameEvent[] } {
   const applied = applyAction(state, action);
   const elim = applyEliminations(applied.state, player);
   const stranded = removeEncircledStrandedBases(elim.state);
@@ -959,7 +959,7 @@ test("a SessionRecord that round-trips through JSON replays identically", () => 
 });
 ```
 
-> **A property counterexample is a REAL replay-divergence bug** — fix the cause (a wrong `rngBeforeApply` capture, a kind mishandled in `applyEntry`, a non-canonical `stateHash`), NEVER shrink the generator or lower `numRuns` to dodge it. `numRuns: 50` is a floor; raise it if a regime is under-sampled.
+> **A property counterexample is a REAL replay-divergence bug** — fix the cause (a wrong `rngBeforeApply` capture, a kind mishandled in `applyEntry`, a non-canonical `stateHash`), NEVER shrink the generator to dodge a counterexample. The property test uses greedy seats (the fast agent path), so 50 short games run in seconds; the **5 fixed-seed games in the first test are the non-negotiable correctness floor** (deterministic, always run), and the property test adds breadth. `numRuns` MAY be tuned for CI wall-clock (keep ≥ 30) but MUST NOT be lowered *to make a failing run pass* — a failure is a bug, not a budget problem.
 
 Run `bun run test -- session/replay` → FAIL (module missing).
 
@@ -1011,7 +1011,7 @@ git commit -m "feat(session): replayLog + replay-equivalence property tests (rec
   - **Regime boundary 3↔4 bases:** a game where some player crosses from 3 to 4 bases (radiating→perimeter); replay identical.
   - **Commitment levels:** a game with `combat` events at ≥2 distinct commitment values; replay identical.
 
-  Each test MUST include an `expect(...).toBe(true)` that the regime was present in `rec` (e.g. `expect(rec.log.some(e => e.kind === "roundSkipped")).toBe(true)`), then the `toEqual` replay assertion. If no seed in your search reaches the regime, widen the search (more seeds / players), do not delete the test.
+  Each test MUST include an `expect(...).toBe(true)` that the regime was present in `rec` (e.g. `expect(rec.log.some(e => e.kind === "roundSkipped")).toBe(true)`), then the `toEqual` replay assertion. If no seed in your search reaches the regime, widen the search (more seeds / players), do not delete the test. **Do NOT add or modify engine code to force a regime** — only search seeds (and, if truly necessary, hand-build a `GameState` via `mkState` and feed it through `recordGame`-style stepping). The engine is frozen for this plan; a regime that is genuinely unreachable is a finding to raise, not to engineer around.
 
 - [ ] **Step 2: Run** `bun run test -- session/replay-edges` → green. Full `bun run test` + typecheck → green.
 
@@ -1086,11 +1086,16 @@ test("build pieces of mixed type or duplicate hex are rejected; a clean single-t
 });
 ```
 
-> Run the fixtures first; if any coordinate is off-board or a regime doesn't hold (e.g. `validatePass` needs a state where `legalActions` yields more than pass), adjust the fixture using verified coords — do NOT loosen the assertion. The `validateAttackEligibility` (check 4) test additionally needs a target with no fresh in-range defender; build that fixture (opponent has only the target base) and assert `code === "NO_ELIGIBLE_DEFENDER"`.
+> Run the fixtures first; if any coordinate is off-board or a regime doesn't hold (e.g. `validatePass` needs a state where `legalActions` yields more than pass), adjust the fixture using verified coords — do NOT loosen the assertion. **Add one more test** for check 4 (`validateAttackDecl`'s no-eligible-defender path): build a fixture where the target is the opponent's ONLY base (so `representativeDefender(state, target, owner)` is `null`) and assert `validateAttackDecl(state, owner, declWithThatTarget)?.code === "NO_ELIGIBLE_DEFENDER"`. (Reuse `hex(2,-2,0)` as the lone opponent base with three in-range p0 attackers; the defender field can be any hex since the eligibility check fires first.)
 
 Run `bun run test -- session/validation` → FAIL (module missing).
 
-- [ ] **Step 2: Implement `src/session/validation.ts`** with `validatePass`, `validateAttackDecl` (checks 2–4 combined per declaration), `validateBuildPieces` (check 5), each returning `{ code, message } | null`. Use `legalActions` ONLY for forced-pass; use `representativeDefender` for eligibility; `key` for the Set checks. Keep messages human-readable (they surface as rule explanations per §4). Exact codes: `PASS_NOT_FORCED`, `ATTACK_NOT_SINGLE_DECL`, `DUP_ATTACKERS`, `DEFENDER_IS_TARGET`, `NO_ELIGIBLE_DEFENDER`, `MIXED_PIECE_TYPES`, `DUP_PIECES`.
+- [ ] **Step 2: Implement `src/session/validation.ts`.** Three exported predicates, each returning `{ code: string; message: string } | null`:
+> - `validatePass(state): SessionError | null` — check 1. Returns `PASS_NOT_FORCED` when `!config.allowPass` AND `legalActions(state)` contains an action whose `kind !== "pass"`. (`legalActions` is used here ONLY for forced-pass detection — the one sanctioned `legalActions` use; never for membership-testing a submitted action.)
+> - `validateAttackDecl(state, defenderOwner: PlayerId, decl: AttackDecl): SessionError | null` — checks 2–4, in order: `ATTACK_NOT_SINGLE_DECL` is NOT this function's job (single-decl is enforced where the `attack` command is parsed — see note); this function checks the single decl: `DUP_ATTACKERS` (Set on `key(hex)` over `decl.attackers`), `DEFENDER_IS_TARGET` (`key(decl.defender) === key(decl.target)`), then `NO_ELIGIBLE_DEFENDER` (`representativeDefender(state, decl.target, defenderOwner) === null`). First failing check wins.
+> - `validateBuildPieces(pieces: Piece[]): SessionError | null` — check 5: `MIXED_PIECE_TYPES` (more than one distinct `type`), `DUP_PIECES` (duplicate `key(hex)`). Budget is the engine's job at apply time, not here.
+>
+> Export a `SessionError = { code: string; message: string }` type. Messages MUST be human-readable (they surface as rule explanations per §4). Exact codes: `PASS_NOT_FORCED`, `DUP_ATTACKERS`, `DEFENDER_IS_TARGET`, `NO_ELIGIBLE_DEFENDER`, `MIXED_PIECE_TYPES`, `DUP_PIECES`. (Check 2's single-declaration / `attacks:[]` rejection — code `ATTACK_NOT_SINGLE_DECL` — lives in the command parser of the interactive `GameSession`, plan 2, not in these state-level predicates; it is listed here for traceability to spec §3 Validation but is explicitly out of scope for this task. Do NOT add an `attacks[]` param to `validateAttackDecl`.)
 
 - [ ] **Step 3: Run** `bun run test -- session/validation` → PASS. Full `bun run test` + typecheck → green.
 
@@ -1103,50 +1108,52 @@ git commit -m "feat(session): defense-in-depth validation (forced-pass, single-d
 
 - [ ] **Step 5: Apply the Execution Discipline block.**
 
-### Task 6.2: Export the session surface from the barrel
+### Task 6.2: Create the session barrel `src/session/index.ts`
 
 **Files:**
-- Modify: `src/index.ts`
+- Create: `src/session/index.ts`
 - Test: `test/session/barrel.test.ts` (new)
 
-Expose the session API a future Worker/client imports, alongside the engine surface. Keep value exports pure (the session module already forbids `src/driver` imports; `recordGame` imports `src/agent`, which is acceptable in the barrel — the agent stack is needed for the all-agent viewer — but confirm `bun run build` stays clean and note the bundle includes agents via `recordGame`).
+**Why a SEPARATE barrel (do NOT add these to `src/index.ts`):** foundation Phase 6 made the engine barrel `src/index.ts` deliberately **agent-free** (a documented purity property — its consumers include the client's engine-only hint-highlighting and the lean Worker engine surface). `recordGame` imports `src/agent/**` (greedy/heuristic), so adding it to `src/index.ts` would drag the agent stack into every engine-barrel import. The session surface therefore gets its OWN barrel, `src/session/index.ts`. Consumers split cleanly: engine-only consumers import `src/index.ts` (agent-free); the all-agent viewer and the DO/server (which legitimately run agents via the agent-drive invariant) import `src/session/index.ts`. **Do NOT touch `src/index.ts` in this task** — leave its agent-free purity intact.
 
 - [ ] **Step 1: Write the failing smoke test** (`test/session/barrel.test.ts`):
 
 ```ts
-// ABOUTME: Smoke test for the session surface on the public barrel — value exports present and callable.
+// ABOUTME: Smoke test for the session barrel — value exports present and callable.
 import { test, expect } from "vitest";
-import * as IJ from "../../src/index";
-test("barrel exposes the session record/replay/codec/hash/validation surface", () => {
+import * as S from "../../src/session/index";
+test("session barrel exposes record/replay/codec/hash/validation", () => {
   for (const name of ["recordGame","replayLog","applyEntry","stateHash","encodeRecord","decodeRecord","encodeEntry","decodeEntry","validatePass","validateAttackDecl","validateBuildPieces"]) {
-    expect(typeof (IJ as any)[name]).toBe("function");
+    expect(typeof (S as any)[name]).toBe("function");
   }
 });
 ```
 
 Run `bun run test -- session/barrel` → FAIL.
 
-- [ ] **Step 2: Add to `src/index.ts`** (after the engine exports):
+- [ ] **Step 2: Create `src/session/index.ts`:**
 
 ```ts
-export { recordGame } from "./session/record";
-export { replayLog } from "./session/replay";
-export { applyEntry } from "./session/round";
-export { stateHash } from "./session/hash";
-export { encodeRecord, decodeRecord, encodeEntry, decodeEntry } from "./session/codec";
-export { validatePass, validateAttackDecl, validateBuildPieces } from "./session/validation";
-export type { SessionRecord, EncodedLogEntry, LogEntry, SessionHeader, SeatConfig, Piece, LogEntryKind } from "./session/types";
-export type { RecordResult } from "./session/record";
-export type { ApplyEntryResult } from "./session/round";
+// ABOUTME: Public session barrel — record/replay/codec/hash/validation surface for the DO host + all-agent viewer.
+// ABOUTME: Distinct from the engine barrel src/index.ts (which stays agent-free); recordGame pulls in src/agent.
+export { recordGame } from "./record";
+export { replayLog } from "./replay";
+export { applyEntry } from "./round";
+export { stateHash } from "./hash";
+export { encodeRecord, decodeRecord, encodeEntry, decodeEntry } from "./codec";
+export { validatePass, validateAttackDecl, validateBuildPieces } from "./validation";
+export type { SessionRecord, EncodedLogEntry, LogEntry, SessionHeader, SeatConfig, Piece, LogEntryKind } from "./types";
+export type { RecordResult } from "./record";
+export type { ApplyEntryResult } from "./round";
 ```
 
-- [ ] **Step 3: Run** `bun run test -- session/barrel` → PASS. `bun run typecheck && bun run build && bun run test` → all green.
+- [ ] **Step 3: Run** `bun run test -- session/barrel` → PASS. `bun run typecheck && bun run build && bun run test` → all green. **Verify `src/index.ts` is unchanged** (`git diff src/index.ts` empty) — the engine barrel stays agent-free.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/index.ts test/session/barrel.test.ts
-git commit -m "feat(session): export record/replay/codec/hash/validation from the public barrel"
+git add src/session/index.ts test/session/barrel.test.ts
+git commit -m "feat(session): session barrel (src/session/index.ts) — record/replay/codec/hash/validation"
 ```
 
 - [ ] **Step 5: Apply the Execution Discipline block.**
