@@ -10,6 +10,7 @@ import type {
   Base,
   Board,
   GameState,
+  Hex,
   Phase,
   Player,
   PlayerId,
@@ -50,6 +51,50 @@ function hexAngle(h: { x: number; z: number }): number {
   const px = Math.sqrt(3) * (h.x + h.z / 2);
   const py = 1.5 * h.z;
   return Math.atan2(py, px);
+}
+
+/** Outer-ring hexes (ringDepthFromEdge === 0), sorted by projected angle then key. */
+function outerRingSorted(board: Board): Hex[] {
+  return board.hexes
+    .filter((h) => ringDepthFromEdge(h, board.hexes) === 0)
+    .sort((a, b) => {
+      const angA = hexAngle(a);
+      const angB = hexAngle(b);
+      if (angA !== angB) return angA - angB;
+      return key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0;
+    });
+}
+
+/**
+ * The deterministic auto-pick first base for `player`. Computes the ideal evenly
+ * spaced index (the setupGame seating math), then scans forward (wrapping) for the
+ * first UNOCCUPIED outer-ring hex. In all-agent setup the ideal indices are
+ * distinct, so the ideal hex is always free and this returns it unchanged,
+ * preserving structural identity with the legacy setupGame. The skip only triggers
+ * in MIXED setup, when a human has taken a hex an agent's ideal would land on.
+ */
+export function representativeFirstBase(state: GameState, player: PlayerId): Hex {
+  const outer = outerRingSorted(state.board);
+  const occupied = new Set(state.bases.map((b) => key(b.hex)));
+  const ideal = Math.floor((player * outer.length) / state.players.length);
+  for (let i = 0; i < outer.length; i++) {
+    const h = outer[(ideal + i) % outer.length]!;
+    if (!occupied.has(key(h))) return h;
+  }
+  return outer[ideal]!; // unreachable while outer-ring count >= player count
+}
+
+/** The pre-placement setup-phase state: turn 0, id-order placement, no bases yet. */
+export function setupPhaseState(rng: RngState, board: Board, nPlayers: number, config: RuleConfig): GameState {
+  const players: Player[] = [];
+  for (let id = 0; id < nPlayers; id++) {
+    players.push({ id, basesInHand: config.baseLimit, alliance: [id], eliminated: false });
+  }
+  return {
+    board, bases: [], factories: [], players,
+    phase: { turn: 0, order: players.map((p) => p.id), indexInOrder: 0 },
+    factorySupply: config.factorySupply, config, rngState: rng,
+  };
 }
 
 /**
