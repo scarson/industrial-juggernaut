@@ -28,6 +28,11 @@ export type BoardDefinition = {
   iron: Hex[];
 };
 
+// Where a game's board comes from: procedurally generated, or a fixed definition.
+export type BoardSource =
+  | { kind: "generate"; size: number; ironCount: number }
+  | { kind: "fixed"; def: BoardDefinition };
+
 export type Player = {
   id: PlayerId;
   basesInHand: number; // of 12, how many not yet on board
