@@ -59,15 +59,15 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** Phase 1 ✅ (Task 1.1; Task 1.2 ⏳ Sam) · Phase 2 ✅ · Phase 3 ✅ (gate `baseCount===1` — see Deviations) · Phase 4 ✅ shipped · Phase 5 🚧 next (highest ripple) · Phases 6–7 pending.
+**Overall:** Phase 1 ✅ (Task 1.1; Task 1.2 ⏳ Sam) · Phase 2 ✅ · Phase 3 ✅ (gate `baseCount===1` — see Deviations) · Phase 4 ✅ (merged) · Phase 5 🚧 in progress (highest ripple) · Phases 6–7 pending.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
 | 1 — CI gate + dev protection | ✅ Task 1.1 SHIPPED (PR [#11](https://github.com/scarson/industrial-juggernaut/pull/11) merged); Task 1.2 ⏳ Sam | `6763ba8f` (merge `55210819`) | dev branch-protection command prepared+verified, awaiting Sam (admin) — see Phase 1 banner |
 | 2 — Attack validation fixes | ✅ SHIPPED (PR [#12](https://github.com/scarson/industrial-juggernaut/pull/12) merged `0e4d601a`) | `66aff888` | dup-attacker + self-defender guards; 316 tests green |
 | 3 — Bootstrap factory-only | ✅ SHIPPED (PR [#13](https://github.com/scarson/industrial-juggernaut/pull/13) merged `d20887a6`) | `e5141074` (+ `de2abfef` pitfalls) | gate `baseCount===1` (NOT `<4`); 320 tests green; GEO-7 added |
-| 4 — Type move + representativeDefender + RNG codec | ✅ SHIPPED | `b85bc53e` `a955875e` `c1b02e42` | BoardSource move, defender extract, RNG codec; 329 green |
-| 5 — Human-choice setup phase | ⬜ Not started | — | highest-ripple phase |
+| 4 — Type move + representativeDefender + RNG codec | ✅ SHIPPED (PR [#14](https://github.com/scarson/industrial-juggernaut/pull/14) merged `86257f6f`) | `b85bc53e` `a955875e` `c1b02e42` | BoardSource move, defender extract, RNG codec; 329 green |
+| 5 — Human-choice setup phase | 🚧 In progress (branch `feat/setup-phase`) | — | highest-ripple phase |
 | 6 — Public API barrel | ⬜ Not started | — | depends on 2–5 |
 | 7 — Engine-vs-rulebook fidelity audit | ⬜ Not started | — | parallelizable; gates the later client plan |
 
@@ -330,7 +330,7 @@ git commit -m "fix(engine): reject duplicate attackers and self-defending target
 
 ## Phase 3 — Bootstrap is factory-only (budget from the bootstrap term)
 
-**Execution Status:** ✅ SHIPPED — `e5141074` (engine + tests) + `de2abfef` (pitfalls GEO-7) on branch `fix/bootstrap-factory-only`. **Gate is `floor(rc/2)===0 && baseCount===1 && iron>=1 && factories===0`** — narrowed from `baseCount<4` during execution (see top-of-plan Deviations + Discoveries: the `<4` gate regressed two validated agent tests; code is source of truth over the rules doc). 320 tests green (3 new bootstrap tests + 1 multi-base regression guard; the 2 agent tests stay green untouched), typecheck clean. Merged via PR [#13](https://github.com/scarson/industrial-juggernaut/pull/13) → `dev` `d20887a6`.
+**Execution Status:** ✅ SHIPPED — `e5141074` (engine + tests) + `de2abfef` (pitfalls GEO-7) on branch `fix/bootstrap-factory-only`. **Gate is `floor(rc/2)===0 && baseCount===1 && iron>=1 && factories===0`** — narrowed from `baseCount<4` during execution (see top-of-plan Deviations + Discoveries: the `<4` gate regressed two validated agent tests; code is source of truth over the rules doc). 320 tests green (3 new bootstrap tests + 1 multi-base regression guard; the 2 agent tests stay green untouched), typecheck clean. Merged via PR [#13](https://github.com/scarson/industrial-juggernaut/pull/13) → `dev` `d20887a6`. (Phase 4 then merged via PR [#14](https://github.com/scarson/industrial-juggernaut/pull/14) → `dev` `86257f6f`.)
 
 **Deviation from spec §5 item 5 wording — read this.** The spec (and the round-2 finder) described the bootstrap gate as "baseCount < 4 && iron >= 1 && factories === 0". That is WRONG: it would suppress the legal radiating-phase 2nd/3rd base placement whenever a sub-4-base player controls iron and has no factory yet (the common early game). The correct gate ALSO requires `floor(resourceCount / 2) === 0` — i.e. the build budget comes ONLY from the bootstrap `+1` term. At `rc >= 2` the player has real budget and a base build is legal radiating play. Record this in the plan's Deviations.
 
@@ -663,6 +663,8 @@ git commit -m "feat(rng): bigint<->decimal RngState codec for JSON wire/storage"
 ## Phase 5 — Human-choice setup phase
 
 **Execution Status:** ⬜ NOT STARTED
+
+**Execution Status:** 🚧 IN PROGRESS — branch `feat/setup-phase` (off `dev` `86257f6f`).
 
 **Highest-ripple phase. The design that keeps it safe:** the setup phase is built so the agent/simulator path (`setupGame`) produces a STRUCTURALLY IDENTICAL state to today (deep `toEqual`, not byte-level serialization). That requires three invariants: (1) placement order during setup is deterministic id-order and consumes NO rng; (2) `representativeFirstBase` reproduces the exact angle-spaced hexes the current `setupGame` seats — its occupied-skip never triggers in all-agent setup because the ideal indices are distinct; (3) the turn-1 order is drawn by the SAME `shuffle(rng, allIds)` call at the SAME rng point (after board-gen, no intervening draws). With all three, an all-agent game via the new init is identical to the old one and no fixtures break.
 
