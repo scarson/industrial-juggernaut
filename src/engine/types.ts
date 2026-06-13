@@ -41,9 +41,9 @@ export type Player = {
 };
 
 export type Phase = {
-  turn: number; // full cycles completed + 1
-  order: PlayerId[]; // this turn's round order
-  indexInOrder: number; // whose round it is
+  turn: number; // 0 = setup phase (placing first bases); >=1 = play (full cycles completed + 1)
+  order: PlayerId[]; // setup: placement order; play: this turn's round order
+  indexInOrder: number; // whose round/placement it is
 };
 
 // RngState is owned by `../rng/pcg` (the canonical PCG32 implementation) and
