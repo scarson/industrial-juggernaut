@@ -71,6 +71,11 @@ notes and commit messages.
 | 6 — Public API barrel | ⬜ Not started | — | depends on 2–5 |
 | 7 — Engine-vs-rulebook fidelity audit | ⬜ Not started | — | parallelizable; gates the later client plan |
 
+### Discoveries
+
+- **Gitflow is mid-cutover (transient state, execution-critical).** The `dev` and `main` branches exist on origin (`dev` is the integration branch holding all design work; local `main` mirrors `origin/main`), BUT the GitHub default branch is still `main`, there is no branch protection yet, and `docs/git-strategy.md` + `CLAUDE.md`/`AGENTS.md` still describe the OLD single-branch "main-only, no commits to local main, PRs to main" flow. **An executor MUST branch off `dev` and target PRs at `dev`** (per this plan and the File ownership table) — do NOT follow the stale `git-strategy.md` main-only instructions until the cutover lands. The full cutover (default-branch flip to `dev`, branch protection on both, the deploy/promote pipeline, `PROMOTE_TOKEN`, and the `git-strategy.md`/CLAUDE.md/AGENTS.md rewrites) is Task 1.2 (dev protection only) + the deferred DO-host plan (everything else, because it needs a deployable Worker). Source: web-client design spec §6 (atomic-cutover finding).
+- **Baseline assumption:** the engine has ~314 passing tests; this plan's TDD builds on that green baseline. The executor MUST confirm `bun run test` is clean on `dev` before starting Phase 2.
+
 ---
 
 ## Execution discipline (BINDS EVERY TASK BELOW)
