@@ -3,7 +3,7 @@
 
 import { distance, key } from "../geometry/cube";
 import { convexHull, hullArea } from "../geometry/hull";
-import { buildBudget, isLegalBasePlacement, isLegalFactoryPlacement } from "./build";
+import { buildBudget, isBootstrapOnly, isLegalBasePlacement, isLegalFactoryPlacement } from "./build";
 import type { Action, Base, GameState, Hex, PlayerId } from "./types";
 
 const MIN_ATTACKERS = 3;
@@ -57,11 +57,12 @@ export function legalActions(state: GameState): Action[] {
 
   // 1. BUILD — one single-piece action per legal placement.
   if (buildBudget(state, player) >= 1) {
+    const bootstrapOnly = isBootstrapOnly(state, player);
     for (const h of state.board.hexes) {
       if (isLegalFactoryPlacement(state, player, h)) {
         actions.push({ kind: "build", pieces: [{ type: "factory", hex: h }] });
       }
-      if (isLegalBasePlacement(state, player, h)) {
+      if (!bootstrapOnly && isLegalBasePlacement(state, player, h)) {
         actions.push({ kind: "build", pieces: [{ type: "base", hex: h }] });
       }
     }
