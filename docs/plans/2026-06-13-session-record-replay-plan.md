@@ -70,7 +70,7 @@ notes and commit messages.
 | 2 — `stateHash` (deterministic divergence checksum) | ✅ Shipped | `5b22aeca` | 2026-06-13 |
 | 3 — `applyEntry` round state machine | ✅ Shipped | `2af3f451` | 2026-06-13 |
 | 4 — `recordGame` all-agent record driver | ✅ Shipped | `2d77e128` | 2026-06-13 |
-| 5 — `replayLog` + §7 replay-equivalence property tests | ⬜ Not started | — | depends on 2,3,4 — highest-value phase |
+| 5 — `replayLog` + §7 replay-equivalence property tests | ✅ Shipped | `7c255aab`, `4a9f5dfb` | 2026-06-13 |
 | 6 — Session validation (defense in depth) | ⬜ Not started | — | depends on 1 |
 
 ### Discoveries
@@ -971,7 +971,7 @@ git commit -m "feat(session): recordGame all-agent driver (faithful log + per-bo
 
 ## Phase 5 — `replayLog` + §7 replay-equivalence property tests
 
-**Execution Status:** ⬜ NOT STARTED — **highest-value phase.**
+**Execution Status:** ✅ SHIPPED — Task 5.1: `7c255aab`, Task 5.2: `4a9f5dfb` (2026-06-13)
 
 The consumer half: re-run a recorded log via `applyEntry` and prove it reconstructs the identical terminal state and per-boundary `stateHash`. This phase is the spec §7 centerpiece ("replay equivalence over random agent games").
 
