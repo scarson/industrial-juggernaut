@@ -66,7 +66,7 @@ notes and commit messages.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
-| 1 — Wire-format types + SessionRecord/LogEntry codec | 🚧 In progress | — | — |
+| 1 — Wire-format types + SessionRecord/LogEntry codec | ✅ Shipped | `76efce4b`, `b993ff08` | 2026-06-13 |
 | 2 — `stateHash` (deterministic divergence checksum) | ⬜ Not started | — | — |
 | 3 — `applyEntry` round state machine | ⬜ Not started | — | depends on 1 |
 | 4 — `recordGame` all-agent record driver | ⬜ Not started | — | depends on 1,3 |
@@ -152,7 +152,7 @@ Execute phases in numeric order. Within shared-file sets, the earlier task MUST 
 
 ## Phase 1 — Wire-format types + `SessionRecord`/`LogEntry` codec
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED — Task 1.1: `76efce4b`, Task 1.2: `b993ff08` (2026-06-13)
 
 The JSON interchange shapes (spec §3) and the bigint↔string codec that makes them JSON-safe. `SessionRecord` is the canonical pre-authorized artifact named in §6 — its field list is exact and MUST NOT drift.
 
