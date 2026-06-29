@@ -38,23 +38,27 @@ downstream reconstruction is expensive and fails silently.
 
 ## Execution Status
 
-**Overall:** 🚧 IN PROGRESS (claimed 2026-06-29, branch `claude/wonderful-mahavira-87ccd6`). S1 ✅ (`2e5d7cf1`), S2 ✅ (`ff826e65`), S3 ✅ (`69c65915`) — all shipped on-branch, not yet PR'd; S4–S5 not started. Suite 463 green.
+**Overall:** 🚧 IN PROGRESS (claimed 2026-06-29, branch `claude/wonderful-mahavira-87ccd6`). S1 ✅ (`2e5d7cf1`), S2 ✅ (`ff826e65`), S3 ✅ (`69c65915`), S4 ✅ (`8ec625ab`) — all shipped on-branch, not yet PR'd; **only S5 (the real search run) remains.** Suite 505 green; typecheck clean. The whole harness (metrics→gate→runner→orchestrator+report) is built and reviewed; S5 wires `main.ts`, runs the wide grid, and writes the report.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
 | S1 — Metrics | ✅ SHIPPED (commit, not yet PR'd) | `2e5d7cf1` | `src/sweep/metrics.ts` + 28 tests; full suite 423 green, typecheck clean. Spec + quality review passed; isolation verified (2 files only). |
 | S2 — Health gate + rank | ✅ SHIPPED (commit, not yet PR'd) | `ff826e65` | `src/sweep/health.ts` + 26 tests; suite 449 green. `isHealthy`/`rankHealthy`; equal-weight composite. Spec + quality review passed (4 doc/test fixes folded). |
 | S3 — Runner (grid/OFAT, CRN, CIs) | ✅ SHIPPED (commit, not yet PR'd) | `69c65915` | `src/sweep/run.ts` + 14 tests; suite 463 green. CRN via config-free `gameSeed`; probe==game board-consistency verified byte-for-byte (Opus spec review). Deviations: `bigint` seeds, numeric-only axis keys (see Deviations). |
-| S4 — Orchestrator + report | ⬜ Not started | — | — |
+| S4 — Orchestrator + report | ✅ SHIPPED (commit, not yet PR'd) | `8ec625ab` | `orchestrate.ts` + `report.ts` + 33 tests; suite 505 green. `findBalancedConfig`(grid→rankHealthy→recommended/null+nearest-misses), `balanceSweep`, pure `report()`. Composite extracted to shared `scoreMetrics` in `health.ts` (DRY). Spec + quality review passed. |
 | S5 — Execute the search; recommend balanced config | ⬜ Not started | — | — |
 
 ### Deviations
 - **S3 — `baseSeed`/`gameSeed` use `bigint`, not `number`** (plan spec wrote `number`). The engine's `RunOptions.seed` and `initGame` take `bigint`; using `number` would force lossy `BigInt()` conversions past 2^53. `gameSeed(baseSeed: bigint, gameIndex: number): bigint`. **S4/S5 callers MUST pass `bigint` seeds (e.g. `1n`).** Faithful to the real API; confirmed correct by Opus spec review.
 - **S3 — sweep axis type narrowed to numeric-only `RuleConfig` keys** (plan spec wrote `Record<keyof RuleConfig, number[]>`). Added `NumericRuleConfigKey` (the `K extends number` subset); `sweepGrid` axes = `Partial<Record<NumericRuleConfigKey, number[]>>`, `sweepOFAT` axis = `NumericRuleConfigKey`. Accepts the 9 numeric fields (radius, placeRange, attackRange, baseLimit, factorySupply, ironCount, boardSize, victoryThreshold, brokenPerimeterDeathAtFactories); rejects `allowPass`/`autoWinAt6`/`killBounty`/`combatTable` at compile time. The full-`Record` form would have forced every key present and mistyped non-numeric fields. **S5's grid/OFAT axes must be among those 9 numeric keys.**
+- **S4 — `findBalancedConfig` is selection-only over a PRE-COMPUTED grid** (plan spec wrote `findBalancedConfig(grid, fixed, opts)` implying it calls `sweepGrid` internally). The shipped signature is `findBalancedConfig(grid: {config,metrics}[], opts)` — `grid` is the sweep RESULTS, not the axes, and `fixed` was dropped as vestigial. This is forced by the spec's own structural-selection acceptance test ("given a hand-built set of `{config, metrics}`"), and it cleanly separates the expensive sweep run from pure selection. **S5 calls `sweepGrid(axes, fixed, opts)` itself, then passes the results in;** `fixed` is applied at the `sweepGrid` call.
+- **S4 — `report({ result, balance })` signature** (plan spec wrote `report({ recommended, ranked, gridTable, balance })`). `result: FindResult` bundles `recommended`/`ranked`/`gridTable`/`nearestMisses`; cleaner, no behavior change.
 
 ### Discoveries
 - **`SweepMetrics` / `GameEntry` contract (S1, `src/sweep/metrics.ts`).** `victoryType` is keyed on `"iron" | "last-standing" | "none"` (matches `VictoryType` from `src/driver/record.ts`). `computeMetrics` reads `GameResult.{winnerOrCoalition, turns, victoryType, hitTurnCap}`; the caller (S3 runner) supplies `setupDecided` and `turn1Leaders` (argmax of `ironOverTime[0]`, ties→all). `seatWinBias` returns `{ maxBiasAcrossGroups, byNPlayers }` computed WITHIN each player-count group.
 - **No-winner-game handling — load-bearing for S2/S4 interpretation.** Empty-coalition/cap games count in the seat-bias denominator (`gamesInGroup`) but contribute 0 wins to all seats → they dilute seat win-rates and INFLATE apparent `seatWinBias` when cap-hit frequency is high. `leadVolatility` counts no-winner games as volatile (no winner ∈ leaders). S2 thresholds and S4 reporting MUST read these alongside `noWinnerFraction`/`capHitFraction` for context.
+- **S4 smoke-grid PREVIEW of the S5 question (`orchestrate.test.ts`).** A small real grid (`victoryThreshold∈{8,12} × boardSize∈{96,126}`, 20 games/config, 2 player counts) found **NO healthy config** — every config failed `medianTurns < 3` (games end almost immediately) and `leadVolatility < 0.2`. This is the "decided at setup/turn-1" problem appearing on cue. **It is plausible S5's wider grid also finds no healthy region** — that is a legitimate, important either-way finding (don't loosen the gate to manufacture a pass). The harness's nearest-misses path exists precisely for this case.
+- **Operational floor: board size.** `boardSize: 64` (≈61 hexes) is INFEASIBLE with default `ironCount=14` (`placeIron` fails — too dense). S5's grid should keep `boardSize ≳ 80–90` at `ironCount=14`, or scale `ironCount` down with the board.
 
 ---
 
@@ -127,7 +131,7 @@ the grid, is a real FINDING, not a test to soften — STOP and report.
 
 ## Phase S4 — Orchestrator + Report
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED — `8ec625ab` on branch `claude/wonderful-mahavira-87ccd6` (not yet PR'd). `src/sweep/orchestrate.ts` + `src/sweep/report.ts` + `test/sweep/orchestrate.test.ts`; 33 tests, suite 505 green, typecheck clean. Spec ✅ + quality ✅ (review folded a DRY fix + dead-alias removal + 2 test gaps + graceful empty-table). **S5 wiring contract:** call `sweepGrid(axes, fixed, opts)` → pass the `{config,metrics}[]` results to `findBalancedConfig(grid, opts)` (NOT `(grid, fixed, opts)` — see Deviations); call `balanceSweep(baseline, axes, valuesPerAxis, opts)`; call `report({ result, balance })` and write the string to `docs/sweeps/`. `report.ts` exports `report`; `orchestrate.ts` exports `NEAREST_MISSES_COUNT`, `GridEntry`, `FindResult`, `BalanceResult`. The composite is `scoreMetrics(metrics, thresholds)` exported from `health.ts` (single source of truth, used by both `rankHealthy` and nearest-miss ranking).
 
 ### Task S4.1: `findBalancedConfig`, `balanceSweep`, `report`
 **Files:** Create `src/sweep/orchestrate.ts`, `src/sweep/report.ts`; Test `test/sweep/orchestrate.test.ts`.
