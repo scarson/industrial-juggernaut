@@ -26,7 +26,7 @@ const Z_95 = 1.96;
  * overwrite it with the wrong type and produce a malformed config; excluding
  * those at the type level closes that misuse class at compile time.
  */
-type NumericRuleConfigKey = {
+export type NumericRuleConfigKey = {
   [K in keyof RuleConfig]: RuleConfig[K] extends number ? K : never;
 }[keyof RuleConfig];
 

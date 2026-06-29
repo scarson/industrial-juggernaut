@@ -143,36 +143,63 @@ export function isHealthy(
 export interface ScoredConfig {
   config: RuleConfig;
   metrics: SweepMetrics;
-  /** Higher is better. Computed by the composite formula; see `rankHealthy`. */
+  /** Higher is better. Computed by the composite formula; see `scoreMetrics`. */
   score: number;
 }
 
 /**
- * Filter `scored` to configs that pass all health thresholds, then rank
- * passers best-first by a composite score.
+ * The canonical composite-quality score for a `SweepMetrics` set (higher is
+ * better). This is the SINGLE SOURCE OF TRUTH for the scoring formula — both
+ * `rankHealthy` (to rank passers) and the orchestrator's nearest-miss ranking
+ * (to compare failers on quality) call it, so the formula lives in exactly one
+ * place and cannot drift between callers.
  *
- * Composite score formula (each term normalized to a roughly [0, 1] range):
+ * Each term is normalized to a roughly [0, 1] range and equally weighted (sum 1.0):
  *
- *   score = w_vol  * (leadVolatility)                         // [0, 1] natural range
+ *   score = w_vol  * (leadVolatility)                        // [0, 1] natural range
  *         + w_bias * (1 − seatWinBias.maxBiasAcrossGroups)   // inverted: lower bias = higher score
- *         + w_iron * (ironVictoryFraction)                    // [0, 1] natural range
- *         + w_turn * turnProximity                            // [0, 1] — 1 at band center, 0 at band edges
+ *         + w_iron * (ironVictoryFraction)                   // [0, 1] natural range
+ *         + w_turn * turnProximity                           // [0, 1] — 1 at band center, 0 at band edges
  *
- * where turnProximity = 1 − |medianTurns − bandCenter| / (bandWidth / 2)
+ * where turnProximity = 1 − |medianTurns − bandCenter| / halfWidth
  *       bandCenter    = (minMedianTurns + maxMedianTurns) / 2
- *       bandWidth     = maxMedianTurns − minMedianTurns
+ *       halfWidth     = (maxMedianTurns − minMedianTurns) / 2
  *
- * Weights (equal-ish, sum to 1.0):
+ * Weights:
  *   w_vol  = 0.25  (lead volatility: upstream upsets reward replayability)
  *   w_bias = 0.25  (seat balance: structural fairness)
  *   w_iron = 0.25  (iron victory: the intended win condition should dominate)
  *   w_turn = 0.25  (game length proximity to band center: midrange is ideal)
  *
+ * Degenerate band (`minMedianTurns === maxMedianTurns`, so `halfWidth === 0`)
+ * yields full turnProximity (1) — there is no band to be off-center within.
+ *
+ * Higher leadVolatility, higher ironVictoryFraction, lower seatBias, and
+ * medianTurns nearer the band center all push the score UP.
+ */
+export function scoreMetrics(metrics: SweepMetrics, thresholds: HealthThresholds): number {
+  const bandCenter = (thresholds.minMedianTurns + thresholds.maxMedianTurns) / 2;
+  const halfWidth = (thresholds.maxMedianTurns - thresholds.minMedianTurns) / 2;
+  const turnProximity =
+    halfWidth > 0
+      ? 1 - Math.abs(metrics.medianTurns - bandCenter) / halfWidth
+      : 1; // degenerate band (min === max) → full score
+
+  return (
+    0.25 * metrics.leadVolatility +
+    0.25 * (1 - metrics.seatWinBias.maxBiasAcrossGroups) +
+    0.25 * metrics.ironVictoryFraction +
+    0.25 * turnProximity
+  );
+}
+
+/**
+ * Filter `scored` to configs that pass all health thresholds, then rank
+ * passers best-first by their `scoreMetrics` composite score.
+ *
  * Invariants guaranteed by the filter step:
- *   - All four terms are bounded; extremes within the passing band are [0, 1].
  *   - Failing configs are excluded before scoring, so they can never appear in output.
- *   - Higher leadVolatility, higher ironVictoryFraction, lower seatBias, and
- *     medianTurns nearer the band center all push score UP.
+ *   - The composite formula and its directional behavior are documented on `scoreMetrics`.
  */
 export function rankHealthy(
   input: { config: RuleConfig; metrics: SweepMetrics }[],
@@ -181,24 +208,12 @@ export function rankHealthy(
   // Filter to passers only.
   const passers = input.filter(({ metrics }) => isHealthy(metrics, thresholds).pass);
 
-  // Compute composite scores.
-  const bandCenter = (thresholds.minMedianTurns + thresholds.maxMedianTurns) / 2;
-  const halfWidth = (thresholds.maxMedianTurns - thresholds.minMedianTurns) / 2;
-
-  const scored: ScoredConfig[] = passers.map(({ config, metrics }) => {
-    const turnProximity =
-      halfWidth > 0
-        ? 1 - Math.abs(metrics.medianTurns - bandCenter) / halfWidth
-        : 1; // degenerate band (min === max) → full score
-
-    const score =
-      0.25 * metrics.leadVolatility +
-      0.25 * (1 - metrics.seatWinBias.maxBiasAcrossGroups) +
-      0.25 * metrics.ironVictoryFraction +
-      0.25 * turnProximity;
-
-    return { config, metrics, score };
-  });
+  // Compute composite scores via the canonical formula.
+  const scored: ScoredConfig[] = passers.map(({ config, metrics }) => ({
+    config,
+    metrics,
+    score: scoreMetrics(metrics, thresholds),
+  }));
 
   // Sort descending (best first).
   return scored.sort((a, b) => b.score - a.score);

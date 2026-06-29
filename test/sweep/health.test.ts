@@ -1,10 +1,11 @@
-// ABOUTME: Tests for isHealthy and rankHealthy — the config-health gate and composite ranker.
+// ABOUTME: Tests for isHealthy, scoreMetrics, and rankHealthy — the config-health gate, composite scorer, and ranker.
 // ABOUTME: All fixtures are hand-built SweepMetrics; no actual games are run here.
 
 import { describe, expect, it } from "vitest";
 import {
   isHealthy,
   rankHealthy,
+  scoreMetrics,
   defaultHealthThresholds,
 } from "../../src/sweep/health";
 import type { HealthThresholds } from "../../src/sweep/health";
@@ -373,5 +374,112 @@ describe("rankHealthy — tie stability", () => {
     // (b) input order is preserved among the tied entries
     expect(output[0]!.config).toBe(CONFIG_A);
     expect(output[1]!.config).toBe(CONFIG_B);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// scoreMetrics — the canonical composite formula (single source of truth)
+// ---------------------------------------------------------------------------
+
+describe("scoreMetrics — exact formula", () => {
+  it("computes the documented hand-checked composite for a crafted metrics", () => {
+    // Defaults: minMedianTurns=3, maxMedianTurns=25 → bandCenter=14, halfWidth=11.
+    // medianTurns=14 → turnProximity = 1 (exactly at band center).
+    //   0.25 * leadVolatility(0.4)          = 0.100
+    //   0.25 * (1 − seatBias(0.10))         = 0.225
+    //   0.25 * ironVictoryFraction(0.8)     = 0.200
+    //   0.25 * turnProximity(1)             = 0.250
+    //                                  total = 0.775
+    const m = makeMetrics({
+      medianTurns: 14,
+      leadVolatility: 0.4,
+      seatWinBias: { maxBiasAcrossGroups: 0.10, byNPlayers: {} },
+      ironVictoryFraction: 0.8,
+    });
+    expect(scoreMetrics(m, defaultHealthThresholds())).toBeCloseTo(0.775, 10);
+  });
+
+  it("yields full turnProximity (1) at the band center", () => {
+    // At bandCenter the only varying term is turnProximity=1; everything else 0.
+    const m = makeMetrics({
+      medianTurns: 14,
+      leadVolatility: 0,
+      seatWinBias: { maxBiasAcrossGroups: 1, byNPlayers: {} }, // (1 − 1) = 0
+      ironVictoryFraction: 0,
+    });
+    expect(scoreMetrics(m, defaultHealthThresholds())).toBeCloseTo(0.25, 10);
+  });
+
+  it("yields zero turnProximity at the band edge", () => {
+    // medianTurns = maxMedianTurns(25) → |25 − 14| / 11 = 1 → turnProximity = 0.
+    const m = makeMetrics({
+      medianTurns: 25,
+      leadVolatility: 0,
+      seatWinBias: { maxBiasAcrossGroups: 1, byNPlayers: {} },
+      ironVictoryFraction: 0,
+    });
+    expect(scoreMetrics(m, defaultHealthThresholds())).toBeCloseTo(0, 10);
+  });
+
+  it("rises with higher leadVolatility (other terms held)", () => {
+    const base = makeMetrics({ medianTurns: 14, leadVolatility: 0.3 });
+    const higher = makeMetrics({ medianTurns: 14, leadVolatility: 0.8 });
+    const t = defaultHealthThresholds();
+    expect(scoreMetrics(higher, t)).toBeGreaterThan(scoreMetrics(base, t));
+  });
+
+  it("rises with higher ironVictoryFraction (other terms held)", () => {
+    const base = makeMetrics({ medianTurns: 14, ironVictoryFraction: 0.4 });
+    const higher = makeMetrics({ medianTurns: 14, ironVictoryFraction: 0.9 });
+    const t = defaultHealthThresholds();
+    expect(scoreMetrics(higher, t)).toBeGreaterThan(scoreMetrics(base, t));
+  });
+
+  it("rises with lower seatWinBias (other terms held)", () => {
+    const lowerBias = makeMetrics({
+      medianTurns: 14,
+      seatWinBias: { maxBiasAcrossGroups: 0.05, byNPlayers: {} },
+    });
+    const higherBias = makeMetrics({
+      medianTurns: 14,
+      seatWinBias: { maxBiasAcrossGroups: 0.30, byNPlayers: {} },
+    });
+    const t = defaultHealthThresholds();
+    expect(scoreMetrics(lowerBias, t)).toBeGreaterThan(scoreMetrics(higherBias, t));
+  });
+
+  it("rises with medianTurns nearer the band center (other terms held)", () => {
+    const nearCenter = makeMetrics({ medianTurns: 14 }); // proximity 1
+    const nearEdge = makeMetrics({ medianTurns: 24 });   // proximity ~0.09
+    const t = defaultHealthThresholds();
+    expect(scoreMetrics(nearCenter, t)).toBeGreaterThan(scoreMetrics(nearEdge, t));
+  });
+
+  it("returns full turnProximity for a degenerate band (min === max)", () => {
+    // halfWidth = 0 → turnProximity = 1 regardless of medianTurns.
+    const degenerateBand: HealthThresholds = {
+      ...defaultHealthThresholds(),
+      minMedianTurns: 10,
+      maxMedianTurns: 10,
+    };
+    const m = makeMetrics({
+      medianTurns: 999,                                  // far from "center" but band has no width
+      leadVolatility: 0,
+      seatWinBias: { maxBiasAcrossGroups: 1, byNPlayers: {} },
+      ironVictoryFraction: 0,
+    });
+    // Only turnProximity contributes: 0.25 * 1 = 0.25.
+    expect(scoreMetrics(m, degenerateBand)).toBeCloseTo(0.25, 10);
+  });
+
+  it("rankHealthy ranks passers identically to direct scoreMetrics ordering", () => {
+    // Regression anchor: the ranker's score MUST equal scoreMetrics for each entry,
+    // proving the extraction did not change rankHealthy's behavior.
+    const t = defaultHealthThresholds();
+    const input = [
+      { config: CONFIG_A, metrics: HEALTHY_METRICS },
+    ];
+    const ranked = rankHealthy(input, t);
+    expect(ranked[0]!.score).toBe(scoreMetrics(HEALTHY_METRICS, t));
   });
 });
