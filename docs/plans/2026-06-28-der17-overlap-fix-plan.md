@@ -59,13 +59,13 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** Not started.
+**Overall:** 3/3 phases shipped on branch `claude/zen-kepler-11d22b` (off `origin/dev`). Suite 386 → 395, all green. Exploit closed (heuristic overlap-assisted wins 41 → 0). PR pending.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
-| 1 — Close the exploit (`control()` + tests) | ⬜ Not started | — | — |
-| 2 — Repair rippled scenario tests | ⬜ Not started | — | requires Phase 1 in tree (seeds depend on fixed engine) |
-| 3 — Oracle refactor + re-validation gate | ⬜ Not started | — | requires Phases 1–2 (full-suite gate) |
+| 1 — Close the exploit (`control()` + tests) | ✅ Shipped | `eaf9ca24`, `457be6a7`, `e2ba2047` | control() fix + 9 tests |
+| 2 — Repair rippled scenario tests | ✅ Shipped | `283e032e` | replay-edges seeds 285→299, 67→990 (regime preserved) |
+| 3 — Oracle refactor + re-validation gate | ✅ Shipped | `a0313690` + docs commit | der17-measure decoupled; suite green; distribution documented |
 
 **Phase ordering (hard dependency):** Phase 1 → Phase 2 → Phase 3, sequential. Phase 2's replacement
 seeds can only be found against the *fixed* engine (Phase 1 landed in the working tree). Phase 3's
@@ -207,7 +207,7 @@ this plan are therefore inactive; ignore them.
 
 ## Phase 1 — Close the exploit (`control()` + TDD tests)
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED at `eaf9ca24` (1.1 control() fix + tests), `457be6a7` (1.2 victory closure), `e2ba2047` (1.3 ripple tests) on 2026-06-28 (branch `claude/zen-kepler-11d22b`). All control tests + 9 new tests green; recon prediction held (pre-fix 2 of 3 control tests fail, ally guard green).
 
 Why this matters (review provenance): subagent-proofing + TDD mandate come from
 `/writing-plans-enhanced` Steps 3–4.
@@ -583,7 +583,7 @@ commit SHAs.
 
 ## Phase 2 — Repair the rippled scenario tests
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED at `283e032e` on 2026-06-28. Re-seeded bounty/stranding 285→299 (4p) and ≥2-commitment-levels 67→990 (3p, observed levels {3,4,5}); regime guards + replay-identity assertions preserved, not weakened. All 4 replay-edges tests green. (Seed 256 was the first bounty/stranding hit but is already used by the mid-turn-elimination test, so 299 was chosen.)
 
 The recon identified the *exact* two tests that break and *why*: the balance shift moves which seeds
 exhibit which regime. The fix is to re-seed each test to a seed that exhibits the *same* targeted
@@ -681,7 +681,7 @@ commit message truthfully describe a re-seed, not an assertion relaxation? Flip 
 
 ## Phase 3 — Oracle refactor + re-validation gate
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED — Task 3.1 (oracle decouple) at `a0313690`; Task 3.2 (docs + memory + banners) in the same docs commit, on 2026-06-28. der17-measure self-test PASSES post-fix; heuristic overlap-assisted wins 41 → 0, greedy 0; full suite 386 → 395 green; distribution shift documented in the findings doc; pitfall GEO-8 added.
 
 ### Task 3.1: Make `der17-measure.ts` a valid pre/post-fix oracle
 

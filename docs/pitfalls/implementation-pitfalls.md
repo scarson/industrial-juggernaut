@@ -118,6 +118,18 @@ The broken-perimeter death clock (`applyEliminations`, cause `brokenPerimeterAt1
 
 ---
 
+### GEO-8: Radiating Control Excludes Non-Ally Perimeter Interior (DER #17)
+
+**The Flaw:** `control(state, p)` for a RADIATING player (`<4` bases / no valid hull) counts every iron and factory inside its radius-disk — including resources that physically sit inside a *non-ally opponent's* convex-hull perimeter. The rules (`industrial-juggernaut-rules-v10.md` ~line 76) say a perimeter makes its interior iron "no longer available to adjacent players that are still radiating," so the radiating player should NOT command those resources.
+
+**Why It Matters:** The double-count is exploitable and measured (DER #17 investigation, `docs/plans/2026-06-28-der17-overlap-balance-findings.md`). Under the diverse `samplePolicy` heuristic, the radiate-and-blanket strategy (stay `<4` bases, cover the board's iron with big radius-5 disks, claim a turn-1 iron victory on iron inside opponents' perimeters) produced **41/363 (11.29%) false iron victories** — every one a win on iron the rules award to the perimetered opponent, while the rightful perimetered leader (8–9 exclusive iron) was denied. Greedy self-play was immune (it perimeters), so the bug is agent-dependent but genuine and human-reproducible. The engine is becoming authoritative for human play, so a deliberate human exploit that contradicts validated design intent must be closed — this is the case where the code/rules-doc divergence IS a real bug, not stale doc.
+
+**The Fix:** In `control()`, when the player is RADIATING (`!perimeter`), drop any iron/factory hex that lies inside a *non-ally, non-eliminated* opponent's valid perimeter hull (`>=4` bases, `hullArea > 0`). Subtract BOTH iron AND factories (authorized, Sam 2026-06-28) — not iron-only — so `resourceCount`/`buildBudget`/`isBootstrapOnly` stay coherent (a radiating player never gets budget or bootstrap status from resources it does not own). Leave `hexes` (territory/reach) UNCHANGED — only resource ownership shifts, not line-of-sight or attack reach. Ally perimeters never subtract (the coalition keeps the resource via the ally; `coalitionIron` unions). Recompute the opponent hulls per call — never cache (GEO-5 preserved; `control()` stays a pure function of `state`, it just reads other players' bases). Regression-guarded in `test/engine/control.test.ts` (exclusion + ally-keeps + factory), `test/engine/status.test.ts` (victory flips to the perimetered owner; `noIron` + factory-clock eliminations), `test/engine/turn.test.ts` (iron-weighted turn-order), `test/engine/build.test.ts` (budget + bootstrap). The measurement script `scripts/der17-measure.ts` confirms closure: overlap-assisted wins **41 → 0**.
+
+**The Lesson (downstream ripple of a core `control()` change):** subtracting factories has three intended-but-non-obvious consequences a reviewer must accept, not stumble into — (1) the GEO-6 factory-death clock counts fewer factories for a radiating player (slightly harder to clock-kill; near-unreachable corner), (2) `noIron` elimination is more aggressive for a radiator whose entire iron set is borrowed (faithful — it controls no iron of its own), (3) `isBootstrapOnly` can flip `false→true` when a borrowed factory is subtracted (a founding single-base player at true `rc=1` is correctly factory-only, GEO-7). All are pinned by tests. When changing `control()`, enumerate its consumers (`status`/`coalitionIron` victory, `build` budget/bootstrap, `applyEliminations`, `turn.ts` 2-player draw, the agents) — the direct change is easy; the ripple is the work.
+
+---
+
 ### Review Checklist
 
 - [ ] **All geometry predicates use a `1e-9` epsilon and treat on-edge as inside** — no `===`/bare `<`/`>` on projected floats; on-edge counts as inside per R1 (GEO-1)
@@ -127,6 +139,7 @@ The broken-perimeter death clock (`applyEliminations`, cause `brokenPerimeterAt1
 - [ ] **Perimeter is recomputed from current bases, never cached** — no stored perimeter that a base change could invalidate (GEO-5)
 - [ ] **Factory-death clock counts the player's OWN controlled factories, not the shared placed pool** — per-player decoupling; not reverted to `36 − factorySupply` (GEO-6)
 - [ ] **`isBootstrapOnly` is gated on `baseCount === 1`, not `baseCount < 4`** — only the founding single base is factory-only; multi-base players at rc=1 still place bases (GEO-7)
+- [ ] **Radiating `control()` excludes iron/factories inside a non-ally opponent's valid perimeter** — perimeter claims its interior resources; ally perimeters never subtract; `hexes` (reach) unchanged; recomputed per call (GEO-8)
 
 ---
 
@@ -179,6 +192,7 @@ Pitfalls that arise when a session dispatches parallel subagents and consolidate
 | GEO-5 | Perimeter Is Derived, Never Stored | MEDIUM | UNIMPLEMENTED | Geometry & Engine |
 | GEO-6 | Factory-Death Clock Is Per-Player Controlled, Not Shared-Pool | HIGH | VALIDATED | Geometry & Engine |
 | GEO-7 | Bootstrap-Only Is the Founding Single Base, Not Every Sub-Perimeter Player | HIGH | VALIDATED | Geometry & Engine |
+| GEO-8 | Radiating Control Excludes Non-Ally Perimeter Interior (DER #17) | HIGH | VALIDATED | Geometry & Engine |
 | ORCH-1 | Analysis Dispatches Must Persist Findings | HIGH | VALIDATED | Orchestration |
 
 Severity levels: `CRITICAL` (production data loss / security), `HIGH` (correctness bug under predictable conditions), `MEDIUM` (correctness bug under edge cases), `LOW` (cleanliness / clarity).

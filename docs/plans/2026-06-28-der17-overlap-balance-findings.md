@@ -62,3 +62,40 @@ The double-count rewards a strategy the rules explicitly forbid and lets it clai
 **Option A, executed as a deliberate, planned change with re-validation** — it's the only faithful fix and it closes a real human exploit before the engine becomes the authority for human play. But because it ripples into victory + economy + agent behavior + the tuned balance constants, it should be its own plan (write → review → execute → re-run the balance sweep + update the agent tests that encode the current behavior), not a hot patch. If the turn-1 fast-resolution is about to be retuned anyway, bundling A into that pass (Option C's timing) is reasonable.
 
 **This is Sam's decision** (a balance/design + significant-change call). I have NOT touched the engine. Next step: Sam picks fix-now-A / victory-only-B / defer-C, and I plan accordingly.
+
+## Resolution (2026-06-28) — Option A shipped
+
+Sam chose **Option A** (fix `control()` itself). Executed via the dedicated plan
+[`2026-06-28-der17-overlap-fix-plan.md`](2026-06-28-der17-overlap-fix-plan.md) (written → reviewed
+across 5 `plan-review-cycle` rounds incl. a cross-model codex round → executed subagent-driven TDD).
+
+**The fix:** a radiating player's `control()` now excludes iron AND factories that sit inside a
+non-ally opponent's valid perimeter hull; territory (`hexes`) is unchanged. Pure/uncached (GEO-5
+preserved). Documented as pitfall **GEO-8**. Sam's settled sub-decision: subtract iron **+ factories**
+(not iron-only), for `resourceCount`/`buildBudget`/`isBootstrapOnly` coherence — the codex review
+surfaced that subtracting factories also affects the GEO-6 death clock, `noIron` elimination, and the
+`isBootstrapOnly` flip; all are intended and test-pinned.
+
+**Closure (re-measured, same `scripts/der17-measure.ts` — now with an independent raw-radiating-iron
+detector so it is a valid pre/post oracle, not tautologically coupled to the fix):**
+
+| Metric | Pre-fix (origin/dev) | Post-fix |
+|---|---|---|
+| Heuristic overlap-assisted wins (winner exclusive iron < 10) | **41 / 363 (11.29%)** | **0 / 363 (0.00%)** |
+| Greedy overlap-assisted wins | 0 | 0 |
+| Detector self-test | PASS | PASS (witnesses 77 raw-overlap boundaries that no longer convert to wins) |
+
+**Distribution shift** (`test/eval/distribution.test.ts`, heuristic, 200 games, seeds 1..200):
+
+| | Pre-fix | Post-fix |
+|---|---|---|
+| byVictoryType | iron 200 | iron 199, last-standing 1 |
+| turnsHistogram | `{1:184, 2:14, 3:1, 6:1}` | `{1:166, 2:31, 4:3}` |
+| emptyWinner / realWinner / capHits | 0 / 200 / 0 | 0 / 200 / 0 |
+
+The shift is exactly as predicted: ~18 games that previously ended in a premature turn-1 (often false)
+iron victory now correctly continue to turn 2+ where the rightful perimetered player wins; one game
+resolves last-standing instead of a false iron win. No degeneracy introduced (still 0 empty wipeouts,
+200/200 real winners, no turn-cap stalls). Full suite: 386 → 395 tests, all green. The two rippled
+`replay-edges` scenario seeds (285→299 bounty/stranding, 67→990 commitment-levels) were re-pointed to
+seeds exhibiting the same regime under the fixed engine (regime guards preserved, not weakened).
