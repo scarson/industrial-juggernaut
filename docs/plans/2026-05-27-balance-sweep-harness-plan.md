@@ -38,18 +38,19 @@ downstream reconstruction is expensive and fails silently.
 
 ## Execution Status
 
-**Overall:** 🚧 IN PROGRESS (claimed 2026-06-29, branch `claude/wonderful-mahavira-87ccd6`). S1 ✅ (`2e5d7cf1`), S2 ✅ (`ff826e65`) — both shipped on-branch, not yet PR'd; S3–S5 not started.
+**Overall:** 🚧 IN PROGRESS (claimed 2026-06-29, branch `claude/wonderful-mahavira-87ccd6`). S1 ✅ (`2e5d7cf1`), S2 ✅ (`ff826e65`), S3 ✅ (`69c65915`) — all shipped on-branch, not yet PR'd; S4–S5 not started. Suite 463 green.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
 | S1 — Metrics | ✅ SHIPPED (commit, not yet PR'd) | `2e5d7cf1` | `src/sweep/metrics.ts` + 28 tests; full suite 423 green, typecheck clean. Spec + quality review passed; isolation verified (2 files only). |
 | S2 — Health gate + rank | ✅ SHIPPED (commit, not yet PR'd) | `ff826e65` | `src/sweep/health.ts` + 26 tests; suite 449 green. `isHealthy`/`rankHealthy`; equal-weight composite. Spec + quality review passed (4 doc/test fixes folded). |
-| S3 — Runner (grid/OFAT, CRN, CIs) | ⬜ Not started | — | — |
+| S3 — Runner (grid/OFAT, CRN, CIs) | ✅ SHIPPED (commit, not yet PR'd) | `69c65915` | `src/sweep/run.ts` + 14 tests; suite 463 green. CRN via config-free `gameSeed`; probe==game board-consistency verified byte-for-byte (Opus spec review). Deviations: `bigint` seeds, numeric-only axis keys (see Deviations). |
 | S4 — Orchestrator + report | ⬜ Not started | — | — |
 | S5 — Execute the search; recommend balanced config | ⬜ Not started | — | — |
 
 ### Deviations
-- (none yet)
+- **S3 — `baseSeed`/`gameSeed` use `bigint`, not `number`** (plan spec wrote `number`). The engine's `RunOptions.seed` and `initGame` take `bigint`; using `number` would force lossy `BigInt()` conversions past 2^53. `gameSeed(baseSeed: bigint, gameIndex: number): bigint`. **S4/S5 callers MUST pass `bigint` seeds (e.g. `1n`).** Faithful to the real API; confirmed correct by Opus spec review.
+- **S3 — sweep axis type narrowed to numeric-only `RuleConfig` keys** (plan spec wrote `Record<keyof RuleConfig, number[]>`). Added `NumericRuleConfigKey` (the `K extends number` subset); `sweepGrid` axes = `Partial<Record<NumericRuleConfigKey, number[]>>`, `sweepOFAT` axis = `NumericRuleConfigKey`. Accepts the 9 numeric fields (radius, placeRange, attackRange, baseLimit, factorySupply, ironCount, boardSize, victoryThreshold, brokenPerimeterDeathAtFactories); rejects `allowPass`/`autoWinAt6`/`killBounty`/`combatTable` at compile time. The full-`Record` form would have forced every key present and mistyped non-numeric fields. **S5's grid/OFAT axes must be among those 9 numeric keys.**
 
 ### Discoveries
 - **`SweepMetrics` / `GameEntry` contract (S1, `src/sweep/metrics.ts`).** `victoryType` is keyed on `"iron" | "last-standing" | "none"` (matches `VictoryType` from `src/driver/record.ts`). `computeMetrics` reads `GameResult.{winnerOrCoalition, turns, victoryType, hitTurnCap}`; the caller (S3 runner) supplies `setupDecided` and `turn1Leaders` (argmax of `ironOverTime[0]`, ties→all). `seatWinBias` returns `{ maxBiasAcrossGroups, byNPlayers }` computed WITHIN each player-count group.
@@ -108,7 +109,7 @@ the grid, is a real FINDING, not a test to soften — STOP and report.
 
 ## Phase S3 — Runner (grid / OFAT, CRN, CIs)
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED — `69c65915` on branch `claude/wonderful-mahavira-87ccd6` (not yet PR'd). `src/sweep/run.ts` + `test/sweep/run.test.ts`; 14 tests, suite 463 green, typecheck clean. Exports `gameSeed` (config-free CRN choke point — `baseSeed + gameIndex`, `bigint`), `runConfig`, `sweepGrid`, `sweepOFAT`, `proportionCI`. **Board/seed consistency verified byte-for-byte by Opus spec review:** the `setupDecided` probe reproduces `runGame`'s exact `initGame`→`placeFirstBase` setup sequence (same seed, structurally-identical `boardSource`), and `setupDecided` reads `control().iron.length` which is RNG-independent — so `setupDecidedFraction` is trustworthy. CRN tested non-tautologically (two materially-different configs at the same `baseSeed` emit identical seed sequences). Spec ✅ + quality ✅ (4 fixes folded: JSDoc timing, named `Z_95`, empty-axes/empty-values edge-case docs+tests, numeric-only axis type). See top-of-plan **Deviations** for the `bigint`-seed and numeric-axis-key API notes S4/S5 must honor.
 
 ### Task S3.1: `runConfig`, `sweepGrid`, `sweepOFAT`, CRN, confidence intervals
 **Files:** Create `src/sweep/run.ts`; Test `test/sweep/run.test.ts`. Available: `measureDistribution`, `runGame` (+ `agentFor` seam), `heuristicAgent`, `defaultConfig`, `metrics` (S1).
