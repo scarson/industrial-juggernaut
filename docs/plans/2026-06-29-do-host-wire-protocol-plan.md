@@ -102,7 +102,7 @@ These were resolved in brainstorming; do NOT relitigate them during execution.
 1. **One plan, two internal parts** (this document). Part A (pure reducer, plain vitest) lands and merges before Part B (DO host, vitest-pool-workers).
 2. **Agent-drive via an injected `agentForSeat`.** The reducer's agent-drive loop takes `agentForSeat: (seat: SeatConfig) => Agent` as a parameter and stays **agent-free** at the module level (unit-testable with a fake agent). A single ~10-line binding (`src/session/agent-binding.ts`) maps `SeatConfig → Agent` using the real greedy/heuristic agents; the DO entrypoint and `recordGame`-style callers import *that*. **The Worker bundle does transitively include `src/agent`** (via the binding) — this is necessary and accepted for DO-hosted vs-agents games. The load-bearing purity guarantees are: (a) `src/index.ts` (engine barrel) stays agent-free so the browser/client bundle never pulls agents; (b) the thin `src/host` glue never *directly* `import`s `src/agent` — it goes through the agent-free reducer + the one binding module. See pitfall **DO-PURITY-1** (added in B9).
 3. **Directory naming:** the interactive reducer extends `src/session/`; wire-protocol types live in a dedicated `src/wire/`; the DO + Worker + `wrangler.jsonc` live in `src/host/`.
-4. **Defender timeout is OFF by default** and opt-in per room (Sam's redesign, superseding spec §3's "90s always-on"). A pending defender decision holds the room's write-lock until the human answers; the liveness recovery for a vanished player is the **room creator handing that seat to an agent** (spec §3 "Stalled acting player"). When a room enables the toggle, the DO arms a resettable alarm and the prompted human gets an **"I'm still thinking"** (`extendDecision`) button that re-arms it; only expiry *without* extension auto-picks `representativeDefender`. The toggle + interval live in a **host-layer `RoomOptions`** record, outside `RuleConfig` and outside the pre-authorized `SessionRecord` shape. Replay is unaffected (the log records the final substituted `AttackDecl` regardless of who chose it). **Spec follow-up (route to Sam, do not auto-edit):** spec §3 "Timeouts" paragraph should be updated to match this design.
+4. **Defender timeout is OFF by default** and opt-in per room (Sam's redesign). A pending defender decision holds the room's write-lock until the human answers; the liveness recovery for a vanished player is the **room creator handing that seat to an agent** (spec §3 "Stalled acting player"). When a room enables the toggle, the DO arms a resettable alarm (**default interval 120 s** when enabled — Sam, 2026-06-29) and the prompted human gets an **"I'm still thinking"** (`extendDecision`) button that re-arms it; only expiry *without* extension auto-picks `representativeDefender`. The toggle + interval live in a **host-layer `RoomOptions`** record, outside `RuleConfig` and outside the pre-authorized `SessionRecord` shape. Replay is unaffected (the log records the final substituted `AttackDecl` regardless of who chose it). **Spec §3 "Timeouts" paragraph updated to match (Sam approved 2026-06-29).**
 
 ## Spec-confirmed scope boundaries (assert; do not expand)
 
@@ -113,10 +113,27 @@ These were resolved in brainstorming; do NOT relitigate them during execution.
 
 ## Deferred / Sam-gated (flags, not work in this plan)
 
-- **Production cutover** — the entire §6 promote pipeline. Separate plan; Review-class; Sam merges.
+- **Production cutover** — the entire §6 promote pipeline. Separate plan; Review-class; Sam merges. **Cannot start until Part B ships a staging-validated Worker.** The admin prerequisites that DON'T need the Worker are broken out step-by-step below.
 - **Staging e2e smoke as a *blocking* promotion gate** — defaults to blocking, but its binding decision lives in the cutover plan (where `promote.yml` lives). This plan ships `deploy-staging.yml` (push-to-`dev` → staging deploy) but not the promotion gate.
-- **`dev` branch protection** — `gh api` command prepared in the foundation plan Task 1.2; Sam runs it (admin); re-confirm the current personal-repo ruleset/branch-protection API shape before handing it over. Non-blocking.
 - **Abuse & identity floor** (rate limiting, Turnstile, room TTL/GC) — Phase 2; never pre-authorized.
+
+### Production cutover — admin prerequisites (verified 2026-06-29; Sam runs these)
+
+Repo verified **public**; `dev`/`main` currently **unprotected**; no rulesets; the required CI check context is **`check`** (the classic `PUT .../branches/{branch}/protection` endpoint is the right API — a personal public repo can't use org-only push `restrictions`, so protection = required checks + `enforce_admins:false`, and the `PROMOTE_TOKEN` admin PAT bypasses to fast-forward `main`).
+
+**Do now (independent of the Worker):**
+1. **`dev` branch protection** (protects the active branch; required CI on PRs):
+   ```bash
+   gh api -X PUT repos/scarson/industrial-juggernaut/branches/dev/protection --input - <<'JSON'
+   { "required_status_checks": { "strict": true, "checks": [{ "context": "check" }] },
+     "enforce_admins": false, "required_pull_request_reviews": null, "restrictions": null }
+   JSON
+   ```
+   (If the API rejects `checks`, use the legacy `"required_status_checks": {"strict": true, "contexts": ["check"]}`.)
+2. **Default-branch flip to `dev`** — `gh repo edit scarson/industrial-juggernaut --default-branch dev`. Fixes the "main-trap" (new PRs default to `dev`). Independent of prod-deploy safety. The three process docs stay stale until the cutover rewrite — so prioritize that rewrite after this flip.
+3. **`PROMOTE_TOKEN`** (optional now; harmless until `promote.yml` exists) — create a **fine-grained PAT**: GitHub → Settings → Developer settings → Personal access tokens → Fine-grained → *only* repo `scarson/industrial-juggernaut`, **Repository permissions → Contents: Read and write** (+ Workflows: R/W only if the push touches workflow files). Then `gh secret set PROMOTE_TOKEN --repo scarson/industrial-juggernaut` (paste at the prompt — never as a flag).
+
+**Comes with the cutover plan (needs the staging Worker + is CODE, not a manual step):** `main` branch protection (its shape is coupled to the promote fast-forward flow), `promote.yml` + prod deploy, the golden-corpus replay-compat gate, the staging e2e smoke, and the `git-strategy.md`/`CLAUDE.md`/`AGENTS.md` rewrites (gated on the cutover plan + Sam's explicit prod-cutover approval — do NOT edit those three before then). That plan lands as ONE Review-class PR with `main` protection + `PROMOTE_TOKEN` configured before prod deploy is enabled.
 
 ## Merge classification & pre-authorization (per PR)
 
@@ -336,7 +353,7 @@ export type RoomOptions = {
 };
 
 export const DEFAULT_ROOM_OPTIONS: RoomOptions = {
-  defenderTimeout: { enabled: false, seconds: 90 },
+  defenderTimeout: { enabled: false, seconds: 120 },
 };
 
 /** Client → server. Every *mutating* game command carries `expectedLogIndex`. */
@@ -1402,10 +1419,10 @@ Stands up the Worker config + the workers test pool **without breaking the exist
 - Modify: `vitest.config.ts` (→ projects shape)
 - Modify: `tsconfig.json` (exclude host) + Create `tsconfig.host.json`
 
-- [ ] **Step 1: Resolve the vitest version + the pool API BEFORE writing any config — this is the riskiest config step.** The repo is currently pinned at **`vitest ^2.0.0`**; the newest `@cloudflare/vitest-pool-workers` peer-depends `vitest ^4.1.0`. That is a **TWO-major bump (2 → 4) across all ~386 existing tests** (engine + session + sweep), wedged into a non-TDD config phase — treat it as high-risk. Do this in order:
-  1. **Prefer avoiding the bump:** check whether a `@cloudflare/vitest-pool-workers` release exists that supports the repo's vitest 2.x/3.x line (`npm view @cloudflare/vitest-pool-workers versions` + its peer-deps). If a compatible older pool version exists, pin THAT and keep vitest where it is — far lower blast radius. Record the chosen pair.
-  2. **If the bump is unavoidable:** bump vitest to the pool's required line, run the **FULL** suite (`bun run test`) immediately, and flag every breakage in the PR (`## Shared-config changes`). If it breaks existing tests beyond trivial config-shim fixes, **STOP and raise to Sam** — do NOT weaken tests to accommodate a tooling bump (assertion-rigor rule). The sweep track shares this dependency; the PR must call the bump out so that track isn't surprised.
-  3. **Verify the config API against the INSTALLED version, not this plan's assumption.** The pool's config surface has CHANGED across versions: older releases use `defineWorkersConfig` + `poolOptions.workers` (in `vitest.config.ts`), newer ones a `cloudflareTest()` Vite plugin in `plugins:[]`. Read the installed package's README/`dist` exports and use whichever it actually exposes. Step 3 below shows the plugin form; if the installed version uses `defineWorkersConfig`, use that form instead (and likewise verify the B7 test-helper import paths — `cloudflare:test` vs `cloudflare:workers`). Record which API the installed version uses as a Deviation.
+- [ ] **Step 1: Bump to the LATEST vitest + the matching pool, then verify the pool's config API — do this BEFORE writing any config.** The repo is pinned at **`vitest ^2.0.0`**; the workers pool needs vitest 4.x. **Decision (Sam, 2026-06-29): bump to the latest vitest (4.x) and the latest `@cloudflare/vitest-pool-workers` — NO fallback to an older vitest/pool.** Steps:
+  1. **Bump:** `bun add -d vitest@latest @cloudflare/vitest-pool-workers@latest` (pin the resolved versions). This is a **two-major vitest bump (2 → 4) across all ~386 existing tests** (engine + session + sweep) — expect breakage and treat fixing it as IN-SCOPE remediation, not a blocker.
+  2. **Run the FULL suite** (`bun run test`) immediately. **Fix every broken test** as the remediation path — migrate to the vitest-4 API (config shape, deprecated matchers, `vi` API changes) while **preserving each test's assertions** (a vitest-4 migration must keep coverage; fix the call site, do NOT weaken the assertion — assertion-rigor rule). Flag the bump + the fixes in the PR (`## Shared-config changes`) so the sweep track isn't surprised it shares the dependency.
+  3. **Verify the pool's config API against the INSTALLED version** (it changed across releases: older `defineWorkersConfig` + `poolOptions.workers`; newer a `cloudflareTest()` Vite plugin in `plugins:[]`). Read the installed package's README/`dist` exports and use whichever it exposes — Step 3 below shows the plugin form; if the installed version differs, use its form (and verify the B7 helper import paths, `cloudflare:test` vs `cloudflare:workers`). Record the installed versions + API as a Deviation.
 
 - [ ] **Step 2: Append to `package.json`** (append-only to `devDependencies` + `scripts`; `wrangler` is already present):
 
@@ -1849,9 +1866,9 @@ Avoid parallel-agent execution **within** a part (the shared `session.ts`/`game-
 
 **Decisions reflected:** one-plan-two-parts (structure) ✓; injected agentForSeat (A2.3, decision #2) ✓; src/session+src/wire+src/host naming ✓; defender-timeout OFF-by-default + still-thinking + roomOptions (A1, A4, B5, decision #4) ✓.
 
-**Spec-claim corrections folded** (CF research + the review cycle; each is a Deviation where it changes a spec-stated value): 2 MB storage cap, not 128 KiB (B3.1, DO-STORAGE-1); bigints native in storage / codec only on the wire (A2.4, B3.1, DO-CODEC-1); persist-first rationale, not output-gate folklore (B3.2, DO-ORDER-1); single atomic `put` + pending tombstone, not put+delete/transaction (A2.1, B3.1); **`replayVersion` hash closure widened** to add `src/geometry` + `src/session/{round,hash,codec,replay}.ts` (B8.1 — an `applyEntry`/`control` change MUST bump it); **recovery freezes on a non-empty post-snapshot tail under a version mismatch** (B3.3). The spec §3 "Timeouts" paragraph (90s always-on) is superseded by decision #4.
+**Spec-claim corrections folded** (CF research + the review cycle; each is a Deviation where it changes a spec-stated value): 2 MB storage cap, not 128 KiB (B3.1, DO-STORAGE-1); bigints native in storage / codec only on the wire (A2.4, B3.1, DO-CODEC-1); persist-first rationale, not output-gate folklore (B3.2, DO-ORDER-1); single atomic `put` + pending tombstone, not put+delete/transaction (A2.1, B3.1); **`replayVersion` hash closure widened** to add `src/geometry` + `src/session/{round,hash,codec,replay}.ts` (B8.1 — an `applyEntry`/`control` change MUST bump it); **recovery freezes on a non-empty post-snapshot tail under a version mismatch** (B3.3). **Both `replayVersion`-hash and "Timeouts" were applied to spec §3 on 2026-06-29 (Sam-approved), so the spec now matches the plan.**
 
-**Open items routed to Sam (not silently decided):** spec §3 Timeouts paragraph update (defender-timeout redesign) + the §3 `replayVersion`-hash definition (now wider than `engine+rng+board`); `wrangler.jsonc` `compatibility_flags` (omitted — add only if a dep needs node:*); the **vitest 2→4 two-major bump** (B1.2 — STOP-and-raise if it breaks tests); the WS-token-in-URL leakage tradeoff (B2.2 — accepted v1). All Sam-gated/deferred items (cutover, blocking staging smoke, dev branch protection, abuse floor) are flagged out-of-scope, not built.
+**Resolved by Sam (2026-06-29):** defender-timeout default interval = **120 s** when enabled (toggle still OFF by default); the **vitest bump is approved** — go to the latest vitest (4.x) + latest pool, **no fallback**, fix any broken tests as in-scope remediation (preserve assertions); spec §3 Timeouts + `replayVersion` updated. **Still asserted (defaults):** `wrangler.jsonc` `compatibility_flags` omitted (add only if a dep needs node:*); the WS-token-in-URL leakage tradeoff (B2.2 — accepted v1). All Sam-gated/deferred items (cutover, blocking staging smoke, dev branch protection, abuse floor) are flagged out-of-scope, not built here — but the cutover **admin prerequisites** now have a step-by-step in "Deferred / Sam-gated" below.
 
 **Known residual risks (for execution):** (1) the local-DX gap for `bun run test:host` (workerd pool under bun) — CI-gated as the fallback; (2) the `dist/client` placeholder (generated in the deploy workflow) until the SPA plan lands; (3) the exact `@cloudflare/vitest-pool-workers` config API + import paths must be verified against the INSTALLED version at B1 (B1.2 Step 1.3).
 
