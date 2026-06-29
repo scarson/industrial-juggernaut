@@ -45,4 +45,45 @@ describe("control", () => {
     const b = control(s, 0);
     expect([...a.hexes].sort()).toEqual([...b.hexes].sort());
   });
+
+  // DER #17: a radiating player does NOT command iron that sits inside a non-ally
+  // opponent's valid perimeter — the perimetered player claims it exclusively.
+  it("radiating player excludes iron inside a non-ally opponent's perimeter (DER #17)", () => {
+    const ironHex = hex(0, 0, 0);
+    const p1Bases = [hex(2, -2, 0), hex(-2, 2, 0), hex(2, 0, -2), hex(-2, 0, 2)]; // hull enclosing origin
+    const p0Base = hex(5, 0, -5); // dist 5 to origin (<= radius 5), outside p1's hull
+    const s = mkState({ board: 96, basesP0: [p0Base], basesP1: p1Bases, iron: [ironHex] });
+    // Territory is unchanged: p0's disk still reaches the iron hex.
+    expect(control(s, 0).hexes.has(key(ironHex))).toBe(true);
+    // But the iron is NOT p0's — it sits inside perimetered p1's hull.
+    expect(control(s, 0).iron.map(key)).not.toContain(key(ironHex));
+    // The perimetered owner keeps it.
+    expect(control(s, 1).iron.map(key)).toContain(key(ironHex));
+  });
+
+  it("ally perimeter does NOT subtract a radiating member's iron (coalition keeps it)", () => {
+    const ironHex = hex(0, 0, 0);
+    const p1Bases = [hex(2, -2, 0), hex(-2, 2, 0), hex(2, 0, -2), hex(-2, 0, 2)];
+    const p0Base = hex(5, 0, -5);
+    const base = mkState({ board: 96, basesP0: [p0Base], basesP1: p1Bases, iron: [ironHex] });
+    // Make p0 and p1 mutual allies (alliance includes self by convention). Build
+    // immutably — do NOT assign s.players[i].alliance in place.
+    const s = {
+      ...base,
+      players: base.players.map((p) =>
+        p.id === 0 ? { ...p, alliance: [0, 1] } : p.id === 1 ? { ...p, alliance: [1, 0] } : p,
+      ),
+    };
+    // Radiating p0 keeps the iron because the perimeter belongs to an ally.
+    expect(control(s, 0).iron.map(key)).toContain(key(ironHex));
+  });
+
+  it("factories inside a non-ally opponent's perimeter are excluded for a radiating player", () => {
+    const facHex = hex(0, 0, 0);
+    const p1Bases = [hex(2, -2, 0), hex(-2, 2, 0), hex(2, 0, -2), hex(-2, 0, 2)];
+    const p0Base = hex(5, 0, -5);
+    const s = mkState({ board: 96, basesP0: [p0Base], basesP1: p1Bases, factories: [facHex] });
+    expect(control(s, 0).factories.map(key)).not.toContain(key(facHex));
+    expect(control(s, 1).factories.map(key)).toContain(key(facHex));
+  });
 });

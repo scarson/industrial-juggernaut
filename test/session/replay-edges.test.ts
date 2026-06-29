@@ -24,11 +24,11 @@ test("replay equivalence at mid-turn elimination (seed=256, 4p)", () => {
 
 /**
  * Regime: bounty/stranding — baseDestroyed event AND an eliminated player in the same game.
- * Seed 285 (4p heuristic): a base is destroyed (stranded/bounty) and a player is eliminated,
+ * Seed 299 (4p heuristic): a base is destroyed (stranded/bounty) and a player is eliminated,
  * exercising the per-declaration composition's removeEncircledStrandedBases step.
  */
-test("replay equivalence at bounty/stranding timing (seed=285, 4p)", () => {
-  const rec = recordGame(heuristicHeader(4, { seed: 285n }), { turnCap: 400 });
+test("replay equivalence at bounty/stranding timing (seed=299, 4p)", () => {
+  const rec = recordGame(heuristicHeader(4, { seed: 299n }), { turnCap: 400 });
   // Assert the regime: a base was destroyed AND a player was eliminated.
   expect(rec.events.some(e => e.kind === "baseDestroyed" || e.kind === "baseReplaced")).toBe(true);
   expect(rec.events.some(e => e.kind === "eliminated")).toBe(true);
@@ -59,11 +59,11 @@ test("replay equivalence at ≥4-base (perimeter) regime crossing (seed=2, 4p)",
 
 /**
  * Regime: ≥2 commitment levels in attack declarations.
- * Seed 67 (3p heuristic): attacks with commitment levels 3 and 4 both appear,
+ * Seed 990 (3p heuristic): attacks with commitment levels 3, 4, and 5 all appear,
  * exercising the per-declaration composition across different attacker-count paths.
  */
-test("replay equivalence at ≥2 commitment levels in attacks (seed=67, 3p)", () => {
-  const rec = recordGame(heuristicHeader(3, { seed: 67n }), { turnCap: 200 });
+test("replay equivalence at ≥2 commitment levels in attacks (seed=990, 3p)", () => {
+  const rec = recordGame(heuristicHeader(3, { seed: 990n }), { turnCap: 200 });
   // Assert the regime: log has attack entries with at least 2 distinct commitment levels.
   const commitLevels = new Set(
     rec.log.filter(e => e.kind === "attack").map(e => (e as any).decl.attackers.length),

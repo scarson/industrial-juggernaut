@@ -6,6 +6,7 @@ import {
   farthestBases,
   isLegalFactoryPlacement,
   isLegalBasePlacement,
+  isBootstrapOnly,
 } from "../../src/engine/build";
 import { mkState } from "../helpers/state";
 
@@ -335,5 +336,27 @@ describe("isLegalBasePlacement — inside own perimeter", () => {
     const s = mkState({ board: 96, basesP0: perimeterBases });
     // (0,0,0) is a base (occupied) — even inside the perimeter, occupied is illegal.
     expect(isLegalBasePlacement(s, 0, hex(0, 0, 0))).toBe(false);
+  });
+});
+
+describe("DER #17 build-budget ripple", () => {
+  it("C-budget: radiating p0's only iron is inside non-ally p1's perimeter => buildBudget === 0 (no budget from borrowed iron)", () => {
+    const p1Bases = [hex(2, -2, 0), hex(-2, 2, 0), hex(2, 0, -2), hex(-2, 0, 2)];
+    const s = mkState({ board: 96, basesP0: [hex(5, 0, -5)], basesP1: p1Bases, iron: [hex(0, 0, 0)] });
+    // Counterfactual: pre-fix p0 controlled the origin iron (count=1) => bootstrap budget 1.
+    // Post-fix the iron is excluded (count=0) => no budget, bootstrap blocked (0 iron).
+    expect(buildBudget(s, 0)).toBe(0);
+  });
+
+  it("C-bootstrap: radiating p0 with a legit iron outside hull and a borrowed factory inside => isBootstrapOnly === true", () => {
+    const p1Bases = [hex(2, -2, 0), hex(-2, 2, 0), hex(2, 0, -2), hex(-2, 0, 2)];
+    const s = mkState({
+      board: 96, basesP0: [hex(5, 0, -5)], basesP1: p1Bases,
+      iron: [hex(5, -5, 0)], factories: [hex(0, 0, 0)],
+    });
+    // Counterfactual: pre-fix factories=1 => rc=2 => floor(2/2)=1 != 0 => isBootstrapOnly false.
+    // Post-fix the borrowed factory is excluded => factories=0, rc=1, floor(1/2)=0,
+    // baseCount===1, iron>=1, factories===0 => isBootstrapOnly true.
+    expect(isBootstrapOnly(s, 0)).toBe(true);
   });
 });

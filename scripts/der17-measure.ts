@@ -11,7 +11,7 @@ import { advanceRound, currentPlayer, setupGame } from "../src/engine/turn";
 import { seed } from "../src/rng/pcg";
 import { defaultConfig } from "../src/engine/config";
 import { convexHull, hexInHull, hullArea } from "../src/geometry/hull";
-import { key } from "../src/geometry/cube";
+import { distance, key } from "../src/geometry/cube";
 import type { Archetype } from "../src/agent/archetypes";
 import type { GameState, Hex, PlayerId } from "../src/engine/types";
 
@@ -23,6 +23,20 @@ function validHull(state: GameState, p: PlayerId): Hex[] | null {
   if (bases.length < PERIMETER_BASE_COUNT) return null;
   const hull = convexHull(bases.map((b) => b.hex));
   return hullArea(hull) > 0 ? hull : null;
+}
+
+/**
+ * The PRE-FIX radiating-disk iron for player p, computed independently of production
+ * control() so the detector can witness the overlap gap even after control() enforces
+ * exclusivity. Perimetered players are unaffected by the DER #17 fix, so for them this
+ * equals control().iron; for radiating players it is the raw radius-disk iron with NO
+ * exclusion (what control() returned BEFORE the fix).
+ */
+function rawRadiatingIron(state: GameState, p: PlayerId): Hex[] {
+  if (validHull(state, p)) return control(state, p).iron; // perimetered: unchanged by the fix
+  const bases = state.bases.filter((b) => b.owner === p);
+  const r = state.config.radius;
+  return state.board.iron.filter((h) => bases.some((b) => distance(b.hex, h) <= r));
 }
 
 /**
@@ -42,7 +56,7 @@ function exclusiveIronCount(state: GameState, p: PlayerId): number {
     const h = validHull(state, q.id);
     if (h) oppHulls.push(h);
   }
-  const stdIron = control(state, p).iron;
+  const stdIron = rawRadiatingIron(state, p);
   if (myHull) return stdIron.length; // perimetered claimer keeps everything
   // radiating: drop iron that sits inside any opponent's perimeter
   let n = 0;
@@ -58,7 +72,7 @@ function overlapSnapshot(state: GameState): { sharedIronHexes: number; playersSh
   // Map each iron hex -> set of (solo) players controlling it under standard control.
   const owners = new Map<string, Set<PlayerId>>();
   for (const pl of state.players) {
-    for (const h of control(state, pl.id).iron) {
+    for (const h of rawRadiatingIron(state, pl.id)) {
       const k = key(h);
       if (!owners.has(k)) owners.set(k, new Set());
       owners.get(k)!.add(pl.id);
@@ -94,7 +108,7 @@ function derSubtractableSnapshot(state: GameState): number {
       if (h) oppHulls.push(h);
     }
     if (!oppHulls.length) continue;
-    for (const h of control(state, pl.id).iron) {
+    for (const h of rawRadiatingIron(state, pl.id)) {
       if (oppHulls.some((hull) => hexInHull(h, hull))) n++;
     }
   }
@@ -130,10 +144,10 @@ function selfTest(): boolean {
     rngState: seed(1n),
   };
   const hull = validHull(st, 1);
-  const p0Ctl = control(st, 0).iron.map(key);
+  const p0Ctl = rawRadiatingIron(st, 0).map(key);
   const der = derSubtractableSnapshot(st);
   const excl0 = exclusiveIronCount(st, 0);
-  const std0 = control(st, 0).iron.length;
+  const std0 = rawRadiatingIron(st, 0).length;
   const ok = hull !== null && hexInHull(ironHex, hull) && p0Ctl.includes(key(ironHex)) && der >= 1 && excl0 < std0;
   console.log(`[self-test] p1 perimetered=${hull !== null}, origin-in-hull=${hull ? hexInHull(ironHex, hull) : false}, p0 controls iron=${p0Ctl.includes(key(ironHex))}, derSubtractable=${der}, p0 std=${std0} excl=${excl0} => ${ok ? "PASS (detector fires)" : "FAIL (detector broken — results untrustworthy)"}`);
   return ok;
@@ -220,7 +234,7 @@ function winnerIron(state: GameState, winners: PlayerId[]): { std: number; excl:
       const hh = validHull(state, q.id);
       if (hh) oppHulls.push(hh);
     }
-    for (const h of control(state, m).iron) {
+    for (const h of rawRadiatingIron(state, m)) {
       stdSet.add(key(h));
       if (myHull || !oppHulls.some((hull) => hexInHull(h, hull))) exclSet.add(key(h));
     }

@@ -54,8 +54,31 @@ export function control(state: GameState, player: PlayerId): Control {
     }
   }
 
-  const iron = state.board.iron.filter((h) => hexes.has(key(h)));
-  const factories = state.factories.filter((f) => hexes.has(key(f.hex))).map((f) => f.hex);
+  let iron = state.board.iron.filter((h) => hexes.has(key(h)));
+  let factories = state.factories.filter((f) => hexes.has(key(f.hex))).map((f) => f.hex);
+
+  // EXCLUSIVITY (DER #17): a RADIATING player does not command resources that sit
+  // inside a non-ally opponent's valid perimeter — the perimeter claims its interior
+  // iron/factories ("no longer available to adjacent radiating players", rules v10).
+  // Perimetered players keep their whole hull interior; ally perimeters never subtract
+  // (the coalition keeps the resource via the ally — coalitionIron unions). Only the
+  // resource lists shrink; `hexes` (territory/reach) is unchanged. Recomputed every
+  // call, never cached (GEO-5) — this just reads other players' bases.
+  if (!perimeter) {
+    const allies = state.players[player]!.alliance;
+    const oppHulls: Hex[][] = [];
+    for (const q of state.players) {
+      if (q.eliminated || allies.includes(q.id)) continue;
+      const qBases = state.bases.filter((b) => b.owner === q.id);
+      if (qBases.length < PERIMETER_BASE_COUNT) continue;
+      const qHull = convexHull(qBases.map((b) => b.hex));
+      if (hullArea(qHull) > 0) oppHulls.push(qHull);
+    }
+    if (oppHulls.length > 0) {
+      iron = iron.filter((h) => !oppHulls.some((hl) => hexInHull(h, hl)));
+      factories = factories.filter((h) => !oppHulls.some((hl) => hexInHull(h, hl)));
+    }
+  }
 
   return { hexes, iron, factories };
 }
