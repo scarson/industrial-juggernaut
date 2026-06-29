@@ -139,6 +139,30 @@ describe("status", () => {
   });
 });
 
+describe("DER #17 victory exclusivity", () => {
+  it("radiating blanketer wins no false iron victory; perimetered owner wins instead (DER #17)", () => {
+    const ironHex = hex(0, 0, 0);
+    const p1Bases = [hex(2, -2, 0), hex(-2, 2, 0), hex(2, 0, -2), hex(-2, 0, 2)]; // hull encloses origin
+    const p0Base = hex(5, 0, -5); // radiating, dist 5 to origin (<= radius 5), outside p1's hull
+    const s = mkState({
+      board: 96,
+      basesP0: [p0Base],
+      basesP1: p1Bases,
+      iron: [ironHex],
+      config: { ...defaultConfig(), victoryThreshold: 1 },
+    });
+    // Counterfactual (pre-fix): p0's raw disk covers the iron, so coalitionIron(p0) would be 1 >= 1,
+    // tying p1 and winning the iron victory on the lowest-id tiebreak — a FALSE victory.
+    // Post-fix: the iron sits inside non-ally p1's perimeter, so p0 commands 0 of it.
+    expect(coalitionIron(s, [0])).toBe(0);
+    expect(coalitionIron(s, [1])).toBe(1);
+    const st = status(s);
+    expect(st.kind).toBe("victory");
+    expect(st.kind === "victory" && st.reason).toBe("iron");
+    expect(st.kind === "victory" && st.players).toEqual([1]); // perimetered owner, not radiating p0
+  });
+});
+
 describe("applyEliminations", () => {
   it("noBases: player with 0 bases is eliminated, full bounty to byPlayer", () => {
     // p1 has no bases; p0 is the killer.
