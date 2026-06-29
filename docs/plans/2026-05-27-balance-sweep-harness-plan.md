@@ -38,11 +38,11 @@ downstream reconstruction is expensive and fails silently.
 
 ## Execution Status
 
-**Overall:** Not started.
+**Overall:** 🚧 IN PROGRESS (claimed 2026-06-29, branch `claude/wonderful-mahavira-87ccd6`). S1 ✅ shipped (commit `2e5d7cf1`, not yet PR'd); S2–S5 not started.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
-| S1 — Metrics | ⬜ Not started | — | — |
+| S1 — Metrics | ✅ SHIPPED (commit, not yet PR'd) | `2e5d7cf1` | `src/sweep/metrics.ts` + 28 tests; full suite 423 green, typecheck clean. Spec + quality review passed; isolation verified (2 files only). |
 | S2 — Health gate + rank | ⬜ Not started | — | — |
 | S3 — Runner (grid/OFAT, CRN, CIs) | ⬜ Not started | — | — |
 | S4 — Orchestrator + report | ⬜ Not started | — | — |
@@ -52,7 +52,8 @@ downstream reconstruction is expensive and fails silently.
 - (none yet)
 
 ### Discoveries
-- (none yet)
+- **`SweepMetrics` / `GameEntry` contract (S1, `src/sweep/metrics.ts`).** `victoryType` is keyed on `"iron" | "last-standing" | "none"` (matches `VictoryType` from `src/driver/record.ts`). `computeMetrics` reads `GameResult.{winnerOrCoalition, turns, victoryType, hitTurnCap}`; the caller (S3 runner) supplies `setupDecided` and `turn1Leaders` (argmax of `ironOverTime[0]`, ties→all). `seatWinBias` returns `{ maxBiasAcrossGroups, byNPlayers }` computed WITHIN each player-count group.
+- **No-winner-game handling — load-bearing for S2/S4 interpretation.** Empty-coalition/cap games count in the seat-bias denominator (`gamesInGroup`) but contribute 0 wins to all seats → they dilute seat win-rates and INFLATE apparent `seatWinBias` when cap-hit frequency is high. `leadVolatility` counts no-winner games as volatile (no winner ∈ leaders). S2 thresholds and S4 reporting MUST read these alongside `noWinnerFraction`/`capHitFraction` for context.
 
 ---
 
@@ -79,7 +80,7 @@ the grid, is a real FINDING, not a test to soften — STOP and report.
 
 ## Phase S1 — Metrics
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED — `2e5d7cf1` on branch `claude/wonderful-mahavira-87ccd6` (not yet PR'd). `src/sweep/metrics.ts` + `test/sweep/metrics.test.ts`; 28 sweep tests, full suite 423 green, typecheck clean. Spec-compliance review ✅ (within-group `seatWinBias`, real `GameResult` fields, no tautological tests); code-quality review ✅ APPROVED (4 findings folded: 2 test-comment corrections, `seatWinBias` denominator doc, coalition-credit test). Isolation verified: only the 2 intended files changed since dev base.
 
 ### Task S1.1: `SweepMetrics` + computation
 **Files:** Create `src/sweep/metrics.ts`; Test `test/sweep/metrics.test.ts`. Available: `src/eval/measure.ts` (`measureDistribution`), `src/driver/run.ts` (`runGame`, `GameResult`), `src/agent/heuristic-agent.ts`, `src/engine/control.ts`, `src/engine/config.ts`, `src/engine/turn.ts` (`setupGame`).
