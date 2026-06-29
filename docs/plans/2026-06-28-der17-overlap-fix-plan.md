@@ -67,6 +67,20 @@ notes and commit messages.
 | 2 — Repair rippled scenario tests | ✅ Shipped | `283e032e` | replay-edges seeds 285→299, 67→990 (regime preserved) |
 | 3 — Oracle refactor + re-validation gate | ✅ Shipped | `a0313690` + docs commit | der17-measure decoupled; suite green; distribution documented |
 
+### Discoveries
+
+- **Directed-vs-undirected alliance check in `control.ts` exclusivity (latent, not reachable in M1).**
+  The DER #17 filter reads the *directed* forward list `state.players[player].alliance` to decide which
+  opponents are non-allies, whereas `coalitions()` (`src/engine/status.ts`) treats the alliance relation
+  as *undirected* (links if either side lists the other). If a future alliance-forming operation ever
+  produces a one-sided list, `control(state, p)` could let a one-sided "ally" q's perimeter subtract p's
+  iron even though `coalitions()` groups them together — under-counting `coalitionIron`. Not reachable
+  today: M1 sets `alliance: [id]` only (`turn.ts`), alliance ops are deferred, and all fixtures are
+  symmetric. **Action for the future alliance work:** when alliance-forming lands, derive the exclusivity
+  `allies` set via the same "either lists the other" rule `coalitions()` uses, not the bare forward list.
+  (Surfaced by the final code review, 2026-06-28; left unfixed per YAGNI — adding the undirected
+  derivation now would be speculative for an unreachable path.)
+
 **Phase ordering (hard dependency):** Phase 1 → Phase 2 → Phase 3, sequential. Phase 2's replacement
 seeds can only be found against the *fixed* engine (Phase 1 landed in the working tree). Phase 3's
 re-validation gate asserts the *whole* suite is green, which requires Phase 2's re-seeds. Do NOT run
