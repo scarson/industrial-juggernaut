@@ -8,6 +8,7 @@ import { hex, key } from "../../src/geometry/cube";
 import { ringDepthFromEdge } from "../../src/board/shape";
 import { defaultConfig } from "../../src/engine/config";
 import { setupGame, currentPlayer, advanceRound } from "../../src/engine/turn";
+import { mkState } from "../helpers/state";
 import type { Base, GameState } from "../../src/engine/types";
 
 const cfg = defaultConfig();
@@ -295,6 +296,23 @@ describe("turn-order rule (2P): iron-weighted first-player draw", () => {
     };
     const next = advanceRound(s);
     expect([...next.phase.order].sort((a, b) => a - b)).toEqual([0, 1]);
+  });
+});
+
+describe("DER #17 turn-order ripple", () => {
+  it("DER #17: 2-player iron-weighted draw seats the perimetered owner first when the radiator's only iron is borrowed", () => {
+    const ironHex = hex(0, 0, 0);
+    const p1Bases = [hex(2, -2, 0), hex(-2, 2, 0), hex(2, 0, -2), hex(-2, 0, 2)]; // hull encloses origin
+    const base = mkState({ board: 96, basesP0: [hex(5, 0, -5)], basesP1: p1Bases, iron: [ironHex] });
+    // Sit at the end of the turn so advanceRound rolls over and redraws the order.
+    const s = { ...base, phase: { ...base.phase, indexInOrder: base.phase.order.length - 1 } };
+    // p0 radiating controls 0 iron post-fix (origin sits inside p1's perimeter); p1 controls 1.
+    // wa=0, wb=1 => first slot is p1 for EVERY seed. Counterfactual: pre-fix wa=1 (tie), so some
+    // seed would have seated p0 first.
+    for (const sd of [0n, 1n, 2n, 7n, 99n]) {
+      const next = advanceRound({ ...s, rngState: seed(sd) });
+      expect(next.phase.order[0]).toBe(1);
+    }
   });
 });
 

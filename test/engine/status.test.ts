@@ -319,3 +319,30 @@ describe("applyEliminations", () => {
     expect(state.bases.some((b) => b.owner === 1)).toBe(true);
   });
 });
+
+describe("DER #17 elimination ripple", () => {
+  it("B-noIron: radiating p0 whose only iron sits inside non-ally perimeter is eliminated with cause noIron", () => {
+    const ironHex = hex(0, 0, 0);
+    const p1Bases = [hex(2, -2, 0), hex(-2, 2, 0), hex(2, 0, -2), hex(-2, 0, 2)];
+    const s = mkState({ board: 96, basesP0: [hex(5, 0, -5)], basesP1: p1Bases, iron: [ironHex] });
+    // Counterfactual: pre-fix p0 controlled the origin iron (1) and survived; post-fix it controls 0.
+    const { events } = applyEliminations(s, null);
+    expect(events.some((e) => e.kind === "eliminated" && e.player === 0 && e.cause === "noIron")).toBe(true);
+  });
+
+  it("B-clock: radiating p0 with a legit iron outside p1's hull and a borrowed factory inside is NOT eliminated by the factory-death clock", () => {
+    const legitIron = hex(5, -5, 0);   // outside p1's hull, dist 5 from p0 base
+    const borrowedFac = hex(0, 0, 0);  // inside p1's hull
+    const p1Bases = [hex(2, -2, 0), hex(-2, 2, 0), hex(2, 0, -2), hex(-2, 0, 2)];
+    const s = mkState({
+      board: 96, basesP0: [hex(5, 0, -5)], basesP1: p1Bases,
+      iron: [legitIron], factories: [borrowedFac],
+      config: { ...defaultConfig(), brokenPerimeterDeathAtFactories: 1 },
+    });
+    // Counterfactual: pre-fix p0 controlled 1 factory (origin) >= threshold 1 with baseCount < 4
+    // => eliminated brokenPerimeterAt18Factories. Post-fix the borrowed factory is excluded
+    // (controlled factories = 0 < 1), and p0 has 1 legit iron, so it is NOT eliminated.
+    const { events } = applyEliminations(s, null);
+    expect(events.some((e) => e.kind === "eliminated" && e.player === 0)).toBe(false);
+  });
+});
