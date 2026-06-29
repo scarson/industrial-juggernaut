@@ -59,7 +59,7 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** 3/3 phases shipped on branch `claude/zen-kepler-11d22b` (off `origin/dev`). Suite 386 → 395, all green. Exploit closed (heuristic overlap-assisted wins 41 → 0). PR pending.
+**Overall:** 3/3 phases shipped on branch `claude/zen-kepler-11d22b` (off `origin/dev`). Suite 386 → 395, all green. Exploit closed (heuristic overlap-assisted wins 41 → 0). **PR [#23](https://github.com/scarson/industrial-juggernaut/pull/23)** open to `dev` (CI `check` green; Cloudflare "Workers Builds" red = expected noise). Review-classified (data-integrity/architecture) — awaiting Sam's review/merge; merge SHA to be recorded on merge.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
