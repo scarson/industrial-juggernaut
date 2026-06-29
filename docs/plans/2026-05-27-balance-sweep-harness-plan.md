@@ -38,12 +38,12 @@ downstream reconstruction is expensive and fails silently.
 
 ## Execution Status
 
-**Overall:** 🚧 IN PROGRESS (claimed 2026-06-29, branch `claude/wonderful-mahavira-87ccd6`). S1 ✅ shipped (commit `2e5d7cf1`, not yet PR'd); S2–S5 not started.
+**Overall:** 🚧 IN PROGRESS (claimed 2026-06-29, branch `claude/wonderful-mahavira-87ccd6`). S1 ✅ (`2e5d7cf1`), S2 ✅ (`ff826e65`) — both shipped on-branch, not yet PR'd; S3–S5 not started.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
 | S1 — Metrics | ✅ SHIPPED (commit, not yet PR'd) | `2e5d7cf1` | `src/sweep/metrics.ts` + 28 tests; full suite 423 green, typecheck clean. Spec + quality review passed; isolation verified (2 files only). |
-| S2 — Health gate + rank | ⬜ Not started | — | — |
+| S2 — Health gate + rank | ✅ SHIPPED (commit, not yet PR'd) | `ff826e65` | `src/sweep/health.ts` + 26 tests; suite 449 green. `isHealthy`/`rankHealthy`; equal-weight composite. Spec + quality review passed (4 doc/test fixes folded). |
 | S3 — Runner (grid/OFAT, CRN, CIs) | ⬜ Not started | — | — |
 | S4 — Orchestrator + report | ⬜ Not started | — | — |
 | S5 — Execute the search; recommend balanced config | ⬜ Not started | — | — |
@@ -94,7 +94,7 @@ the grid, is a real FINDING, not a test to soften — STOP and report.
 
 ## Phase S2 — Health Gate + Rank
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED — `ff826e65` on branch `claude/wonderful-mahavira-87ccd6` (not yet PR'd). `src/sweep/health.ts` + `test/sweep/health.test.ts`; 26 tests, suite 449 green, typecheck clean. `defaultHealthThresholds()` = `{minMedianTurns:3, maxMedianTurns:25, maxSetupDecided:0.05, minIronVictory:0.5, maxCapHit:0.02, maxSeatBias:0.20, minLeadVolatility:0.2}` (STARTING values — S5 reports real-grid behavior against them; if none pass, that's a finding, NOT a threshold to loosen). Composite (for S4): equal-weight (0.25 each) blend of `leadVolatility`, `1−seatWinBias.maxBiasAcrossGroups`, `ironVictoryFraction`, and `1−|medianTurns−bandCenter|/halfWidth` (bandCenter=(min+max)/2). `rankHealthy` filters failers first, so a failing config never outranks a passer. Spec ✅ + quality ✅ (logic approved; 4 doc/test-clarity fixes folded incl. a real tie-stability test replacing a tautological one).
 
 ### Task S2.1: `isHealthy` + `rankHealthy`
 **Files:** Create `src/sweep/health.ts`; Test `test/sweep/health.test.ts`. Uses `SweepMetrics` (S1).
