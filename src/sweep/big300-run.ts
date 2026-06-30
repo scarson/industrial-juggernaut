@@ -112,11 +112,17 @@ function byPlayerCount(lines: ShardLine[]): Record<number, { games: number; capH
 
 async function main(): Promise<void> {
   const startedAt = Date.now();
+  // `--merge-only` skips spawning and just aggregates whatever JSONL the shards
+  // have already written. Used to summarize a partial run after an EARLY STOP
+  // (the hazard: a 6P game grinding toward the cap need not be waited out — its
+  // unfinished game is simply absent, and the completed games still give the
+  // directional capHit answer), or to re-summarize without re-running.
+  const mergeOnly = process.argv.includes("--merge-only");
   console.error(
-    `[big300-run] ${LABEL}: ${GAMES} games, ${ITERS} iters, turnCap=${TURN_CAP}, baseSeed=${BASE_SEED}, playerCounts=[${PLAYER_COUNTS}], ${NUM_SHARDS} shards`,
+    `[big300-run] ${LABEL}: ${GAMES} games, ${ITERS} iters, turnCap=${TURN_CAP}, baseSeed=${BASE_SEED}, playerCounts=[${PLAYER_COUNTS}], ${NUM_SHARDS} shards${mergeOnly ? " (MERGE-ONLY)" : ""}`,
   );
 
-  await runShards();
+  if (!mergeOnly) await runShards();
 
   const lines = collectLines();
   const entries = toEntries(lines);
