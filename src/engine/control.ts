@@ -1,7 +1,7 @@
 // ABOUTME: Territory control — which hexes (and thus iron/factories) a player commands.
 // ABOUTME: Radiating disks below 4 bases (overlaps shared); convex-hull interior at 4+ non-colinear bases (R1). Derived every call (GEO-5).
 
-import { distance, key } from "../geometry/cube";
+import { key } from "../geometry/cube";
 import { convexHull, hexInHull, hullArea } from "../geometry/hull";
 import type { GameState, Hex, PlayerId } from "./types";
 
@@ -48,9 +48,21 @@ export function control(state: GameState, player: PlayerId): Control {
     // RADIATING: union of radius-disks around each base, intersected with the
     // board (spec §7) — a board hex is controlled iff it lies within
     // `config.radius` (cube distance) of at least one of the player's bases.
-    const radius = state.config.radius;
+    //
+    // The membership test is the same `distance(base, h) <= radius` as the
+    // disk union; we inline it over a manual loop (no per-hex closure) and
+    // compare twice the L1 component sum against `2*radius` so the cube
+    // distance never divides. Identical result, fewer allocations per hex.
+    const reach2 = state.config.radius * 2;
+    const baseCount = myBases.length;
     for (const h of state.board.hexes) {
-      if (myBases.some((base) => distance(base.hex, h) <= radius)) hexes.add(key(h));
+      for (let i = 0; i < baseCount; i++) {
+        const b = myBases[i]!.hex;
+        if (Math.abs(b.x - h.x) + Math.abs(b.y - h.y) + Math.abs(b.z - h.z) <= reach2) {
+          hexes.add(key(h));
+          break;
+        }
+      }
     }
   }
 
