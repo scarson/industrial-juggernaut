@@ -117,54 +117,85 @@ function turn1LeadersOf(result: GameResult): PlayerId[] {
 
 /**
  * Run `opts.games` seeded games under one rule config and aggregate them into
- * `SweepMetrics`. Deterministic for a fixed `(config, baseSeed)`.
- *
- * For each game `i`:
- *   - seed   = `gameSeed(baseSeed, i)` (config-INDEPENDENT — the CRN guarantee).
- *   - nPlayers = `playerCounts[i % playerCounts.length]` (default `[2,3,4,5,6]`),
- *     recorded in the `GameEntry` so it always matches the player count the game
- *     actually ran with.
- *   - board    = generated from the config (`boardSize`, `ironCount`) — never a
- *     hardcoded board, since the sweep varies those axes.
- *   - setupDecided is probed on the SAME board+bases the game plays (see
- *     `setupDecidedFor`).
- *   - turn1Leaders = argmax of `result.ironOverTime[0]`.
+ * `SweepMetrics`. Deterministic for a fixed `(config, baseSeed)`. This is exactly
+ * `computeMetrics(runConfigEntries(config, opts))`; the per-game contract (CRN
+ * seed, player-count rotation, setup-decided probe, turn-1 leaders) lives on
+ * `runGameEntry`, the shared seam both this and any sharded runner build through.
  */
 export function runConfig(config: RuleConfig, opts: RunConfigOpts): SweepMetrics {
+  return computeMetrics(runConfigEntries(config, opts));
+}
+
+/**
+ * Run the single game with index `gameIndex` of a batch under `config`/`opts`,
+ * and return its `GameEntry`. PURE and deterministic for a fixed
+ * `(config, opts.baseSeed, gameIndex)` — depends on no shared mutable state.
+ *
+ * THE PARALLEL-DECOMPOSITION SEAM. Both the sequential `runConfigEntries` loop
+ * and any process/worker-sharded runner build their per-game entries through
+ * this one function. Because the per-game CRN seed is `gameSeed(opts.baseSeed,
+ * gameIndex)` — config-INDEPENDENT and shard-INDEPENDENT (see `gameSeed`) — the
+ * `GameEntry` for a given `gameIndex` is identical no matter which shard (or the
+ * sequential loop) produces it. Merging disjoint-index shards back in any order
+ * and aggregating with `computeMetrics` therefore reproduces the sequential
+ * metrics byte-for-byte; that invariant is the basis of behavior-preserving
+ * parallelism and is pinned by the run-test suite.
+ *
+ * The `obs` hooks (`onGameSeed`, `onGamePlayed`) are forwarded from the same
+ * fields on `RunConfigOpts` by `runConfigEntries`; a sharded runner that does
+ * not need them passes nothing.
+ */
+export function runGameEntry(
+  config: RuleConfig,
+  opts: RunConfigOpts,
+  gameIndex: number,
+  obs?: Pick<RunConfigOpts, "onGameSeed" | "onGamePlayed">,
+): GameEntry {
   const playerCounts = opts.playerCounts ?? DEFAULT_PLAYER_COUNTS;
   const agentFactory = opts.agentFactory ?? (() => heuristicAgent());
   const boardSource = boardSourceFor(config);
 
+  const seed = gameSeed(opts.baseSeed, gameIndex);
+  const nPlayers = playerCounts[gameIndex % playerCounts.length]!;
+  obs?.onGameSeed?.(gameIndex, seed, config);
+  obs?.onGamePlayed?.(gameIndex, nPlayers);
+
+  const setupDecided = setupDecidedFor(seed, config, nPlayers);
+
+  const result = runGame({
+    seed,
+    boardSource,
+    nPlayers,
+    // Unused under `agentFor`, but RunOptions requires a length-nPlayers array.
+    archetypes: Array.from({ length: nPlayers }, () => "economic" as const),
+    config,
+    turnCap: opts.turnCap,
+    agentFor: (p) => agentFactory(p),
+  });
+
+  return {
+    result,
+    nPlayers,
+    setupDecided,
+    turn1Leaders: turn1LeadersOf(result),
+  };
+}
+
+/**
+ * Run `opts.games` seeded games under one rule config and return the ordered
+ * per-game `GameEntry[]` (game `i` at index `i`). Deterministic for a fixed
+ * `(config, baseSeed)`. `runConfig` is exactly `computeMetrics` of this list;
+ * exposing the entries lets a sharded runner aggregate a subset and the run-test
+ * suite assert parallel == sequential. The per-game contract (CRN seed,
+ * player-count rotation, setup-decided probe, turn-1 leaders) is documented on
+ * `runGameEntry`.
+ */
+export function runConfigEntries(config: RuleConfig, opts: RunConfigOpts): GameEntry[] {
   const entries: GameEntry[] = [];
-
   for (let i = 0; i < opts.games; i++) {
-    const seed = gameSeed(opts.baseSeed, i);
-    const nPlayers = playerCounts[i % playerCounts.length]!;
-    opts.onGameSeed?.(i, seed, config);
-    opts.onGamePlayed?.(i, nPlayers);
-
-    const setupDecided = setupDecidedFor(seed, config, nPlayers);
-
-    const result = runGame({
-      seed,
-      boardSource,
-      nPlayers,
-      // Unused under `agentFor`, but RunOptions requires a length-nPlayers array.
-      archetypes: Array.from({ length: nPlayers }, () => "economic" as const),
-      config,
-      turnCap: opts.turnCap,
-      agentFor: (p) => agentFactory(p),
-    });
-
-    entries.push({
-      result,
-      nPlayers,
-      setupDecided,
-      turn1Leaders: turn1LeadersOf(result),
-    });
+    entries.push(runGameEntry(config, opts, i, opts));
   }
-
-  return computeMetrics(entries);
+  return entries;
 }
 
 /**
