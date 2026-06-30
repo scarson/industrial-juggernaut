@@ -2,7 +2,7 @@
 // ABOUTME: scoreMove consumes NO PRNG — attacks are scored by expected value, never by rolling combat.
 
 import { applyAction } from "../engine/apply";
-import { control } from "../engine/control";
+import { control, type Control } from "../engine/control";
 import { key } from "../geometry/cube";
 import { convexHull, hullArea } from "../geometry/hull";
 import type { Action, Base, GameState, Hex, PlayerId } from "../engine/types";
@@ -53,20 +53,29 @@ function maxOrder(bases: Base[]): number {
  *   deterministic transition) and scored by control deltas, with static prunes.
  * - `attack`: scored by EXPECTED value from a HAND-BUILT win-state — we never call
  *   `applyAction`/`resolveCombat` for an attack (that would draw the PRNG, GEO-3).
+ *
+ * `beforeControl` is an OPTIONAL precomputed `control(state, player)`. The
+ * before-state control is invariant across every candidate move scored against
+ * the same `state` (e.g. the single-piece placements in one `sampleBuild`
+ * iteration, or the attacks in one `sampleAttack` call), so a caller scoring a
+ * batch may compute it ONCE and pass it in to avoid the per-candidate
+ * recomputation of an O(boardHexes x bases) function. Omitting it is identical in
+ * result — it is recomputed internally.
  */
 export function scoreMove(
   state: GameState,
   player: PlayerId,
   move: Action,
   weights: Weights,
+  beforeControl?: Control,
 ): number {
   switch (move.kind) {
     case "pass":
       return 0;
     case "build":
-      return scoreBuild(state, player, move, weights);
+      return scoreBuild(state, player, move, weights, beforeControl);
     case "attack":
-      return scoreAttack(state, player, move, weights);
+      return scoreAttack(state, player, move, weights, beforeControl);
   }
 }
 
@@ -75,10 +84,11 @@ function scoreBuild(
   player: PlayerId,
   move: Extract<Action, { kind: "build" }>,
   weights: Weights,
+  beforeControl?: Control,
 ): number {
   const { state: next } = applyAction(state, move);
 
-  const before = control(state, player);
+  const before = beforeControl ?? control(state, player);
   const after = control(next, player);
 
   const dIron = after.iron.length - before.iron.length;
@@ -121,6 +131,7 @@ function scoreAttack(
   player: PlayerId,
   move: Extract<Action, { kind: "attack" }>,
   weights: Weights,
+  beforeControl?: Control,
 ): number {
   // Move-gen emits single-decl attacks (Task 6.2); score the first decl.
   const decl = move.attacks[0]!;
@@ -141,7 +152,7 @@ function scoreAttack(
 
   const winState: GameState = { ...state, bases };
 
-  const before = control(state, player);
+  const before = beforeControl ?? control(state, player);
   const after = control(winState, player);
   const resourcesGained =
     after.iron.length + after.factories.length - (before.iron.length + before.factories.length);

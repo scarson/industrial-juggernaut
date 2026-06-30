@@ -336,7 +336,11 @@ function sampleBuild(
     const singles = legalSinglePieceBuilds(cur, type);
     if (singles.length === 0) break;
 
-    const scores = singles.map((s) => scoreMove(cur, player, s, POLICY_MOVE_WEIGHTS));
+    // The before-state control is identical for every candidate placement scored
+    // against `cur` this iteration; compute it once and reuse (control is
+    // O(boardHexes x bases) — the MCTS hot path's dominant cost).
+    const beforeControl = control(cur, player);
+    const scores = singles.map((s) => scoreMove(cur, player, s, POLICY_MOVE_WEIGHTS, beforeControl));
     const draw = softmaxSample(scores, temperature, curRng);
     curRng = draw.rng;
 
@@ -368,7 +372,10 @@ function sampleAttack(
   const attacks = legalAttacks(state);
   if (attacks.length === 0) return { attack: null, rng };
 
-  const scores = attacks.map((a) => scoreMove(state, player, a, POLICY_MOVE_WEIGHTS));
+  // The before-state control is identical for every attack scored against
+  // `state`; compute it once and reuse (control is O(boardHexes x bases)).
+  const beforeControl = control(state, player);
+  const scores = attacks.map((a) => scoreMove(state, player, a, POLICY_MOVE_WEIGHTS, beforeControl));
   const draw = softmaxSample(scores, temperature, rng);
   return { attack: attacks[draw.index]!, rng: draw.rng };
 }
