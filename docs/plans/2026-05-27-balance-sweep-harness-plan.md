@@ -38,7 +38,7 @@ downstream reconstruction is expensive and fails silently.
 
 ## Execution Status
 
-**Overall:** 🚧 IN PROGRESS (claimed 2026-06-29, branch `claude/wonderful-mahavira-87ccd6`). S1 ✅ (`2e5d7cf1`), S2 ✅ (`ff826e65`), S3 ✅ (`69c65915`), S4 ✅ (`8ec625ab`) — all shipped on-branch, not yet PR'd; **only S5 (the real search run) remains.** Suite 505 green; typecheck clean. The whole harness (metrics→gate→runner→orchestrator+report) is built and reviewed; S5 wires `main.ts`, runs the wide grid, and writes the report.
+**Overall:** ✅ COMPLETE (DONE_WITH_CONCERNS), 2026-06-29, branch `claude/wonderful-mahavira-87ccd6` (not yet PR'd). S1 ✅ (`2e5d7cf1`), S2 ✅ (`ff826e65`), S3 ✅ (`69c65915`), S4 ✅ (`8ec625ab`), S5 ✅ (`fd461c99`). Suite 505 green; typecheck clean. **Headline finding: 0/176 feasible configs pass the health gate under the weak `heuristicAgent`** — verified trustworthy by a 4-lens adversarial workflow (byte-identical reproduction, no harness bug, gate unmodified). **Two regimes (the crux):** small/dense-board turn-1 resolution is INTRINSIC GEOMETRY (agent-insensitive — a stronger agent wins turn-1 *more* reliably); large-board cap-hit is AGENT-SENSITIVE (the best near-miss `big300` fails ONLY capHit by ~2pp, a metric a decisive agent could fix). So "no healthy config under weak play" is narrower than "no balanced region." **Sam's decision (2026-06-29): re-run the large-board nearest-misses under the paused MCTS agent FIRST** (do NOT loosen capHit, do NOT redesign yet). Full finding + memory: [[balance-sweep-two-regime-finding]]. Report: `docs/sweeps/2026-05-27-balance-report.md`.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
@@ -46,7 +46,7 @@ downstream reconstruction is expensive and fails silently.
 | S2 — Health gate + rank | ✅ SHIPPED (commit, not yet PR'd) | `ff826e65` | `src/sweep/health.ts` + 26 tests; suite 449 green. `isHealthy`/`rankHealthy`; equal-weight composite. Spec + quality review passed (4 doc/test fixes folded). |
 | S3 — Runner (grid/OFAT, CRN, CIs) | ✅ SHIPPED (commit, not yet PR'd) | `69c65915` | `src/sweep/run.ts` + 14 tests; suite 463 green. CRN via config-free `gameSeed`; probe==game board-consistency verified byte-for-byte (Opus spec review). Deviations: `bigint` seeds, numeric-only axis keys (see Deviations). |
 | S4 — Orchestrator + report | ✅ SHIPPED (commit, not yet PR'd) | `8ec625ab` | `orchestrate.ts` + `report.ts` + 33 tests; suite 505 green. `findBalancedConfig`(grid→rankHealthy→recommended/null+nearest-misses), `balanceSweep`, pure `report()`. Composite extracted to shared `scoreMetrics` in `health.ts` (DRY). Spec + quality review passed. |
-| S5 — Execute the search; recommend balanced config | ⬜ Not started | — | — |
+| S5 — Execute the search; recommend balanced config | ✅ DONE_WITH_CONCERNS (commit, not yet PR'd) | `fd461c99` | `src/sweep/main.ts` + report. 176 feasible configs (192 raw − 16 vt>ironCount), 80→360 games two-stage, ~64 min. **0/176 healthy** (verified). No config to adopt; recommended next = MCTS re-run of near-misses. `defaultConfig` unchanged. |
 
 ### Deviations
 - **S3 — `baseSeed`/`gameSeed` use `bigint`, not `number`** (plan spec wrote `number`). The engine's `RunOptions.seed` and `initGame` take `bigint`; using `number` would force lossy `BigInt()` conversions past 2^53. `gameSeed(baseSeed: bigint, gameIndex: number): bigint`. **S4/S5 callers MUST pass `bigint` seeds (e.g. `1n`).** Faithful to the real API; confirmed correct by Opus spec review.
@@ -149,7 +149,11 @@ the grid, is a real FINDING, not a test to soften — STOP and report.
 
 ## Phase S5 — Execute the Search; Recommend Balanced Config
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ DONE_WITH_CONCERNS — `fd461c99` on branch `claude/wonderful-mahavira-87ccd6` (not yet PR'd). `src/sweep/main.ts` (+ module-scoped `node-shims.d.ts`) ran 176 feasible configs (192 raw − 16 pruned for `victoryThreshold > ironCount`; board-feasibility probe pruned zero in this grid), two-stage 80→360 games/config, CRN `baseSeed=1n`, `turnCap=60`, ~64 min single-threaded, deterministic. **Result: 0/176 pass the gate.** Report: `docs/sweeps/2026-05-27-balance-report.md`. `defaultConfig` NOT changed (adoption is human-gated).
+
+**Verification (4-lens adversarial workflow, all `confirmed-with-caveats`):** the 0/176 finding reproduces byte-identically; no `main.ts` bug; gate is the unmodified `defaultHealthThresholds()`. **Two-regime crux:** small/dense-board (96) turn-1 resolution is INTRINSIC GEOMETRY (one base's radius-5 control disk owns ~6–10 iron at setup vs threshold 10 → first mover wins turn 1; stronger agent wins turn-1 *more* reliably — agent-INsensitive); large-board (220/300) cap-hit is AGENT-SENSITIVE (cap-hits are no-winner timeouts a decisive agent could convert to wins). Best near-miss `big300` (board 300 / radius 5 / ironCount 16 / vt 12) fails ONLY capHit (0.039±0.020 vs 0.02). Nuance: ~45% of board-300 failures fail WITHOUT capHit (seatBias/leadVolatility/ironVictory); seatBias is win-rate-based and inflated by no-winner games (metrics.ts, not a bug). `autoWinAt6`/`killBounty` showed zero effect — uninformative, since turn-1 resolution fires before those levers can (the engine reads them; not dead).
+
+**Decision (Sam, 2026-06-29): re-run the large-board nearest-misses under the paused MCTS agent FIRST** — the gating experiment. Do NOT loosen `maxCapHit` (would tune the gate to weak play) and do NOT call the game unbalanced as a whole (overclaims from a weak-agent run); both become ripe only after the MCTS re-run. If `big300` passes under strong play, the MCTS trustworthiness gates (`docs/plans/2026-05-27-stronger-agent-mcts-plan.md` A5.2/A6) unblock honestly. Strongest single lever found: higher `victoryThreshold`. See [[balance-sweep-two-regime-finding]].
 
 ### Task S5.1: run the real geometry grid + OFAT; produce the report
 **Files:** A runnable script `src/sweep/main.ts` (tsx-runnable) + the generated `docs/sweeps/2026-05-27-balance-report.md`. (This is an EXECUTION/measurement task, not a unit-test task.)
