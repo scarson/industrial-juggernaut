@@ -2,21 +2,25 @@
 // ABOUTME: Pins the agent-drive invariant (spec §3): drive agent/eliminated rounds forward, logging each atomically.
 import { test, expect, describe } from "vitest";
 import { currentActor, needsDrive, driveOneStep, commitEntries } from "../../src/session/agent-drive";
-import { openSession } from "../../src/session/session";
+import { openSession, applyCommand } from "../../src/session/session";
 import { agentForSeat } from "../../src/session/agent-binding";
 import { logKey, PENDING_KEY, SNAPSHOT_KEY } from "../../src/session/keys";
 import { stateHash } from "../../src/session/hash";
 import { representativeFirstBase } from "../../src/engine/turn";
 import { representativeDefender } from "../../src/engine/legal";
+import { control } from "../../src/engine/control";
+import { status } from "../../src/engine/status";
+import { legalFirstBaseHexes } from "../../src/index";
 import { applyEntry } from "../../src/session/round";
 import { defaultConfig } from "../../src/engine/config";
 import { nextInt, seed } from "../../src/rng/pcg";
 import { key } from "../../src/geometry/cube";
 import { DEFAULT_ROOM_OPTIONS } from "../../src/wire/protocol";
 import type { Agent } from "../../src/agent/agent";
+import type { ServerMessage } from "../../src/wire/protocol";
 import type { Base, GameState, Hex, PlayerId, RngState } from "../../src/engine/types";
 import type { SessionHeader, LogEntry, SeatConfig } from "../../src/session/types";
-import type { SessionState } from "../../src/session/session-types";
+import type { SessionState, CommandCtx } from "../../src/session/session-types";
 
 // Host-supplied ids for the attack branch's openDefenderDecision (the reducer stays pure — the host injects
 // nowEpochMs + decisionId per wake). The drive tests that never open a pending never read these.
@@ -91,7 +95,7 @@ test("setup drive: agent seat auto-places one placeFirstBase, no snapshot, no ro
   expect(needsDrive(res.next)).toBe(false);
 });
 
-test("play drive: a fake pass-agent round closes the round — one pass entry + snapshot + turnRollover(ironWeights:null)", () => {
+test("play drive: a fake pass-agent round closes the round — one pass entry + snapshot + turnRollover(ironWeights, A6.3)", () => {
   const s0 = openAgentHumanSession();
 
   // Setup: agent seat 0 auto-places via the loop.
@@ -133,12 +137,17 @@ test("play drive: a fake pass-agent round closes the round — one pass entry + 
   expect(snap.stateHash).toBe(stateHash(res.next.game));
   expect(snap.replayVersion).toBe("test");
 
-  // Broadcasts: the `applied` pass, then a `turnRollover` with ironWeights null and the post-advance order.
+  // Broadcasts: the `applied` pass, then a `turnRollover` with the post-advance order and (this is a 2-player
+  // game) a non-null ironWeights matching an independently recomputed control() on the post-close state
+  // (A6.3 — the iron-weight mechanism itself is exhaustively covered by turn-rollover.test.ts; this test only
+  // pins that the agent-drive loop's turnRollover carries it).
   expect(res.effects.broadcast).toHaveLength(2);
   const applied = res.effects.broadcast[0]!;
   expect(applied).toMatchObject({ type: "applied", logIndex: 2 });
   const rollover = res.effects.broadcast[1]!;
-  expect(rollover).toEqual({ type: "turnRollover", order: res.next.game.phase.order, ironWeights: null });
+  if (rollover.type !== "turnRollover") throw new Error("expected turnRollover");
+  expect(rollover.order).toEqual(res.next.game.phase.order);
+  expect(rollover.ironWeights).toEqual([control(res.next.game, 0).iron.length, control(res.next.game, 1).iron.length]);
   // No gameOver on an ongoing round.
   expect(res.effects.broadcast.some((m) => m.type === "gameOver")).toBe(false);
 
@@ -612,4 +621,148 @@ test("smoke: an all-agent game driven purely by driveOneStep reaches terminal �
     expect(closingStep.effects.broadcast.some((m) => m.type === "turnRollover")).toBe(false);
     expect(needsDrive(s)).toBe(false); // terminal → no further drive
   }
+});
+
+// ===========================================================================
+// Mid-setup victory: a placeFirstBase can decide the game before every seat
+// has placed (a well-placed first base in a 3+ player game can already control
+// ≥ victoryThreshold iron). applyEntry's placeFirstBase branch reports
+// advanced:false, terminal:null UNCONDITIONALLY (placements never close a
+// round), so the drive/command path would end the game with NO gameOver ever
+// emitted — the plan's B3 obligation, resolved here IN commitEntries via a
+// post-application status() check on placement batches. These tests pin the
+// clinching-placement broadcast (exactly one gameOver, no turnRollover,
+// advanced:false, no snapshot) on both the drive path and the command path.
+// ===========================================================================
+
+describe("mid-setup victory: commitEntries broadcasts gameOver at the clinching placement", () => {
+  // 4p-mixed DEFAULT config, seed 1n: a greedy(aggressive)/greedy(expansionist)/greedy(economic)/heuristic roster
+  // whose SECOND setup placement (seat 1) already controls ≥ victoryThreshold (10) iron — an iron victory decided
+  // after 2 of 4 placements (probed across seeds; seed 1n is representative). The remaining seats can never place
+  // interactively (their placeFirstBase would be GAME_OVER-rejected — session.ts). The all-agent DRIVE path reaches
+  // this via driveOneStep; the command path reaches it when the clinching seat is a HUMAN placing via applyCommand.
+  const agg = (): SeatConfig => ({ kind: "agent", agent: "greedy", archetype: "aggressive" });
+  const exp = (): SeatConfig => ({ kind: "agent", agent: "greedy", archetype: "expansionist" });
+  const eco = (): SeatConfig => ({ kind: "agent", agent: "greedy", archetype: "economic" });
+  const heu = (): SeatConfig => ({ kind: "agent", agent: "heuristic" });
+  const MIDSETUP_SEED = 1n;
+  function midSetupHeader(seats: SeatConfig[]): SessionHeader {
+    return {
+      formatVersion: 1,
+      replayVersion: "test",
+      seed: MIDSETUP_SEED,
+      config: defaultConfig(),
+      boardSource: { kind: "generate", size: 96, ironCount: 14 },
+      seats,
+    };
+  }
+
+  test("drive path: the clinching setup placement's DriveResult carries terminal + exactly one gameOver, no turnRollover, no snapshot", () => {
+    // All-agent 4p roster: the drive auto-places each seat via representativeFirstBase until the game is decided.
+    let s = openSession(midSetupHeader([agg(), exp(), eco(), heu()]), DEFAULT_ROOM_OPTIONS);
+
+    let clinching: ReturnType<typeof driveOneStep> | null = null;
+    let placementsBefore = 0;
+    let step = 0;
+    while (needsDrive(s) && step < 100) {
+      expect(s.game.phase.turn).toBe(0); // this scenario is decided ENTIRELY within setup — never leaves turn 0
+      const r = driveOneStep(s, agentForSeat, { nowEpochMs: 1_000_000 + step, decisionId: `d-${step}` });
+      s = r.next;
+      step += 1;
+      if (r.terminal !== null) { clinching = r; break; }
+      placementsBefore += 1;
+    }
+
+    // The game was decided mid-setup — BEFORE all four seats placed (the load-bearing precondition; if a future
+    // board/agent change pushed the victory to the last placement or into play, this scenario would be vacuous).
+    expect(clinching, "the drive must reach a mid-setup terminal").not.toBeNull();
+    expect(placementsBefore, "victory was decided before all 4 seats placed").toBeLessThan(3);
+
+    // The clinching step is a placeFirstBase that did NOT close a round (advanced:false) yet reported terminal.
+    const put = clinching!.effects.persist!.put;
+    const logKeys = Object.keys(put).filter((k) => k.startsWith("log:"));
+    expect(logKeys, "the clinching put carries exactly the placement's log:N").toHaveLength(1);
+    expect((put[logKeys[0]!] as LogEntry).kind).toBe("placeFirstBase");
+    expect(clinching!.advanced, "a placement never closes a round").toBe(false);
+    expect(Object.keys(put)).not.toContain(SNAPSHOT_KEY); // NO snapshot — snapshots are round-boundary artifacts
+
+    // terminal is the victory status; the broadcast carries EXACTLY ONE gameOver and NO turnRollover.
+    expect(clinching!.terminal, "the DriveResult captured the mid-setup terminal").not.toBeNull();
+    expect(clinching!.terminal!.kind).toBe("victory");
+    const gameOvers = clinching!.effects.broadcast.filter((m) => m.type === "gameOver");
+    expect(gameOvers, "exactly one gameOver at the clinching placement").toHaveLength(1);
+    expect(clinching!.effects.broadcast.some((m) => m.type === "turnRollover"), "no turnRollover at a mid-setup victory (placements never advanceRound)").toBe(false);
+
+    // winners/cause match an INDEPENDENT status() call on the post-application state.
+    const st = status(s.game) as Extract<ReturnType<typeof status>, { kind: "victory" }>;
+    const gameOver = gameOvers[0] as Extract<ServerMessage, { type: "gameOver" }>;
+    expect(gameOver.winners, "gameOver winners == status().players").toEqual(st.players);
+    expect(gameOver.cause, "gameOver cause == status().reason").toBe(st.reason);
+    expect((clinching!.terminal as Extract<ReturnType<typeof status>, { kind: "victory" }>).players).toEqual(st.players);
+
+    // The whole game emitted EXACTLY ONE gameOver (no double-emission across the driven placements) and the drive halts.
+    expect(needsDrive(s), "terminal → no further drive").toBe(false);
+  });
+
+  test("command path: a HUMAN seat's clinching placeFirstBase reply/broadcast carries the gameOver; a later mutating command → GAME_OVER", () => {
+    // Same seed/board, but seat 1 (the clinching seat) is HUMAN placing via applyCommand. Seat 0 places first (via
+    // the drive, mirroring the real host split), then the human's placement clinches the iron victory — the reply
+    // path must surface the gameOver, and the game is then GAME_OVER-locked for every subsequent mutating command.
+    let s = openSession(midSetupHeader([agg(), { kind: "human" }, eco(), heu()]), DEFAULT_ROOM_OPTIONS);
+
+    // Seat 0 (agent) places via the drive — one placement, no victory yet, still setup.
+    expect(currentActor(s)).toBe(0);
+    const seat0 = driveOneStep(s, agentForSeat, { nowEpochMs: 1_000_000, decisionId: "d-0" });
+    expect(seat0.terminal, "seat 0's placement does not yet decide the game").toBeNull();
+    s = seat0.next;
+    expect(s.game.phase.turn).toBe(0); // still setup
+    expect(status(s.game).kind).toBe("ongoing");
+
+    // Seat 1 (human) places its first base via applyCommand — the SAME representative hex the drive would pick,
+    // so it clinches the identical iron victory. (legalFirstBaseHexes[0] is not guaranteed the clincher; use the
+    // deterministic representative placement the engine/drive uses.)
+    expect(currentActor(s)).toBe(1);
+    const clinchHex = representativeFirstBase(s.game, 1);
+    const ctx1: CommandCtx = { actingSeat: 1, nowEpochMs: 1_000_000, decisionId: "d-1" };
+    const clinch = applyCommand(s, { type: "placeFirstBase", expectedLogIndex: s.logLength, hex: clinchHex }, ctx1);
+
+    // The placement applied (persist present, one log:N, NO snapshot) and carries the gameOver in its broadcast.
+    const put = clinch.effects.persist!.put;
+    const logKeys = Object.keys(put).filter((k) => k.startsWith("log:"));
+    expect(logKeys).toHaveLength(1);
+    expect((put[logKeys[0]!] as LogEntry).kind).toBe("placeFirstBase");
+    expect(Object.keys(put)).not.toContain(SNAPSHOT_KEY);
+    const gameOvers = clinch.effects.broadcast.filter((m) => m.type === "gameOver");
+    expect(gameOvers, "the human's clinching placement broadcasts exactly one gameOver").toHaveLength(1);
+    expect(clinch.effects.broadcast.some((m) => m.type === "turnRollover")).toBe(false);
+    const st = status(clinch.next.game) as Extract<ReturnType<typeof status>, { kind: "victory" }>;
+    expect(st.kind).toBe("victory");
+    const gameOver = gameOvers[0] as Extract<ServerMessage, { type: "gameOver" }>;
+    expect(gameOver.winners).toEqual(st.players);
+    expect(gameOver.cause).toBe(st.reason);
+    s = clinch.next;
+
+    // The game is now over: any subsequent mutating command (e.g. seat 2's placeFirstBase) → GAME_OVER, no state change.
+    const ctx2: CommandCtx = { actingSeat: 2, nowEpochMs: 1_000_000, decisionId: "d-2" };
+    const after = applyCommand(s, { type: "placeFirstBase", expectedLogIndex: s.logLength, hex: legalFirstBaseHexes(s.game)[0]! }, ctx2);
+    expect(after.next).toBe(s); // unchanged
+    expect(after.effects.persist).toBeNull();
+    expect(after.effects.reply).toHaveLength(1);
+    const reply = after.effects.reply[0]!;
+    expect(reply.type).toBe("error");
+    if (reply.type !== "error") throw new Error("expected error");
+    expect(reply.code).toBe("GAME_OVER");
+  });
+
+  test("non-victory placement: an ordinary setup placement reports NO terminal and NO gameOver (no status-based behavior change)", () => {
+    // A 2-human game: neither of the two setup placements can clinch an iron victory (a single base never controls
+    // ≥ threshold on its own here), so commitEntries' placement status-check must NOT fire — no terminal, no gameOver.
+    const s0 = openSession(midSetupHeader([{ kind: "human" }, { kind: "human" }]), DEFAULT_ROOM_OPTIONS);
+    const ctx0: CommandCtx = { actingSeat: currentActor(s0), nowEpochMs: 1_000_000, decisionId: "d-0" };
+    const r0 = applyCommand(s0, { type: "placeFirstBase", expectedLogIndex: 0, hex: legalFirstBaseHexes(s0.game)[0]! }, ctx0);
+    expect(status(r0.next.game).kind, "one placement of two does not decide a 2p game").toBe("ongoing");
+    expect(r0.effects.broadcast.some((m) => m.type === "gameOver")).toBe(false);
+    expect(r0.effects.broadcast.some((m) => m.type === "turnRollover")).toBe(false); // placement never closes a round
+    expect(Object.keys(r0.effects.persist!.put)).not.toContain(SNAPSHOT_KEY);
+  });
 });

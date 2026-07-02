@@ -68,7 +68,7 @@ notes and commit messages.
 | A3 — Command processing / round state machine | ✅ Merged | 9d56776d…73a3212c → merge a8cbb5e2 | PR #37 (Routine, auto-merged); see Deviations (A3, A3.2) + Discoveries (setup guard) |
 | A4 — Pending decisions + write-lock | ✅ Shipped | cb8d5b90…a09f6e37 (13 commits incl. review fixes + pitfall doc) | **PR #40 — Review-class, Sam merges**; see Deviations (A4) + Discoveries (5 entries) |
 | A5 — Seat-claim CAS + multi-tab | ✅ Shipped | 82d5e9af, 356e551d | branch `feat/session-seats` stacked on PR #40's branch; **PR pending — Review-class, Sam merges**; auto-retargets to dev when #40 merges |
-| A6 — Resync, handshake, events, malformed-traffic shapes | ⬜ Not started | — | — |
+| A6 — Resync, handshake, events, malformed-traffic shapes | ✅ Shipped | d50d1a3f, 491c984c, e90614c3, 4ed0bda4, 86750f58, 3648fb0c | branch `feat/session-resync` stacked on PR #41; PR pending (Routine, merges after the stack) |
 | B1 — Shared-config scaffolding | ⬜ Not started | — | — |
 | B2 — Worker shell + room addressing | ⬜ Not started | — | — |
 | B3 — GameRoom DO: storage + critical section + recovery | ⬜ Not started | — | — |
@@ -89,7 +89,7 @@ notes and commit messages.
 ### Discoveries
 - **`seatClaimed` broadcasts on the claim transition (Sam-directed, PR #41 review, 2026-07-02; commit 7a1906bb).** The protocol has no refresh cycle (resyncs fire only on connect/STALE_INDEX/explicit request), so without a broadcast an idle lobby client never sees a seat fill. Gated on the `claimed` false→true transition (re-acks and multi-tab acks stay quiet). **SPA-plan note:** the claiming socket receives `seatClaimed` TWICE (reply + broadcast) — clients must apply it as idempotent roster state, never count events.
 - **Agent-seat auth boundary — RESOLVED (Sam, 2026-07-02), three binding requirements.** As planned, a socket holding an agent seat's token could bind (B6.2 checks only the digest) and send mutating commands on that agent's turn (the envelope checks turn ownership, not seat kind). Resolution, defense in depth: (1) **B2.2 MUST mint seat tokens for HUMAN seats only** (deviation from the plan's "mint for each seat" — no agent-seat capability exists to leak); (2) **the WS upgrade (B6.2/B2) MUST refuse to bind a socket to an agent seat** regardless of token validity; (3) **the reducer envelope rejects mutating commands from an agent-kind acting seat** (NOT_YOUR_TURN, "Agent seats are host-driven" — shipped on the A5 branch; `driveOneStep` bypasses `applyCommand`, so host-side agent drive is unaffected). Layers 1–2 land in Part B; layer 3 is the reducer backstop.
-- **⚠️ B3 MUST handle the no-gameOver-broadcast case (A4.5 quality review, 2026-07-02):** a mid-setup victory produces NO `gameOver` broadcast — `placeFirstBase` entries never close a round, so `commitEntries` never emits one; the drive loop just stops (`needsDrive` false). Live path (probed: 4p default-config, 3/5 seeds). The DO host (B3.2/B3.3), after its driveAgents loop exits, MUST check `status(session.game)` and broadcast `gameOver` itself when terminal-without-emission (or an equivalent mechanism) — otherwise clients in a mid-setup-decided room never learn the game ended.
+- **~~⚠️ B3 no-gameOver-broadcast obligation~~ RESOLVED AT THE REDUCER LAYER (Sam-directed adversarial re-review of PR #40's attention items, 2026-07-02; commit 519c1cb3 on `feat/session-resync`):** `commitEntries` now detects a setup-placement batch whose post-state is a victory (`status()` check, bounded to placement batches — ≤6 per game; play-phase victories already surface through closing entries) and emits `gameOver` + sets `terminal` itself. The host-layer patch originally planned for B3 was rejected adversarially: it would split gameOver-emission across two layers and a future client-local sandbox reusing the reducer would silently miss it. **B3 needs NO terminal-after-drive special case** — the drive loop's existing `terminal` handling covers mid-setup victories. Also resolved from the same review: the attack handler's `MALFORMED` for no-base-at-target is CONFIRMED correct (a stale client view implies a stale `expectedLogIndex`, and STALE_INDEX fires before the target lookup; a base cannot vanish without a log entry — the reachability argument is now a code comment in session.ts).
 - **Mid-setup-victory semantics differ between recordGame and the interactive drive (A4.5, 2026-07-02) — benign, reconciled.** `recordGame` places EVERY seat's first base unconditionally before checking victory; the interactive drive stops the instant `status()` reports victory (in 4p, an iron victory can be decided after 2 of 4 placements). Verified NOT a composition defect: the drive log is a bit-exact PREFIX of recordGame's, the dropped tail is purely `placeFirstBase` entries, and `applyCommand` itself rejects post-victory mutating commands with `GAME_OVER` — so the interactive semantics are self-consistent and the drive is the faithful one for hosted play. The A4.5 cross-check asserts exact-prefix + tail-is-placeFirstBase for this case, full deep-equality otherwise (`test/session/drive-vs-recordgame.test.ts`). **Also (vacuity trap):** default `victoryThreshold: 10` ends all-agent games in 1–2 rounds with ZERO attacks; the cross-check uses `victoryThreshold: 20` headers (shared bit-identically by both sides) to legitimately produce attack-rich games (hundreds of attack entries compared).
 - **Synthetic-board test trap (A4.2, 2026-07-02): a synthetic `GameState` with `board.iron: []` gets both players silently ELIMINATED the moment an entry routes through `applyEntry`/`applyEliminations`** — the unconditional `noIron` elimination kills any player with ≥1 base and zero controlled iron, and DER-17 perimeter exclusion can strip a radiating player's iron once hulls grow past the 4-base threshold. Fix pattern (used in `test/session/auto-close.test.ts`): place iron directly ON base hexes (controlled regardless of perimeter mode), and give perimeter players a real 4-base hull where DER-17 matters. Verify combat-outcome robustness across ~10 seeds. A4.3+ tests building post-attack states MUST follow this pattern.
 - **A4.1→A4.3 seam (quality review 2026-07-02): `resolveDefender` currently finalizes its atomic put with `[attack]` only** (`src/session/pending.ts` — commitEntries + tombstone merge). The plan's one-atomic-resolution rule requires the human-defender resolution path to land `[attack, endRound-if-auto-close]` + tombstone in ONE put. **A4.3 MUST refactor resolveDefender** to compose the auto-close entry into the same commitEntries call (e.g. compute `autoCloseIfNoAttack` on the post-attack throwaway state inside/around resolveDefender) rather than issuing a second put or duplicating the tombstone merge. Deferred deliberately from A4.1 (auto-close doesn't exist until A4.2).
@@ -1284,7 +1284,7 @@ Seat-claim is a single-event check-and-set: one winner per seat, idempotent per 
 
 ## Phase A6 — Resync, version handshake, events, malformed-traffic shapes
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED 2026-07-02 on branch `feat/session-resync` — commits d50d1a3f + 491c984c (A6.1 seat-private resync + extend→resync deadline pin), e90614c3 (A6.2 hello handshake), 4ed0bda4 (A6.3 2-player ironWeights at the single commitEntries emission point, GEO-5/GEO-8 cited), 86750f58 (A6.4 transport error constructors — unwired until B6.2 consumes them, by design), 3648fb0c (A6.5 the Part-A acceptance: mixed human+agent real-board game, human-vs-human pending resolved end-to-end via resolveDecision, raw log replays via replayLog to the byte-identical state). Phase review perspectives: resync privacy — no prompt leak; every resyncPayload caller passes the authenticated seat and the wire resync command structurally carries no seat field ✓; handshake reload vs the B3.3 storage-mismatch mechanism distinguished in comments ✓; the integration smoke exercises a human-defended attack on a REAL generated board ✓. **PART A COMPLETE — the pure reducer is a mergeable, independently usable interactive session core.**
 
 Consolidates the resync payload (used on join/reconnect/index-mismatch), the `hello` version handshake, the `turnRollover` 2-player iron-weight fill, and the structured shapes for malformed traffic (the *enforcement* — count-limit + close — is the DO's job in B6; A6 defines the error messages + the handshake logic).
 
@@ -1315,9 +1315,9 @@ export function resyncPayload(s: SessionState, requestingSeat: number, reason: s
 
 Spec §3 resync payload. The `requestingSeat` argument is what makes the prompt seat-private; every caller (A3 STALE_INDEX reject, A6.2 handshake, the host's reconnect path) passes the authenticated seat.
 
-- [ ] **Step 1: Write failing tests** — resync after some moves carries the right `logLength` + a decodable snapshot (`decodeState` round-trips); a pending defender prompt appears in the *prompted* seat's resync but NOT another seat's. **Assertion-rigor:** assert the prompt is omitted for non-prompted seats (a privacy/mechanism assertion).
-- [ ] **Step 2-5:** implement; replace A3's minimal `resyncReply`; commit `feat(session): resyncPayload + seat roster`.
-- [ ] **Apply the Execution Discipline block.**
+- [x] **Step 1: Write failing tests** — resync after some moves carries the right `logLength` + a decodable snapshot (`decodeState` round-trips); a pending defender prompt appears in the *prompted* seat's resync but NOT another seat's. **Assertion-rigor:** assert the prompt is omitted for non-prompted seats (a privacy/mechanism assertion).
+- [x] **Step 2-5:** implement; replace A3's minimal `resyncReply`; commit `feat(session): resyncPayload + seat roster`.
+- [x] **Apply the Execution Discipline block.**
 
 ### Task A6.2: `hello` version handshake
 
@@ -1327,8 +1327,8 @@ Spec §3 resync payload. The `requestingSeat` argument is what makes the prompt 
 
 **Behavior:** `handleHello(s, { protocolVersion, replayVersion })` → if `protocolVersion !== PROTOCOL_VERSION` OR `replayVersion !== s.header.replayVersion` → reply `{type:"reload"}` (the client hard-reloads — cached SPA vs redeployed DO, spec §3 version handshake). Else reply a `resync`. **Note:** a `replayVersion` mismatch at the *handshake* (client bundle vs room) means the client's cached assets are stale → reload. This is distinct from the DO's *storage* `replayVersion`-mismatch handling (B3), which is about an old log under new engine semantics.
 
-- [ ] **Step 1-5:** failing test (matching versions → resync; mismatched → reload) → implement → commit `feat(session): hello version handshake`.
-- [ ] **Apply the Execution Discipline block.**
+- [x] **Step 1-5:** failing test (matching versions → resync; mismatched → reload) → implement → commit `feat(session): hello version handshake`.
+- [x] **Apply the Execution Discipline block.**
 
 ### Task A6.3: `turnRollover` iron weights (2-player)
 
@@ -1338,8 +1338,8 @@ Spec §3 resync payload. The `requestingSeat` argument is what makes the prompt 
 
 **Behavior:** at a round boundary in a 2-player game, the turn-order draw is iron-proportional (DER #12). The `turnRollover` event carries `order` + `ironWeights` for the HUD draw ceremony. **`ironWeights` is indexed by `PlayerId`** — `ironWeights[pid] = control(game, pid).iron.length` for each player id (so the client aligns a weight to each player; document this indexing in the type comment). Compute from `control` (GEO-5: recomputed at point of use, never cached; GEO-8/DER-17: `control` already excludes non-ally perimeter interior — use it as-is). For 3+ players, `ironWeights: null` (the 3+ order rule is not iron-weighted — DER #13). This is broadcast-only (replay-derivable), never logged.
 
-- [ ] **Step 1-5:** failing test (2P rollover carries non-null `ironWeights` summing-consistent with `control`; 3P carries null) → implement → commit `feat(session): turnRollover iron weights for 2-player draw`.
-- [ ] **Apply the Execution Discipline block.** Cite GEO-5 + GEO-8 in a comment near the `control` call.
+- [x] **Step 1-5:** failing test (2P rollover carries non-null `ironWeights` summing-consistent with `control`; 3P carries null) → implement → commit `feat(session): turnRollover iron weights for 2-player draw`.
+- [x] **Apply the Execution Discipline block.** Cite GEO-5 + GEO-8 in a comment near the `control` call.
 
 ### Task A6.4: Malformed-traffic error shapes
 
@@ -1349,8 +1349,8 @@ Spec §3 resync payload. The `requestingSeat` argument is what makes the prompt 
 
 **Behavior:** define the canonical structured-error constructors the DO uses for `MALFORMED` (bad JSON / schema), `UNKNOWN_TYPE` (unknown command `type`), `OVERSIZED` (payload over the cap). The *enforcement* (count-limit-before-close, the size cap value) is B6; A6 provides the message shapes so host + client agree. Keep it tiny — these are constructors returning `{type:"error", code, message, currentLogIndex}`.
 
-- [ ] **Step 1-5:** failing test (the constructors produce the documented shapes) → implement → commit `feat(session): malformed-traffic error shapes`.
-- [ ] **Apply the Execution Discipline block.**
+- [x] **Step 1-5:** failing test (the constructors produce the documented shapes) → implement → commit `feat(session): malformed-traffic error shapes`.
+- [x] **Apply the Execution Discipline block.**
 
 ### Task A6.5: Final Part-A barrel + a Part-A integration smoke
 
@@ -1360,8 +1360,8 @@ Spec §3 resync payload. The `requestingSeat` argument is what makes the prompt 
 
 **Behavior:** a single end-to-end-ish test in plain vitest that plays a short **mixed human+agent** game purely through the reducer functions: open → setup placements (mix of `placeFirstBase` commands + agent drive) → a few rounds incl. a human-attacks-human pending resolved by `resolveDecision` → assert the final state via `replayLog` over the accumulated log equals the reducer's `game`. **Accumulate the RAW `LogEntry[]` from each `effects.persist.put`'s `log:N` values** (these are stored raw — bigints intact), NOT from the encoded `applied` broadcasts (those are `EncodedLogEntry`, and re-decoding them would just re-test the codec). Then `replayLog(header, rawLog).state` should structurally equal the reducer's final `game`. This IS a legitimate check — `replayLog` is independent of the interactive command path; it shares only `applyEntry`, already proven correct via the A4.5 `recordGame` cross-check. This is the Part-A acceptance test.
 
-- [ ] **Step 1-5:** write the integration test → ensure green → commit `test(session): Part-A mixed human+agent integration smoke`.
-- [ ] **Apply the Execution Discipline block.**
+- [x] **Step 1-5:** write the integration test → ensure green → commit `test(session): Part-A mixed human+agent integration smoke`.
+- [x] **Apply the Execution Discipline block.**
 
 **After Phase A6 (end of Part A):** review from 3+ perspectives (resync privacy — no prompt leak; handshake reload vs storage-mismatch distinction; the integration smoke exercises a human-defended attack). **Part A is now a complete, pure, vitest-tested interactive session reducer — mergeable and usable independently (it also backs a future client-local sandbox).** Update Execution Status; the top-of-plan table should show A1–A6 shipped before Part B starts.
 

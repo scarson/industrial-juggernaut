@@ -167,8 +167,9 @@ test("guard ORDER: DECISION_PENDING is checked before STALE_INDEX", () => {
 
 test("non-mutating bypass: resync skips the envelope guards even with a pending set", () => {
   // resync is non-mutating: it must NOT hit GAME_OVER/DECISION_PENDING/STALE_INDEX/NOT_YOUR_TURN. With a
-  // pending set (which would trip a mutating command), it falls straight to the switch default → UNKNOWN_TYPE
-  // (until A6 implements resync). This pins the isMutating exemption.
+  // pending set (which would trip a mutating command), it reaches its own handler and replies a resync — NOT
+  // a DECISION_PENDING error. This pins the isMutating exemption. (The resync command's own behavior — reply
+  // shape, seat-filtered pending — is covered in test/session/resync.test.ts.)
   const s: SessionState = { ...freshSession(), pending: minimalPending() };
   const { next, effects } = applyCommand(s, { type: "resync" }, mkCtx(0));
 
@@ -176,9 +177,7 @@ test("non-mutating bypass: resync skips the envelope guards even with a pending 
   expect(effects.persist).toBeNull();
   expect(effects.reply).toHaveLength(1);
   const reply = effects.reply[0]!;
-  expect(reply.type).toBe("error");
-  if (reply.type !== "error") throw new Error("expected error");
-  expect(reply.code).toBe("UNKNOWN_TYPE"); // NOT DECISION_PENDING — the guards were bypassed
+  expect(reply.type).toBe("resync"); // NOT DECISION_PENDING — the guards were bypassed
 });
 
 test("non-mutating bypass: extendDecision skips the envelope guards and reaches its handler (A4.3)", () => {

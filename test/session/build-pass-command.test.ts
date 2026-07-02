@@ -5,6 +5,7 @@ import { openSession, applyCommand } from "../../src/session/session";
 import { logKey, SNAPSHOT_KEY } from "../../src/session/keys";
 import { DEFAULT_ROOM_OPTIONS } from "../../src/wire/protocol";
 import { defaultConfig } from "../../src/engine/config";
+import { control } from "../../src/engine/control";
 import { legalFirstBaseHexes, buildBudget, legalActions } from "../../src/index";
 import type { RuleConfig } from "../../src/index";
 import { stateHash } from "../../src/session/hash";
@@ -81,7 +82,9 @@ test("legal build: the acting player builds an affordable factory — persists l
   const putKeys = Object.keys(effects.persist!.put).sort();
   expect(putKeys).toEqual([SNAPSHOT_KEY, logKey(idx)].sort());
 
-  // Broadcast: applied (the build) then turnRollover (self-close), ironWeights null (A6 fills it).
+  // Broadcast: applied (the build) then turnRollover (self-close). This is a 2-player game, so ironWeights
+  // (A6.3) is non-null; the iron-weight mechanism itself is exhaustively covered by turn-rollover.test.ts —
+  // this test only pins that the build-command path's turnRollover carries it via control() on the post-close state.
   expect(effects.broadcast).toHaveLength(2);
   const applied = effects.broadcast[0]!;
   expect(applied.type).toBe("applied");
@@ -91,7 +94,7 @@ test("legal build: the acting player builds an affordable factory — persists l
   const rollover = effects.broadcast[1]!;
   expect(rollover.type).toBe("turnRollover");
   if (rollover.type !== "turnRollover") throw new Error("expected turnRollover");
-  expect(rollover.ironWeights).toBeNull();
+  expect(rollover.ironWeights).toEqual([control(next.game, 0).iron.length, control(next.game, 1).iron.length]);
   expect(rollover.order).toEqual(next.game.phase.order);
 
   // logLength advanced by exactly one entry.
@@ -206,7 +209,8 @@ test("legal pass (allowPass=true): the acting player passes — persists log:N +
   const rollover = effects.broadcast[1]!;
   expect(rollover.type).toBe("turnRollover");
   if (rollover.type !== "turnRollover") throw new Error("expected turnRollover");
-  expect(rollover.ironWeights).toBeNull();
+  // 2-player game: ironWeights (A6.3) is non-null — see the build test above for the same note.
+  expect(rollover.ironWeights).toEqual([control(next.game, 0).iron.length, control(next.game, 1).iron.length]);
 
   expect(next.logLength).toBe(idx + 1);
   const snapshot = effects.persist!.put[SNAPSHOT_KEY] as { logIndex: number; stateHash: string };

@@ -7,6 +7,7 @@ import { openDefenderDecision } from "./pending";
 import { status } from "../engine/status";
 import { currentPlayer, representativeFirstBase } from "../engine/turn";
 import { representativeDefender } from "../engine/legal";
+import { control } from "../engine/control";
 import type { Agent } from "../agent/agent";   // import type only — no value import of src/agent here
 import type { AttackDecl, PlayerId } from "../engine/types";
 import type { LogEntry, SeatConfig } from "./types";
@@ -143,7 +144,29 @@ export function commitEntries(s: SessionState, entries: LogEntry[]): DriveResult
       // `players` is the winning coalition (EMPTY [] for an all-eliminated/no-winner board, DER-N7 / status.ts:116).
       broadcast.push({ type: "gameOver", winners: terminal.players, cause: terminal.reason });
     } else {
-      broadcast.push({ type: "turnRollover", order: game.phase.order, ironWeights: null }); // ironWeights filled in A6
+      // ironWeights: the 2-player turn-order draw is iron-proportional (DER #12); the HUD draw ceremony needs a
+      // weight per player. Indexed by PlayerId — ironWeights[pid] = control(game, pid).iron.length — so the
+      // client aligns a weight to each player by id, not by broadcast-order position. `game` here is the
+      // POST-COMPOSITION state (post-advanceRound), the same state whose `order` is broadcast in this message.
+      // Computed fresh at this point of use, never cached (GEO-5); `control` already applies the DER-17
+      // non-ally-perimeter exclusion for radiating players (GEO-8) — used as-is, no re-derivation here.
+      // For 3+ players the order rule is not iron-weighted (DER #13) — ironWeights is null.
+      const ironWeights = game.players.length === 2
+        ? [control(game, 0).iron.length, control(game, 1).iron.length]
+        : null;
+      broadcast.push({ type: "turnRollover", order: game.phase.order, ironWeights });
+    }
+  } else if (terminal === null && entries.some((e) => e.kind === "placeFirstBase")) {
+    // Mid-setup victory: applyEntry's placeFirstBase branch cannot report terminal (placements never close a
+    // round — no advanceRound, no status() there), so a victory decided mid-setup — reachable in 3+ player games
+    // where an early placement already controls the iron threshold — would otherwise end the game with NO gameOver
+    // ever broadcast. status() is run here on the post-application state; the cost is bounded to setup placements
+    // (≤6 per game). No snapshot is written (snapshots are round-boundary artifacts; the round did NOT close).
+    // Play-phase victories always surface through a closing entry above, so this check is placement-batches only.
+    const setupStatus = status(game);
+    if (setupStatus.kind === "victory") {
+      terminal = setupStatus;
+      broadcast.push({ type: "gameOver", winners: setupStatus.players, cause: setupStatus.reason });
     }
   }
   const next: SessionState = { ...s, game, logLength };

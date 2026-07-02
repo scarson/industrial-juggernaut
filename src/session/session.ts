@@ -8,9 +8,11 @@ import { encodeState } from "../wire/codec";
 import { validateAttackDecl, validateBuildPieces, validatePass, validateTargetAttackable } from "./validation";
 import {
   commitAttackRound,
+  eligibleDefenders,
   extendDefender,
   openDefenderDecision,
   resolveDefender,
+  toWirePending,
   validateAttackers,
 } from "./pending";
 import { key } from "../geometry/cube";
@@ -192,6 +194,11 @@ export function applyCommand(s: SessionState, c: ClientCommand, ctx: CommandCtx)
       // set would wedge the room (the deferred apply throws forever). Order per the plan.
       const targetBase = s.game.bases.find((b) => key(b.hex) === key(c.decl.target));
       if (targetBase === undefined) {
+        // MALFORMED, not a resync: a stale client view implies a stale expectedLogIndex, and the STALE_INDEX
+        // envelope guard above fires before this lookup — so a command reaching here already carried a FRESH index.
+        // A base cannot vanish from the board without a log entry (which would have advanced logLength and tripped
+        // STALE_INDEX), so a fresh index paired with a missing target base is malformed/buggy client input, never a
+        // legitimately stale view. STALE_INDEX structurally owns the stale-view case; this path is deliberate.
         return keep(errorEffects(s, "MALFORMED", "No base exists at the attack target."));
       }
       const defenderOwner = targetBase.owner;
@@ -269,6 +276,23 @@ export function applyCommand(s: SessionState, c: ClientCommand, ctx: CommandCtx)
       // decision is pending. All CAS/idempotency/own-seat logic lives in seats.ts (A5.1).
       return claimSeat(s, c, ctx);
     }
+    case "resync": {
+      // Non-mutating (bypasses the envelope guards): a full-state refresh, legal even while a decision is
+      // pending. reason is null here — "STALE_INDEX" etc. are envelope-generated reasons, not client-requested.
+      return keep({ ...NO_EFFECTS, reply: [resyncPayload(s, ctx.actingSeat, null)] });
+    }
+    case "hello": {
+      // Non-mutating (bypasses the envelope guards; hello is not in MUTATING_TYPES) — legal even while a
+      // decision is pending. A mismatch here means the CLIENT's cached bundle is stale against THIS room
+      // (protocolVersion: wire contract changed under a redeployed DO; replayVersion: the client's cached SPA
+      // was built against different engine semantics than the room) → the client hard-reloads. This is a
+      // different mechanism from the DO's STORAGE replayVersion check (B3.3), which detects an old persisted
+      // log under new engine semantics — that one is about the room's own history, not the client's bundle.
+      if (c.protocolVersion !== PROTOCOL_VERSION || c.replayVersion !== s.header.replayVersion) {
+        return keep({ ...NO_EFFECTS, reply: [{ type: "reload" }] });
+      }
+      return keep({ ...NO_EFFECTS, reply: [resyncPayload(s, ctx.actingSeat, null)] });
+    }
     default: return keep(errorEffects(s, "UNKNOWN_TYPE", `Unknown command ${(c as { type?: string }).type}`));
   }
 }
@@ -281,13 +305,18 @@ function withChainAttacker(result: { next: SessionState; advanced: boolean }, at
 }
 
 /** Full-state resync payload (spec §3). A3 introduces the LOCKED SIGNATURE; A6 fills the seat-filtered pending
- *  projection. The roster comes from seats.ts's seatRoster (Phase A5). */
+ *  projection. The roster comes from seats.ts's seatRoster (Phase A5). The defender prompt is PRIVATE — included
+ *  ONLY in the prompted seat's resync, never another seat's (a non-prompted seat must not see who else can defend
+ *  or what the proposed attack was before the defender has acted). */
 export function resyncPayload(s: SessionState, requestingSeat: number, reason: string | null): ServerMessage {
+  const showPending = s.pending !== null && s.pending.promptedSeat === requestingSeat;
   return {
     type: "resync",
     snapshot: encodeState(s.game),
     logLength: s.logLength,
-    pending: null, // A3 creates no pending; A6 adds the seat-filtered projection
+    pending: showPending
+      ? toWirePending(s.pending!, eligibleDefenders(s.game, s.pending!.proposed.target, s.pending!.promptedSeat))
+      : null,
     seats: seatRoster(s),
     protocolVersion: PROTOCOL_VERSION,
     replayVersion: s.header.replayVersion,
