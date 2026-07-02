@@ -1,0 +1,28 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "industrial-juggernaut",
+  "main": "./src/host/worker.ts",
+  "compatibility_date": "2026-06-29",
+  // No compatibility_flags: the host uses only Workers + WebCrypto APIs, no node:* imports.
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
+  "assets": {
+    "directory": "./dist/client",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "GAME_ROOM", "class_name": "GameRoom" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GameRoom"] }],
+  "env": {
+    "staging": {
+      "name": "industrial-juggernaut-staging",
+      // NON-INHERITABLE — must repeat verbatim:
+      "durable_objects": {
+        "bindings": [{ "name": "GAME_ROOM", "class_name": "GameRoom" }]
+      }
+      // assets, observability, compatibility_date, main inherit. migrations is top-level.
+    }
+  }
+}

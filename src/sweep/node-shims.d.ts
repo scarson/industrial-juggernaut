@@ -8,6 +8,24 @@ declare module "node:fs" {
   export function readFileSync(path: string, encoding: string): string;
   export function existsSync(path: string): boolean;
   export function rmSync(path: string, opts: { recursive: boolean; force: boolean }): void;
+  interface Dirent {
+    name: string;
+    isDirectory(): boolean;
+    isFile(): boolean;
+  }
+  interface Stats {
+    isFile(): boolean;
+  }
+  export function readdirSync(path: string, opts: { withFileTypes: true }): Dirent[];
+  export function statSync(path: string): Stats;
+}
+
+declare module "node:crypto" {
+  interface Hash {
+    update(data: string): Hash;
+    digest(encoding: "hex"): string;
+  }
+  export function createHash(algorithm: string): Hash;
 }
 
 declare module "node:child_process" {
@@ -31,6 +49,8 @@ declare module "node:os" {
 declare module "node:path" {
   export function dirname(p: string): string;
   export function resolve(...segments: string[]): string;
+  export function join(...segments: string[]): string;
+  export function relative(from: string, to: string): string;
 }
 
 declare module "node:url" {
