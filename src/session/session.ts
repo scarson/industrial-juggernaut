@@ -101,7 +101,7 @@ export function applyCommand(s: SessionState, c: ClientCommand, ctx: CommandCtx)
       // pending opened without appending, so logLength is unchanged since the prompt; a resync-then-retry client
       // resends the same index).
       if (c.expectedLogIndex !== s.logLength) return keep(resyncEffects(s, ctx.actingSeat, "STALE_INDEX"));
-      // Agent-seat backstop (defense in depth, resolved 2026-07-02 — see plan Discoveries "Agent-seat auth
+      // Agent-seat backstop (defense in depth — see plan Discoveries "Agent-seat auth
       // boundary"): openDefenderDecision only fires for HUMAN defenders (an agent/auto defender is substituted
       // and applied immediately in the attack handler), so s.pending.promptedSeat is human-by-construction
       // today. This check can never trip via a legitimate path — it exists so a future promptedSeat source
@@ -115,7 +115,7 @@ export function applyCommand(s: SessionState, c: ClientCommand, ctx: CommandCtx)
       // Falls through to the resolveDecision case below (authorized).
     } else {
       if ("expectedLogIndex" in c && c.expectedLogIndex !== s.logLength) return keep(resyncEffects(s, ctx.actingSeat, "STALE_INDEX"));
-      // Agent-seat backstop (defense in depth, resolved 2026-07-02 — see plan Discoveries "Agent-seat auth
+      // Agent-seat backstop (defense in depth — see plan Discoveries "Agent-seat auth
       // boundary"): an agent seat CAN be currentActor (it's the agent's turn), so a rogue socket bound to that
       // seat would PASS the currentActor check below — this must run regardless of the turn check's outcome.
       // Legitimate clients never reach this: B2.2 mints seat tokens for human seats only and the WS upgrade
