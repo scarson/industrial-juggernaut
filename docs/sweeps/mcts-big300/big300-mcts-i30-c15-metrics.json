@@ -1,0 +1,418 @@
+{
+  "label": "big300-mcts-i30-c15",
+  "params": {
+    "games": 40,
+    "iters": 30,
+    "turnCap": 15,
+    "baseSeed": "1",
+    "playerCounts": "2,3,4,5,6",
+    "numShards": 8
+  },
+  "gamesCompleted": 19,
+  "elapsedSec": 0,
+  "metrics": {
+    "gamesPlayed": 19,
+    "turnsHistogram": {
+      "1": 1,
+      "2": 3,
+      "3": 1,
+      "4": 1,
+      "7": 2,
+      "8": 5,
+      "9": 4,
+      "10": 2
+    },
+    "medianTurns": 8,
+    "meanTurns": 6.526315789473684,
+    "victoryType": {
+      "last-standing": 13,
+      "iron": 6
+    },
+    "ironVictoryFraction": 0.3157894736842105,
+    "noWinnerFraction": 0,
+    "capHitFraction": 0,
+    "setupDecidedFraction": 0,
+    "seatWinBias": {
+      "maxBiasAcrossGroups": 0.5,
+      "byNPlayers": {
+        "2": 0,
+        "3": 0.46666666666666673,
+        "4": 0.25,
+        "5": 0.3,
+        "6": 0.5
+      }
+    },
+    "leadVolatility": 0.631578947368421
+  },
+  "health": {
+    "pass": false,
+    "reasons": [
+      "ironVictoryFraction 0.3157894736842105 < minIronVictory 0.5",
+      "seatWinBias.maxBiasAcrossGroups 0.5 > maxSeatBias 0.2"
+    ]
+  },
+  "perPlayerCount": {
+    "2": {
+      "games": 4,
+      "capHit": 0,
+      "iron": 0,
+      "lastStanding": 4,
+      "none": 0
+    },
+    "3": {
+      "games": 5,
+      "capHit": 0,
+      "iron": 3,
+      "lastStanding": 2,
+      "none": 0
+    },
+    "4": {
+      "games": 3,
+      "capHit": 0,
+      "iron": 1,
+      "lastStanding": 2,
+      "none": 0
+    },
+    "5": {
+      "games": 4,
+      "capHit": 0,
+      "iron": 2,
+      "lastStanding": 2,
+      "none": 0
+    },
+    "6": {
+      "games": 3,
+      "capHit": 0,
+      "iron": 0,
+      "lastStanding": 3,
+      "none": 0
+    }
+  },
+  "perGame": [
+    {
+      "gameIndex": 0,
+      "nPlayers": 2,
+      "setupDecided": false,
+      "turn1Leaders": [
+        0
+      ],
+      "result": {
+        "winnerOrCoalition": [
+          0
+        ],
+        "turns": 8,
+        "victoryType": "last-standing",
+        "hitTurnCap": false
+      },
+      "elapsedMs": 621431
+    },
+    {
+      "gameIndex": 1,
+      "nPlayers": 3,
+      "setupDecided": false,
+      "turn1Leaders": [
+        1
+      ],
+      "result": {
+        "winnerOrCoalition": [
+          2
+        ],
+        "turns": 3,
+        "victoryType": "iron",
+        "hitTurnCap": false
+      },
+      "elapsedMs": 154090
+    },
+    {
+      "gameIndex": 2,
+      "nPlayers": 4,
+      "setupDecided": false,
+      "turn1Leaders": [
+        1
+      ],
+      "result": {
+        "winnerOrCoalition": [
+          3
+        ],
+        "turns": 4,
+        "victoryType": "iron",
+        "hitTurnCap": false
+      },
+      "elapsedMs": 291526
+    },
+    {
+      "gameIndex": 3,
+      "nPlayers": 5,
+      "setupDecided": false,
+      "turn1Leaders": [
+        0,
+        4
+      ],
+      "result": {
+        "winnerOrCoalition": [
+          3
+        ],
+        "turns": 8,
+        "victoryType": "last-standing",
+        "hitTurnCap": false
+      },
+      "elapsedMs": 1418654
+    },
+    {
+      "gameIndex": 4,
+      "nPlayers": 6,
+      "setupDecided": false,
+      "turn1Leaders": [
+        1
+      ],
+      "result": {
+        "winnerOrCoalition": [
+          3
+        ],
+        "turns": 8,
+        "victoryType": "last-standing",
+        "hitTurnCap": false
+      },
+      "elapsedMs": 1717777
+    },
+    {
+      "gameIndex": 5,
+      "nPlayers": 2,
+      "setupDecided": false,
+      "turn1Leaders": [
+        0
+      ],
+      "result": {
+        "winnerOrCoalition": [
+          0
+        ],
+        "turns": 10,
+        "victoryType": "last-standing",
+        "hitTurnCap": false
+      },
+      "elapsedMs": 922298
+    },
+    {
+      "gameIndex": 6,
+      "nPlayers": 3,
+      "setupDecided": false,
+      "turn1Leaders": [
+        2
+      ],
+      "result": {
+        "winnerOrCoalition": [
+          2
+        ],
+        "turns": 2,
+        "victoryType": "iron",
+        "hitTurnCap": false
+      },
+      "elapsedMs": 32404
+    },
+    {
+      "gameIndex": 7,
+      "nPlayers": 4,
+      "setupDecided": false,
+      "turn1Leaders": [
+        1
+      ],
+      "result": {
+        "winnerOrCoalition": [
+          2
+        ],
+        "turns": 9,
+        "victoryType": "last-standing",
+        "hitTurnCap": false
+      },
+      "elapsedMs": 1275863
+    },
+    {
+      "gameIndex": 8,
+      "nPlayers": 5,
+      "setupDecided": false,
+      "turn1Leaders": [
+        3
+      ],
+      "result": {
+        "winnerOrCoalition": [
+          3
+        ],
+        "turns": 2,
+        "victoryType": "iron",
+        "hitTurnCap": false
+      },
+      "elapsedMs": 98349
+    },
+    {
+      "gameIndex": 9,
+      "nPlayers": 6,
+      "setupDecided": false,
+      "turn1Leaders": [
+        3
+      ],
+      "result": {
+        "winnerOrCoalition": [
+          4
+        ],
+        "turns": 8,
+        "victoryType": "last-standing",
+        "hitTurnCap": false
+      },
+      "elapsedMs": 2076505
+    },
+    {
+      "gameIndex": 10,
+      "nPlayers": 2,
+      "setupDecided": false,
+      "turn1Leaders": [
+        1
+      ],
+      "result": {
+        "winnerOrCoalition": [
+          1
+        ],
+        "turns": 1,
+        "victoryType": "last-standing",
+        "hitTurnCap": false
+      },
+      "elapsedMs": 302
+    },
+    {
+      "gameIndex": 11,
+      "nPlayers": 3,
+      "setupDecided": false,
+      "turn1Leaders": [
+        1
+      ],
+      "result": {
+        "winnerOrCoalition": [
+          2
+        ],
+        "turns": 8,
+        "victoryType": "last-standing",
+        "hitTurnCap": false
+      },
+      "elapsedMs": 1574815
+    },
+    {
+      "gameIndex": 12,
+      "nPlayers": 4,
+      "setupDecided": false,
+      "turn1Leaders": [
+        2
+      ],
+      "result": {
+        "winnerOrCoalition": [
+          1
+        ],
+        "turns": 10,
+        "victoryType": "last-standing",
+        "hitTurnCap": false
+      },
+      "elapsedMs": 1129797
+    },
+    {
+      "gameIndex": 13,
+      "nPlayers": 5,
+      "setupDecided": false,
+      "turn1Leaders": [
+        0,
+        3
+      ],
+      "result": {
+        "winnerOrCoalition": [
+          4
+        ],
+        "turns": 7,
+        "victoryType": "iron",
+        "hitTurnCap": false
+      },
+      "elapsedMs": 1063011
+    },
+    {
+      "gameIndex": 14,
+      "nPlayers": 6,
+      "setupDecided": false,
+      "turn1Leaders": [
+        4
+      ],
+      "result": {
+        "winnerOrCoalition": [
+          3
+        ],
+        "turns": 9,
+        "victoryType": "last-standing",
+        "hitTurnCap": false
+      },
+      "elapsedMs": 2468468
+    },
+    {
+      "gameIndex": 15,
+      "nPlayers": 2,
+      "setupDecided": false,
+      "turn1Leaders": [
+        0
+      ],
+      "result": {
+        "winnerOrCoalition": [
+          1
+        ],
+        "turns": 9,
+        "victoryType": "last-standing",
+        "hitTurnCap": false
+      },
+      "elapsedMs": 657403
+    },
+    {
+      "gameIndex": 16,
+      "nPlayers": 3,
+      "setupDecided": false,
+      "turn1Leaders": [
+        2
+      ],
+      "result": {
+        "winnerOrCoalition": [
+          2
+        ],
+        "turns": 9,
+        "victoryType": "last-standing",
+        "hitTurnCap": false
+      },
+      "elapsedMs": 2441843
+    },
+    {
+      "gameIndex": 18,
+      "nPlayers": 5,
+      "setupDecided": false,
+      "turn1Leaders": [
+        0
+      ],
+      "result": {
+        "winnerOrCoalition": [
+          4
+        ],
+        "turns": 7,
+        "victoryType": "last-standing",
+        "hitTurnCap": false
+      },
+      "elapsedMs": 1772776
+    },
+    {
+      "gameIndex": 21,
+      "nPlayers": 3,
+      "setupDecided": false,
+      "turn1Leaders": [
+        1
+      ],
+      "result": {
+        "winnerOrCoalition": [
+          1
+        ],
+        "turns": 2,
+        "victoryType": "iron",
+        "hitTurnCap": false
+      },
+      "elapsedMs": 88512
+    }
+  ]
+}

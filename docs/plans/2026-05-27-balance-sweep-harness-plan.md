@@ -38,21 +38,27 @@ downstream reconstruction is expensive and fails silently.
 
 ## Execution Status
 
-**Overall:** Not started.
+**Overall:** ✅ COMPLETE (DONE_WITH_CONCERNS), 2026-06-29, branch `claude/wonderful-mahavira-87ccd6` → **PR [#25](https://github.com/scarson/industrial-juggernaut/pull/25) open to `dev` (Review — Sam merges).** S1 ✅ (`2e5d7cf1`), S2 ✅ (`ff826e65`), S3 ✅ (`69c65915`), S4 ✅ (`8ec625ab`), S5 ✅ (`fd461c99`). Suite 505 green; typecheck clean. **Headline finding: 0/176 feasible configs pass the health gate under the weak `heuristicAgent`** — verified trustworthy by a 4-lens adversarial workflow (byte-identical reproduction, no harness bug, gate unmodified). **Two regimes (the crux):** small/dense-board turn-1 resolution is INTRINSIC GEOMETRY (agent-insensitive — a stronger agent wins turn-1 *more* reliably); large-board cap-hit is AGENT-SENSITIVE (the best near-miss `big300` fails ONLY capHit by ~2pp, a metric a decisive agent could fix). So "no healthy config under weak play" is narrower than "no balanced region." **Sam's decision (2026-06-29): re-run the large-board nearest-misses under the paused MCTS agent FIRST** (do NOT loosen capHit, do NOT redesign yet). Full finding + memory: [[balance-sweep-two-regime-finding]]. Report: `docs/sweeps/2026-05-27-balance-report.md`.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
-| S1 — Metrics | ⬜ Not started | — | — |
-| S2 — Health gate + rank | ⬜ Not started | — | — |
-| S3 — Runner (grid/OFAT, CRN, CIs) | ⬜ Not started | — | — |
-| S4 — Orchestrator + report | ⬜ Not started | — | — |
-| S5 — Execute the search; recommend balanced config | ⬜ Not started | — | — |
+| S1 — Metrics | ✅ SHIPPED (commit, not yet PR'd) | `2e5d7cf1` | `src/sweep/metrics.ts` + 28 tests; full suite 423 green, typecheck clean. Spec + quality review passed; isolation verified (2 files only). |
+| S2 — Health gate + rank | ✅ SHIPPED (commit, not yet PR'd) | `ff826e65` | `src/sweep/health.ts` + 26 tests; suite 449 green. `isHealthy`/`rankHealthy`; equal-weight composite. Spec + quality review passed (4 doc/test fixes folded). |
+| S3 — Runner (grid/OFAT, CRN, CIs) | ✅ SHIPPED (commit, not yet PR'd) | `69c65915` | `src/sweep/run.ts` + 14 tests; suite 463 green. CRN via config-free `gameSeed`; probe==game board-consistency verified byte-for-byte (Opus spec review). Deviations: `bigint` seeds, numeric-only axis keys (see Deviations). |
+| S4 — Orchestrator + report | ✅ SHIPPED (commit, not yet PR'd) | `8ec625ab` | `orchestrate.ts` + `report.ts` + 33 tests; suite 505 green. `findBalancedConfig`(grid→rankHealthy→recommended/null+nearest-misses), `balanceSweep`, pure `report()`. Composite extracted to shared `scoreMetrics` in `health.ts` (DRY). Spec + quality review passed. |
+| S5 — Execute the search; recommend balanced config | ✅ DONE_WITH_CONCERNS (commit, not yet PR'd) | `fd461c99` | `src/sweep/main.ts` + report. 176 feasible configs (192 raw − 16 vt>ironCount), 80→360 games two-stage, ~64 min. **0/176 healthy** (verified). No config to adopt; recommended next = MCTS re-run of near-misses. `defaultConfig` unchanged. |
 
 ### Deviations
-- (none yet)
+- **S3 — `baseSeed`/`gameSeed` use `bigint`, not `number`** (plan spec wrote `number`). The engine's `RunOptions.seed` and `initGame` take `bigint`; using `number` would force lossy `BigInt()` conversions past 2^53. `gameSeed(baseSeed: bigint, gameIndex: number): bigint`. **S4/S5 callers MUST pass `bigint` seeds (e.g. `1n`).** Faithful to the real API; confirmed correct by Opus spec review.
+- **S3 — sweep axis type narrowed to numeric-only `RuleConfig` keys** (plan spec wrote `Record<keyof RuleConfig, number[]>`). Added `NumericRuleConfigKey` (the `K extends number` subset); `sweepGrid` axes = `Partial<Record<NumericRuleConfigKey, number[]>>`, `sweepOFAT` axis = `NumericRuleConfigKey`. Accepts the 9 numeric fields (radius, placeRange, attackRange, baseLimit, factorySupply, ironCount, boardSize, victoryThreshold, brokenPerimeterDeathAtFactories); rejects `allowPass`/`autoWinAt6`/`killBounty`/`combatTable` at compile time. The full-`Record` form would have forced every key present and mistyped non-numeric fields. **S5's grid/OFAT axes must be among those 9 numeric keys.**
+- **S4 — `findBalancedConfig` is selection-only over a PRE-COMPUTED grid** (plan spec wrote `findBalancedConfig(grid, fixed, opts)` implying it calls `sweepGrid` internally). The shipped signature is `findBalancedConfig(grid: {config,metrics}[], opts)` — `grid` is the sweep RESULTS, not the axes, and `fixed` was dropped as vestigial. This is forced by the spec's own structural-selection acceptance test ("given a hand-built set of `{config, metrics}`"), and it cleanly separates the expensive sweep run from pure selection. **S5 calls `sweepGrid(axes, fixed, opts)` itself, then passes the results in;** `fixed` is applied at the `sweepGrid` call.
+- **S4 — `report({ result, balance })` signature** (plan spec wrote `report({ recommended, ranked, gridTable, balance })`). `result: FindResult` bundles `recommended`/`ranked`/`gridTable`/`nearestMisses`; cleaner, no behavior change.
 
 ### Discoveries
-- (none yet)
+- **`SweepMetrics` / `GameEntry` contract (S1, `src/sweep/metrics.ts`).** `victoryType` is keyed on `"iron" | "last-standing" | "none"` (matches `VictoryType` from `src/driver/record.ts`). `computeMetrics` reads `GameResult.{winnerOrCoalition, turns, victoryType, hitTurnCap}`; the caller (S3 runner) supplies `setupDecided` and `turn1Leaders` (argmax of `ironOverTime[0]`, ties→all). `seatWinBias` returns `{ maxBiasAcrossGroups, byNPlayers }` computed WITHIN each player-count group.
+- **No-winner-game handling — load-bearing for S2/S4 interpretation.** Empty-coalition/cap games count in the seat-bias denominator (`gamesInGroup`) but contribute 0 wins to all seats → they dilute seat win-rates and INFLATE apparent `seatWinBias` when cap-hit frequency is high. `leadVolatility` counts no-winner games as volatile (no winner ∈ leaders). S2 thresholds and S4 reporting MUST read these alongside `noWinnerFraction`/`capHitFraction` for context.
+- **S4 smoke-grid PREVIEW of the S5 question (`orchestrate.test.ts`).** A small real grid (`victoryThreshold∈{8,12} × boardSize∈{96,126}`, 20 games/config, 2 player counts) found **NO healthy config** — every config failed `medianTurns < 3` (games end almost immediately) and `leadVolatility < 0.2`. This is the "decided at setup/turn-1" problem appearing on cue. **It is plausible S5's wider grid also finds no healthy region** — that is a legitimate, important either-way finding (don't loosen the gate to manufacture a pass). The harness's nearest-misses path exists precisely for this case.
+- **Operational floor: board size.** `boardSize: 64` (≈61 hexes) is INFEASIBLE with default `ironCount=14` (`placeIron` fails — too dense). S5's grid should keep `boardSize ≳ 80–90` at `ironCount=14`, or scale `ironCount` down with the board.
 
 ---
 
@@ -79,7 +85,7 @@ the grid, is a real FINDING, not a test to soften — STOP and report.
 
 ## Phase S1 — Metrics
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED — `2e5d7cf1` on branch `claude/wonderful-mahavira-87ccd6` (not yet PR'd). `src/sweep/metrics.ts` + `test/sweep/metrics.test.ts`; 28 sweep tests, full suite 423 green, typecheck clean. Spec-compliance review ✅ (within-group `seatWinBias`, real `GameResult` fields, no tautological tests); code-quality review ✅ APPROVED (4 findings folded: 2 test-comment corrections, `seatWinBias` denominator doc, coalition-credit test). Isolation verified: only the 2 intended files changed since dev base.
 
 ### Task S1.1: `SweepMetrics` + computation
 **Files:** Create `src/sweep/metrics.ts`; Test `test/sweep/metrics.test.ts`. Available: `src/eval/measure.ts` (`measureDistribution`), `src/driver/run.ts` (`runGame`, `GameResult`), `src/agent/heuristic-agent.ts`, `src/engine/control.ts`, `src/engine/config.ts`, `src/engine/turn.ts` (`setupGame`).
@@ -93,7 +99,7 @@ the grid, is a real FINDING, not a test to soften — STOP and report.
 
 ## Phase S2 — Health Gate + Rank
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED — `ff826e65` on branch `claude/wonderful-mahavira-87ccd6` (not yet PR'd). `src/sweep/health.ts` + `test/sweep/health.test.ts`; 26 tests, suite 449 green, typecheck clean. `defaultHealthThresholds()` = `{minMedianTurns:3, maxMedianTurns:25, maxSetupDecided:0.05, minIronVictory:0.5, maxCapHit:0.02, maxSeatBias:0.20, minLeadVolatility:0.2}` (STARTING values — S5 reports real-grid behavior against them; if none pass, that's a finding, NOT a threshold to loosen). Composite (for S4): equal-weight (0.25 each) blend of `leadVolatility`, `1−seatWinBias.maxBiasAcrossGroups`, `ironVictoryFraction`, and `1−|medianTurns−bandCenter|/halfWidth` (bandCenter=(min+max)/2). `rankHealthy` filters failers first, so a failing config never outranks a passer. Spec ✅ + quality ✅ (logic approved; 4 doc/test-clarity fixes folded incl. a real tie-stability test replacing a tautological one).
 
 ### Task S2.1: `isHealthy` + `rankHealthy`
 **Files:** Create `src/sweep/health.ts`; Test `test/sweep/health.test.ts`. Uses `SweepMetrics` (S1).
@@ -107,7 +113,7 @@ the grid, is a real FINDING, not a test to soften — STOP and report.
 
 ## Phase S3 — Runner (grid / OFAT, CRN, CIs)
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED — `69c65915` on branch `claude/wonderful-mahavira-87ccd6` (not yet PR'd). `src/sweep/run.ts` + `test/sweep/run.test.ts`; 14 tests, suite 463 green, typecheck clean. Exports `gameSeed` (config-free CRN choke point — `baseSeed + gameIndex`, `bigint`), `runConfig`, `sweepGrid`, `sweepOFAT`, `proportionCI`. **Board/seed consistency verified byte-for-byte by Opus spec review:** the `setupDecided` probe reproduces `runGame`'s exact `initGame`→`placeFirstBase` setup sequence (same seed, structurally-identical `boardSource`), and `setupDecided` reads `control().iron.length` which is RNG-independent — so `setupDecidedFraction` is trustworthy. CRN tested non-tautologically (two materially-different configs at the same `baseSeed` emit identical seed sequences). Spec ✅ + quality ✅ (4 fixes folded: JSDoc timing, named `Z_95`, empty-axes/empty-values edge-case docs+tests, numeric-only axis type). See top-of-plan **Deviations** for the `bigint`-seed and numeric-axis-key API notes S4/S5 must honor.
 
 ### Task S3.1: `runConfig`, `sweepGrid`, `sweepOFAT`, CRN, confidence intervals
 **Files:** Create `src/sweep/run.ts`; Test `test/sweep/run.test.ts`. Available: `measureDistribution`, `runGame` (+ `agentFor` seam), `heuristicAgent`, `defaultConfig`, `metrics` (S1).
@@ -125,7 +131,7 @@ the grid, is a real FINDING, not a test to soften — STOP and report.
 
 ## Phase S4 — Orchestrator + Report
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED — `8ec625ab` on branch `claude/wonderful-mahavira-87ccd6` (not yet PR'd). `src/sweep/orchestrate.ts` + `src/sweep/report.ts` + `test/sweep/orchestrate.test.ts`; 33 tests, suite 505 green, typecheck clean. Spec ✅ + quality ✅ (review folded a DRY fix + dead-alias removal + 2 test gaps + graceful empty-table). **S5 wiring contract:** call `sweepGrid(axes, fixed, opts)` → pass the `{config,metrics}[]` results to `findBalancedConfig(grid, opts)` (NOT `(grid, fixed, opts)` — see Deviations); call `balanceSweep(baseline, axes, valuesPerAxis, opts)`; call `report({ result, balance })` and write the string to `docs/sweeps/`. `report.ts` exports `report`; `orchestrate.ts` exports `NEAREST_MISSES_COUNT`, `GridEntry`, `FindResult`, `BalanceResult`. The composite is `scoreMetrics(metrics, thresholds)` exported from `health.ts` (single source of truth, used by both `rankHealthy` and nearest-miss ranking).
 
 ### Task S4.1: `findBalancedConfig`, `balanceSweep`, `report`
 **Files:** Create `src/sweep/orchestrate.ts`, `src/sweep/report.ts`; Test `test/sweep/orchestrate.test.ts`.
@@ -143,7 +149,11 @@ the grid, is a real FINDING, not a test to soften — STOP and report.
 
 ## Phase S5 — Execute the Search; Recommend Balanced Config
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ DONE_WITH_CONCERNS — `fd461c99` on branch `claude/wonderful-mahavira-87ccd6` (not yet PR'd). `src/sweep/main.ts` (+ module-scoped `node-shims.d.ts`) ran 176 feasible configs (192 raw − 16 pruned for `victoryThreshold > ironCount`; board-feasibility probe pruned zero in this grid), two-stage 80→360 games/config, CRN `baseSeed=1n`, `turnCap=60`, ~64 min single-threaded, deterministic. **Result: 0/176 pass the gate.** Report: `docs/sweeps/2026-05-27-balance-report.md`. `defaultConfig` NOT changed (adoption is human-gated).
+
+**Verification (4-lens adversarial workflow, all `confirmed-with-caveats`):** the 0/176 finding reproduces byte-identically; no `main.ts` bug; gate is the unmodified `defaultHealthThresholds()`. **Two-regime crux:** small/dense-board (96) turn-1 resolution is INTRINSIC GEOMETRY (one base's radius-5 control disk owns ~6–10 iron at setup vs threshold 10 → first mover wins turn 1; stronger agent wins turn-1 *more* reliably — agent-INsensitive); large-board (220/300) cap-hit is AGENT-SENSITIVE (cap-hits are no-winner timeouts a decisive agent could convert to wins). Best near-miss `big300` (board 300 / radius 5 / ironCount 16 / vt 12) fails ONLY capHit (0.039±0.020 vs 0.02). Nuance: ~45% of board-300 failures fail WITHOUT capHit (seatBias/leadVolatility/ironVictory); seatBias is win-rate-based and inflated by no-winner games (metrics.ts, not a bug). `autoWinAt6`/`killBounty` showed zero effect — uninformative, since turn-1 resolution fires before those levers can (the engine reads them; not dead).
+
+**Decision (Sam, 2026-06-29): re-run the large-board nearest-misses under the paused MCTS agent FIRST** — the gating experiment. Do NOT loosen `maxCapHit` (would tune the gate to weak play) and do NOT call the game unbalanced as a whole (overclaims from a weak-agent run); both become ripe only after the MCTS re-run. If `big300` passes under strong play, the MCTS trustworthiness gates (`docs/plans/2026-05-27-stronger-agent-mcts-plan.md` A5.2/A6) unblock honestly. Strongest single lever found: higher `victoryThreshold`. See [[balance-sweep-two-regime-finding]].
 
 ### Task S5.1: run the real geometry grid + OFAT; produce the report
 **Files:** A runnable script `src/sweep/main.ts` (tsx-runnable) + the generated `docs/sweeps/2026-05-27-balance-report.md`. (This is an EXECUTION/measurement task, not a unit-test task.)

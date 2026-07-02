@@ -297,9 +297,15 @@ function softmaxSample(scores: number[], temperature: number, rng: RngState): { 
   return { index, rng: advancedRng };
 }
 
-/** Single-piece build actions of `type` legal on `state` for the current player. */
-function legalSinglePieceBuilds(state: GameState, type: "factory" | "base"): Extract<Action, { kind: "build" }>[] {
-  return legalActions(state).filter(
+/**
+ * Single-piece build actions of `type` from a legal-action list, preserving the
+ * list's order (the order `softmaxSample` indexes into). `acts` is the result of
+ * `legalActions` for the relevant state — passed in so one `legalActions` pass can
+ * serve every type/use at the same state instead of re-sweeping the board per
+ * type (`legalActions` iterates every board hex with placement predicates).
+ */
+function singlePieceBuildsOf(acts: Action[], type: "factory" | "base"): Extract<Action, { kind: "build" }>[] {
+  return acts.filter(
     (a): a is Extract<Action, { kind: "build" }> =>
       a.kind === "build" && a.pieces.length === 1 && a.pieces[0]!.type === type,
   );
@@ -317,6 +323,12 @@ function legalSinglePieceBuilds(state: GameState, type: "factory" | "base"): Ext
  *
  * At temperature -> 0 each draw becomes the argmax, so this reduces to the
  * deterministic greedy composer in greedy.ts.
+ *
+ * `stateLegal` is an OPTIONAL precomputed `legalActions(state)`. The first
+ * iteration composes against `state` itself, so when the caller already has its
+ * legal-action list (e.g. `samplePolicy`, which needs it for attacks/pass too) it
+ * threads it in to avoid a redundant board sweep. Later iterations recompute on
+ * the progressively-built `cur` (which differs from `state`).
  */
 function sampleBuild(
   state: GameState,
@@ -324,6 +336,7 @@ function sampleBuild(
   type: "factory" | "base",
   temperature: number,
   rng: RngState,
+  stateLegal?: Action[],
 ): { build: Extract<Action, { kind: "build" }> | null; rng: RngState } {
   const budget = buildBudget(state, player);
   if (budget < 1) return { build: null, rng };
@@ -333,10 +346,17 @@ function sampleBuild(
   const pieces: { type: "factory" | "base"; hex: Hex }[] = [];
 
   for (let i = 0; i < budget; i++) {
-    const singles = legalSinglePieceBuilds(cur, type);
+    // Iteration 0 composes against `state`; reuse the caller's legal list when
+    // given. Subsequent iterations are on the evolved `cur`, so re-derive there.
+    const acts = i === 0 && stateLegal !== undefined ? stateLegal : legalActions(cur);
+    const singles = singlePieceBuildsOf(acts, type);
     if (singles.length === 0) break;
 
-    const scores = singles.map((s) => scoreMove(cur, player, s, POLICY_MOVE_WEIGHTS));
+    // The before-state control is identical for every candidate placement scored
+    // against `cur` this iteration; compute it once and reuse (control is
+    // O(boardHexes x bases) — the MCTS hot path's dominant cost).
+    const beforeControl = control(cur, player);
+    const scores = singles.map((s) => scoreMove(cur, player, s, POLICY_MOVE_WEIGHTS, beforeControl));
     const draw = softmaxSample(scores, temperature, curRng);
     curRng = draw.rng;
 
@@ -349,26 +369,31 @@ function sampleBuild(
   return { build: { kind: "build", pieces }, rng: curRng };
 }
 
-/** Representative attack actions for the current player from move-gen. */
-function legalAttacks(state: GameState): Extract<Action, { kind: "attack" }>[] {
-  return legalActions(state).filter((a): a is Extract<Action, { kind: "attack" }> => a.kind === "attack");
+/** Representative attack actions from a legal-action list, preserving its order. */
+function attacksOf(acts: Action[]): Extract<Action, { kind: "attack" }>[] {
+  return acts.filter((a): a is Extract<Action, { kind: "attack" }> => a.kind === "attack");
 }
 
 /**
  * Sample one representative attack, weighted by `softmax(scoreMove / temperature)`
  * over the attacks `legalActions` emits. Threads `rng`. Returns null when there
- * are no attacks.
+ * are no attacks. `stateLegal` is `legalActions(state)`, passed in so the caller's
+ * single legal-action pass serves the attack candidates too.
  */
 function sampleAttack(
   state: GameState,
   player: PlayerId,
   temperature: number,
   rng: RngState,
+  stateLegal: Action[],
 ): { attack: Extract<Action, { kind: "attack" }> | null; rng: RngState } {
-  const attacks = legalAttacks(state);
+  const attacks = attacksOf(stateLegal);
   if (attacks.length === 0) return { attack: null, rng };
 
-  const scores = attacks.map((a) => scoreMove(state, player, a, POLICY_MOVE_WEIGHTS));
+  // The before-state control is identical for every attack scored against
+  // `state`; compute it once and reuse (control is O(boardHexes x bases)).
+  const beforeControl = control(state, player);
+  const scores = attacks.map((a) => scoreMove(state, player, a, POLICY_MOVE_WEIGHTS, beforeControl));
   const draw = softmaxSample(scores, temperature, rng);
   return { attack: attacks[draw.index]!, rng: draw.rng };
 }
@@ -434,9 +459,15 @@ export function samplePolicy(
   type Candidate = { action: Action; typeValue: number };
   const candidates: Candidate[] = [];
 
+  // Move-gen the root state ONCE. Every first-iteration build candidate, the
+  // attack candidates, and the pass option all come from the SAME `state`, and
+  // `legalActions` is an expensive board-hex sweep — so compute it once and reuse
+  // it everywhere below instead of re-sweeping per type/use.
+  const acts = legalActions(state);
+
   // 1a. Builds, one composed instance per type.
   for (const type of ["factory", "base"] as const) {
-    const { build, rng: r } = sampleBuild(state, player, type, temperature, curRng);
+    const { build, rng: r } = sampleBuild(state, player, type, temperature, curRng, acts);
     curRng = r;
     if (build !== null) {
       const typeValue = evaluate(applyAction(state, build).state)[player]!;
@@ -445,14 +476,13 @@ export function samplePolicy(
   }
 
   // 1b. Attack, one representative instance.
-  const { attack, rng: rAttack } = sampleAttack(state, player, temperature, curRng);
+  const { attack, rng: rAttack } = sampleAttack(state, player, temperature, curRng, acts);
   curRng = rAttack;
   if (attack !== null) {
     candidates.push({ action: attack, typeValue: attackTypeValue(state, player, attack) });
   }
 
   // 1c. Pass, when offered. applyAction(pass) leaves the state unchanged.
-  const acts = legalActions(state);
   const pass = acts.find((a) => a.kind === "pass");
   if (pass !== undefined) {
     candidates.push({ action: pass, typeValue: evaluate(state)[player]! });
