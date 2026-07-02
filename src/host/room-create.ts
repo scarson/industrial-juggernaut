@@ -17,6 +17,19 @@ const ARCHETYPES = ["aggressive", "economic", "expansionist"] as const;
 const MIN_BOARD_SIZE = 96;
 const MAX_BOARD_SIZE = 300;
 
+// Fixed-board hex cap: 4x the largest generated board (MAX_BOARD_SIZE hexes; the oval
+// search in src/board/shape.ts converges to within ±6 of size). Fixed defs are the
+// escape hatch for hand-digitized boards, so the cap leaves generous headroom while
+// bounding validation work and every downstream per-hex loop.
+export const MAX_FIXED_HEXES = 4 * MAX_BOARD_SIZE;
+
+// Per-coordinate magnitude bound for fixed-board hexes. Derivation: the largest
+// generated board (size 300) is an oval with half-axes A≈11, B≈9 (src/board/shape.ts:
+// B = sqrt(size/(π·1.3)), A = 1.3B), so generated cube coords stay within |c| ≲ 25
+// (y = -x-z worst case). 1024 is ~40x that extent — generous for digitized/offset
+// boards, exact in float arithmetic, and keeps geometry key() strings short.
+const MAX_HEX_COORD = 1024;
+
 /** A validation failure carrying the offending field name for a friendly 400. */
 export class CreateBodyError extends Error {
   constructor(
@@ -95,18 +108,51 @@ function validateBoardSource(raw: unknown): BoardSource {
     return { kind: "generate", size: raw.size, ironCount: raw.ironCount };
   }
   if (raw.kind === "fixed") {
+    const def = raw.def;
+    if (!isRecord(def) || !Array.isArray(def.hexes) || !Array.isArray(def.iron)) {
+      throw new CreateBodyError("def", "fixed def must be { hexes: Hex[], iron: Hex[] }");
+    }
+    // Size caps BEFORE any per-entry loop, so a hostile def cannot buy unbounded
+    // validation work. Iron is a subset of hexes, so iron can never legally be longer.
+    if (def.hexes.length > MAX_FIXED_HEXES) {
+      throw new CreateBodyError("def", `fixed def is capped at ${MAX_FIXED_HEXES} hexes`);
+    }
+    if (def.iron.length > def.hexes.length) {
+      throw new CreateBodyError("def", "fixed def has more iron entries than hexes");
+    }
+    // Coordinate gates BEFORE loadBoard: its cube-sum check (x+y+z===0) is satisfied
+    // by fractional pairs ({x:0.5,y:-0.5,z:0}) and astronomically large ones
+    // ({x:1e308,y:-1e308,z:0} — 1e308 IS an integer value, so the magnitude bound is
+    // its own gate). The engine's geometry assumes small exact integers.
+    for (const h of def.hexes) validateHexCoords(h);
+    for (const h of def.iron) validateHexCoords(h);
     try {
-      // loadBoard throws on any invariant violation (cube constraint, dup hex, iron
-      // not a member, dup iron) AND on a malformed def (e.g. missing `hexes` → a
-      // TypeError from iterating undefined). We validate by calling it; the returned
-      // Board is discarded here (the DO rebuilds it from the persisted def at init).
-      loadBoard(raw.def as BoardDefinition);
+      // loadBoard validates the remaining invariants (cube constraint, dup hexes,
+      // iron membership, dup iron). We validate by calling it; the returned Board is
+      // discarded here (the DO rebuilds it from the persisted def at init).
+      loadBoard(def as unknown as BoardDefinition);
     } catch (e) {
       throw new CreateBodyError("def", `fixed board rejected: ${e instanceof Error ? e.message : String(e)}`);
     }
-    return { kind: "fixed", def: raw.def as BoardDefinition };
+    return { kind: "fixed", def: def as unknown as BoardDefinition };
   }
   throw new CreateBodyError("boardSource", 'boardSource.kind must be "generate" or "fixed"');
+}
+
+/** Gate one hex's coordinates: integers with |c| <= MAX_HEX_COORD (see the bound's derivation). */
+function validateHexCoords(h: unknown): void {
+  if (!isRecord(h)) {
+    throw new CreateBodyError("def", "fixed def hex entries must be {x, y, z} objects");
+  }
+  for (const axis of ["x", "y", "z"] as const) {
+    const c = h[axis];
+    if (typeof c !== "number" || !Number.isInteger(c) || Math.abs(c) > MAX_HEX_COORD) {
+      throw new CreateBodyError(
+        "def",
+        `fixed def hex ${axis} must be an integer with |${axis}| <= ${MAX_HEX_COORD}`,
+      );
+    }
+  }
 }
 
 // A DECIMAL bigint string: optional leading '-', then one or more digits. Deliberately
@@ -140,7 +186,10 @@ function validateConfig(raw: unknown): RuleConfig {
   }
   const merged = defaultConfig();
   for (const [k, v] of Object.entries(raw)) {
-    if (!(k in merged)) {
+    // Object.hasOwn, NOT `in`: `in` walks the prototype chain, so JSON own-keys like
+    // "__proto__"/"constructor" (which JSON.parse creates as ordinary own properties)
+    // would false-match Object.prototype's members and fall into the wrong branch.
+    if (!Object.hasOwn(merged, k)) {
       throw new CreateBodyError(k, `unknown config key "${k}"`);
     }
     assignConfigKey(merged, k as keyof RuleConfig, v);
@@ -169,16 +218,24 @@ function assignConfigKey(cfg: RuleConfig, key: keyof RuleConfig, v: unknown): vo
       cfg[key] = v;
       return;
     default: {
-      // Every remaining RuleConfig key is a number.
-      if (typeof v !== "number") {
-        throw new CreateBodyError(key, `config.${key} must be a number`);
+      // Every remaining RuleConfig key is a strictly positive integer QUANTITY, so one
+      // shared gate covers them (Number.isInteger also rejects Infinity — JSON `1e999`
+      // parses to Infinity and passes a bare typeof check). Per-key semantics:
+      //   radius / placeRange / attackRange — hex-grid distances (rings/range), >= 1
+      //   baseLimit                         — starting bases-in-hand count, >= 1
+      //   factorySupply                     — total factory pieces, >= 1
+      //   ironCount / boardSize             — board-composition counts, >= 1
+      //   victoryThreshold                  — controlled-iron win count, >= 1
+      //   brokenPerimeterDeathAtFactories   — factory-count threshold, >= 1
+      if (typeof v !== "number" || !Number.isInteger(v) || v <= 0) {
+        throw new CreateBodyError(key, `config.${key} must be a positive integer`);
       }
       cfg[key] = v;
     }
   }
 }
 
-/** `combatTable` is a Record<3|4|5|6, number> — validate the exact key set + numeric values. */
+/** `combatTable` is a Record<3|4|5|6, number> — exact key set, each value a probability. */
 function validateCombatTable(raw: unknown): void {
   if (!isRecord(raw)) {
     throw new CreateBodyError("combatTable", "config.combatTable must be an object");
@@ -188,8 +245,11 @@ function validateCombatTable(raw: unknown): void {
     throw new CreateBodyError("combatTable", "config.combatTable must have exactly keys 3,4,5,6");
   }
   for (const k of keys) {
-    if (typeof raw[k] !== "number") {
-      throw new CreateBodyError("combatTable", `config.combatTable[${k}] must be a number`);
+    const v = raw[k];
+    // Attacker win probabilities per committed-base count — finite and in [0,1]
+    // (the finite check also rejects Infinity from JSON `1e999`).
+    if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1) {
+      throw new CreateBodyError("combatTable", `config.combatTable[${k}] must be a probability in [0, 1]`);
     }
   }
 }

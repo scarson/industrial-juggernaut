@@ -3,6 +3,7 @@
 import { describe, expect, test } from "vitest";
 import { SELF } from "cloudflare:test";
 import { ALPHABET } from "../../src/host/ids";
+import { MAX_FIXED_HEXES } from "../../src/host/room-create";
 import { REPLAY_VERSION } from "../../src/host/version";
 import { defaultConfig } from "../../src/index";
 
@@ -19,11 +20,22 @@ function validBody(overrides: Record<string, unknown> = {}) {
 }
 
 async function create(body: unknown): Promise<Response> {
+  return createRaw(JSON.stringify(body));
+}
+
+/** POST a raw body string — for payloads JSON.stringify cannot express (1e999, "__proto__"). */
+async function createRaw(body: string): Promise<Response> {
   return SELF.fetch("https://host.test/api/games", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
+    body,
   });
+}
+
+/** A straight line of n cube-valid hexes centered on the origin: {x:i, y:-i, z:0}. */
+function lineHexes(n: number): { x: number; y: number; z: number }[] {
+  const half = Math.floor(n / 2);
+  return Array.from({ length: n }, (_, i) => ({ x: i - half, y: half - i, z: 0 }));
 }
 
 describe("POST /api/games — happy path", () => {
@@ -164,6 +176,80 @@ describe("POST /api/games — untrusted body validation (400 names the field)", 
       field: "baseLimit",
     },
     {
+      name: "config numeric key negative",
+      body: validBody({ config: { baseLimit: -5 } }),
+      field: "baseLimit",
+    },
+    {
+      name: "config numeric key fractional",
+      body: validBody({ config: { victoryThreshold: 0.5 } }),
+      field: "victoryThreshold",
+    },
+    {
+      name: "config numeric key zero",
+      body: validBody({ config: { factorySupply: 0 } }),
+      field: "factorySupply",
+    },
+    {
+      name: "combatTable probability above 1",
+      body: validBody({ config: { combatTable: { 3: 1.5, 4: 5 / 6, 5: 8 / 9, 6: 1 } } }),
+      field: "combatTable",
+    },
+    {
+      name: "combatTable probability negative",
+      body: validBody({ config: { combatTable: { 3: -0.1, 4: 5 / 6, 5: 8 / 9, 6: 1 } } }),
+      field: "combatTable",
+    },
+    {
+      name: "fixed def with fractional coords (cube-sum still 0)",
+      body: validBody({
+        boardSource: {
+          kind: "fixed",
+          def: { hexes: [{ x: 0.5, y: -0.5, z: 0 }], iron: [] },
+        },
+      }),
+      field: "def",
+    },
+    {
+      name: "fixed def with astronomically large coords (cube-sum still 0)",
+      body: validBody({
+        boardSource: {
+          kind: "fixed",
+          def: { hexes: [{ x: 1e308, y: -1e308, z: 0 }], iron: [] },
+        },
+      }),
+      field: "def",
+    },
+    {
+      name: "fixed def with more hexes than the cap",
+      body: validBody({
+        boardSource: {
+          kind: "fixed",
+          def: { hexes: lineHexes(MAX_FIXED_HEXES + 1), iron: [{ x: 0, y: 0, z: 0 }] },
+        },
+      }),
+      field: "def",
+    },
+    {
+      // Behaviorally 400 even pre-hardening (loadBoard: an iron array longer than
+      // hexes must hit a dup/non-member) — the explicit pre-check bounds the work
+      // BEFORE any per-entry loop runs. Regression-guards the field name.
+      name: "fixed def with more iron entries than hexes",
+      body: validBody({
+        boardSource: {
+          kind: "fixed",
+          def: {
+            hexes: [{ x: 0, y: 0, z: 0 }],
+            iron: [
+              { x: 0, y: 0, z: 0 },
+              { x: 0, y: 0, z: 0 },
+            ],
+          },
+        },
+      }),
+      field: "def",
+    },
+    {
       name: "roomOptions bad shape (seconds not positive)",
       body: validBody({ roomOptions: { defenderTimeout: { enabled: true, seconds: -5 } } }),
       field: "defenderTimeout",
@@ -212,6 +298,84 @@ describe("POST /api/games — host stamping (client cannot influence versions)",
 
   test("REPLAY_VERSION is a non-empty committed constant (host stamps it, never the client)", () => {
     expect(REPLAY_VERSION).toMatch(/^[0-9a-f]{16}$/);
+  });
+});
+
+describe("POST /api/games — adversarial hardening (review exploit bodies)", () => {
+  test("Infinity via JSON 1e999 in numeric config keys → 400 naming the first offender", async () => {
+    // JSON.parse("1e999") yields Infinity, which passes a bare `typeof === "number"`.
+    // Raw string body: JSON.stringify would serialize Infinity as null, hiding the exploit.
+    const res = await createRaw(
+      '{"seats":[{"kind":"human"},{"kind":"human"}],' +
+        '"boardSource":{"kind":"generate","size":96,"ironCount":14},"seed":"1",' +
+        '"config":{"radius":1e999,"baseLimit":-5,"victoryThreshold":0.5,"placeRange":1e999}}',
+    );
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { field: string };
+    expect(json.field).toBe("radius"); // first key in body order fails the integer gate
+  });
+
+  test('config {"__proto__": 5} → 400 unknown config key (not a prototype-chain false accept)', async () => {
+    // Raw string body: a JS object literal {__proto__: 5} would set the prototype
+    // instead of creating the own key. JSON.parse creates it as an OWN property.
+    // A prototype-walking `in` check sees Object.prototype's __proto__ and falls
+    // through to the wrong branch (where the __proto__ setter silently no-ops → 200).
+    const res = await createRaw(
+      '{"seats":[{"kind":"human"},{"kind":"human"}],' +
+        '"boardSource":{"kind":"generate","size":96,"ironCount":14},"seed":"1",' +
+        '"config":{"__proto__":5}}',
+    );
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: string; field: string };
+    expect(json.field).toBe("__proto__");
+    expect(json.error).toContain("unknown config key"); // the RIGHT rejection reason
+  });
+
+  test('config {"constructor": 5} → 400 unknown config key', async () => {
+    const res = await create(validBody({ config: { constructor: 5 } }));
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: string; field: string };
+    expect(json.field).toBe("constructor");
+    expect(json.error).toContain("unknown config key");
+  });
+
+  test("request body over 256 KiB → 413 (unbounded-work guard)", async () => {
+    // fetch sets content-length for a fixed-size string body, so this exercises the
+    // pre-parse size gate. 262144-byte cap; this body is comfortably over it.
+    const res = await createRaw(`{"pad":"${"x".repeat(262_200)}"}`);
+    expect(res.status).toBe(413);
+    const json = (await res.json()) as { field: string };
+    expect(json.field).toBe("body");
+  });
+
+  test("boundary accept: the full defaultConfig supplied explicitly → 200", async () => {
+    // Exercises every RuleConfig key through the per-key gates (numerics, booleans,
+    // killBounty, combatTable) with known-legal values.
+    const res = await create(validBody({ config: defaultConfig() }));
+    expect(res.status).toBe(200);
+  });
+
+  test("boundary accept: extreme-but-legal custom config → 200", async () => {
+    const res = await create(
+      validBody({
+        config: {
+          radius: 7,
+          baseLimit: 1,
+          victoryThreshold: 1,
+          combatTable: { 3: 0, 4: 0.5, 5: 1, 6: 1 }, // probabilities at both ends of [0,1]
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  test("boundary accept: a fixed def at exactly the hex cap → 200", async () => {
+    // lineHexes centers on the origin, so all coords stay far inside the coord bound.
+    const hexes = lineHexes(MAX_FIXED_HEXES);
+    const res = await create(
+      validBody({ boardSource: { kind: "fixed", def: { hexes, iron: [hexes[0]] } } }),
+    );
+    expect(res.status).toBe(200);
   });
 });
 

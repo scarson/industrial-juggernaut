@@ -29,10 +29,29 @@ function isWebSocketUpgrade(request: Request): boolean {
  * only (the agent-seat auth resolution: an agent seat has no capability to leak), inits
  * the room's DO, and returns `{ roomId, seatTokens }`.
  */
+// Create-body byte cap. JSON.parse work scales with input size, so an uncapped body is
+// unbounded work on an unauthenticated endpoint — this is the input-surface guard the
+// create route needs on its own; the Phase-2 abuse floor adds rate-limiting on top.
+// 256 KiB is ~7x the largest legitimate body (a MAX_FIXED_HEXES fixed def is ~36 KiB).
+const MAX_BODY_BYTES = 262144;
+
 async function handleCreate(request: Request, env: Env): Promise<Response> {
+  // Declared-size gate first (rejects before reading), then an actual-size gate after
+  // reading (covers chunked/undeclared-length bodies). text.length counts UTF-16 code
+  // units, which never exceeds the UTF-8 byte count — so this bounds parse work within
+  // a small constant factor of the cap.
+  const declared = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+    return jsonResponse({ error: "request body too large", field: "body" }, 413);
+  }
+  const text = await request.text();
+  if (text.length > MAX_BODY_BYTES) {
+    return jsonResponse({ error: "request body too large", field: "body" }, 413);
+  }
+
   let raw: unknown;
   try {
-    raw = await request.json();
+    raw = JSON.parse(text);
   } catch {
     return jsonResponse({ error: "malformed JSON body", field: "body" }, 400);
   }
@@ -77,14 +96,18 @@ async function handleCreate(request: Request, env: Env): Promise<Response> {
     roomOptions: spec.roomOptions,
     authorizedDigests,
   };
-  // B3 implements /init and this returns 2xx; until then the stub 501s. The create
-  // flow's contract is exercised end-to-end in B3/B7, so a non-2xx here is expected
-  // and ignored (the room is addressable by roomId regardless).
-  await stub.fetch("https://do.internal/init", {
+  const initRes = await stub.fetch("https://do.internal/init", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(initPayload),
   });
+  // Init must succeed before tokens go out: an uninitialized room rejects joins, so a
+  // 200-with-tokens for a failed init would strand the creator with dead capabilities.
+  // Sole exception: the B2 GameRoom stub answers 501 to everything — B3's real /init
+  // returns 2xx and makes the 501 tolerance dead code (remove it there).
+  if (!initRes.ok && initRes.status !== 501) {
+    return jsonResponse({ error: "room init failed" }, 500);
+  }
 
   return jsonResponse({ roomId, seatTokens }, 200);
 }
