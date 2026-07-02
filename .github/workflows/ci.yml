@@ -5,14 +5,44 @@ on:
   pull_request:
     branches: [dev, main]
 jobs:
+  # The job always runs and always reports the `check` status, so the required
+  # status check on dev/main is satisfied even for docs-only changes. The heavy
+  # steps (install/typecheck/test/build) are skipped when a change touches only
+  # docs (docs/** or any *.md) — anything else runs the full build (fail-safe).
   check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect non-docs changes
+        id: diff
+        run: |
+          base="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$base" 2>/dev/null; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "No usable diff base ($base) — running full CI."
+            exit 0
+          fi
+          changed="$(git diff --name-only "$base" HEAD)"
+          echo "Changed files:"
+          echo "$changed"
+          if echo "$changed" | grep -qvE '^docs/|\.md$'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "Non-docs changes present — running full CI."
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+            echo "Docs-only change — skipping typecheck/test/build."
+          fi
       - uses: oven-sh/setup-bun@v2
+        if: steps.diff.outputs.code == 'true'
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
+        if: steps.diff.outputs.code == 'true'
       - run: bun run typecheck
+        if: steps.diff.outputs.code == 'true'
       - run: bun run test
+        if: steps.diff.outputs.code == 'true'
       - run: bun run build
+        if: steps.diff.outputs.code == 'true'
