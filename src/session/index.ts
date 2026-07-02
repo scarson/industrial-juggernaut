@@ -12,6 +12,7 @@ export type { RecordResult } from "./record";
 export type { ApplyEntryResult } from "./round";
 export { openSession } from "./session";
 export { applyCommand, resyncPayload } from "./session";
+export { resolveDefender } from "./pending";
 export { needsDrive, driveOneStep } from "./agent-drive";
 export { agentForSeat } from "./agent-binding";
 export * from "./keys";
