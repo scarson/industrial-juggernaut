@@ -1,16 +1,19 @@
 // ABOUTME: Agent-drive loop — advances agent/eliminated rounds (logging each) until a human seat / pending / end.
-// ABOUTME: Pure; takes agentForSeat injected. Attack rounds land in A4. Mirrors recordGame's composition.
+// ABOUTME: Pure; takes agentForSeat + host ids injected. Agent attacks open a human pending or apply attack+endRound. Mirrors recordGame's composition.
 import { applyEntry } from "./round";
 import { stateHash } from "./hash";
 import { encodeEntry } from "./codec";
+import { openDefenderDecision } from "./pending";
 import { status } from "../engine/status";
 import { currentPlayer, representativeFirstBase } from "../engine/turn";
+import { representativeDefender } from "../engine/legal";
 import type { Agent } from "../agent/agent";   // import type only — no value import of src/agent here
-import type { PlayerId } from "../engine/types";
+import type { AttackDecl, PlayerId } from "../engine/types";
 import type { LogEntry, SeatConfig } from "./types";
 import type { ServerMessage } from "../wire/protocol";
+import { key } from "../geometry/cube";
 import { logKey, SNAPSHOT_KEY } from "./keys";
-import { NO_EFFECTS, type Effects, type SessionState } from "./session-types";
+import { NO_EFFECTS, type CommandCtx, type Effects, type SessionState } from "./session-types";
 
 /** The seat whose turn/placement it currently is (setup: the placer; play: the current player). Exported — A3 imports it. */
 export function currentActor(s: SessionState): PlayerId {
@@ -30,8 +33,16 @@ export type DriveResult = { next: SessionState; effects: Effects; advanced: bool
 // terminal (when non-null) is a status() victory: { kind:"victory"; players: PlayerId[]; reason:"iron"|"last-standing" }.
 // The gameOver message maps winners = terminal.players, cause = terminal.reason (no helper needed).
 
-/** Advance exactly one agent/eliminated/setup round; return the entry(ies) to persist + broadcast. */
-export function driveOneStep(s: SessionState, agentForSeat: (seat: SeatConfig) => Agent): DriveResult {
+/** Advance exactly one agent/eliminated/setup round; return the entry(ies) to persist + broadcast.
+ *  `ids` is the host-supplied non-determinism (time + a pre-generated decisionId) the attack branch needs to
+ *  open a defender pending against a human seat — the reducer stays pure (no Date.now()/crypto). The acting seat
+ *  is the agent player `p` itself (derived here), so `ids` is narrower than a full CommandCtx. The DO host calls
+ *  `driveOneStep(s, agentForSeat, { nowEpochMs: Date.now(), decisionId: crypto.randomUUID() })` per wake. */
+export function driveOneStep(
+  s: SessionState,
+  agentForSeat: (seat: SeatConfig) => Agent,
+  ids: { nowEpochMs: number; decisionId: string },
+): DriveResult {
   const p = currentActor(s);
   // SETUP: agent auto-places via representativeFirstBase (NOT via the injected agent).
   if (s.game.phase.turn === 0) {
@@ -48,8 +59,46 @@ export function driveOneStep(s: SessionState, agentForSeat: (seat: SeatConfig) =
   const a = choice.action;
   if (a.kind === "build") return commitEntries(s, [{ player: p, kind: "build", pieces: a.pieces.map((x) => ({ type: x.type, hex: x.hex })), rngBeforeApply: rng }]);
   if (a.kind === "pass") return commitEntries(s, [{ player: p, kind: "pass", rngBeforeApply: rng }]);
-  // a.kind === "attack": deferred to A4 (agent-attacks-human opens a pending; else attack+endRound).
-  throw new Error("driveOneStep: agent attack rounds are implemented in Phase A4");
+  return driveAttack(s, p, a.attacks, rng, ids);
+}
+
+/** The agent attack branch. v1 agents emit exactly ONE declaration (mirrors recordGame's single-decl assert). When
+ *  the defending seat is HUMAN the attack is NOT applied — a durable defender pending is opened and the drive halts
+ *  (needsDrive then returns false; the human is prompted). When the defender is agent/auto the representative
+ *  defender is substituted and the round is applied and ALWAYS closed (attack + endRound) in ONE atomic put —
+ *  agents take exactly one attack per round in v1, matching recordGame. Unlike commitAttackRound (whose auto-close
+ *  is CONDITIONAL, for a human continuing a chain), this path closes UNCONDITIONALLY. */
+function driveAttack(
+  s: SessionState,
+  attacker: PlayerId,
+  attacks: AttackDecl[],
+  rng: SessionState["game"]["rngState"],
+  ids: { nowEpochMs: number; decisionId: string },
+): DriveResult {
+  if (attacks.length !== 1) throw new Error("driveOneStep: v1 agents must emit single-declaration attacks");
+  const proposed = attacks[0]!;
+  const targetBase = s.game.bases.find((b) => key(b.hex) === key(proposed.target))!; // trusted agent: target exists
+  const defenderOwner = targetBase.owner;
+
+  // Human defender: open a durable pending and STOP driving — NO log entry (the attack applies on resolution).
+  if (s.seats[defenderOwner]!.config.kind === "human") {
+    const ctx: CommandCtx = { actingSeat: attacker, nowEpochMs: ids.nowEpochMs, decisionId: ids.decisionId };
+    const { pending, effects } = openDefenderDecision(s, proposed, defenderOwner, ctx);
+    // The drive halts: no round applied (advanced false, terminal null); the pending suppresses needsDrive.
+    return { next: { ...s, pending }, effects, advanced: false, terminal: null };
+  }
+
+  // Agent/auto defender: substitute the deterministic representative defender, then apply attack + endRound.
+  const defender = representativeDefender(s.game, proposed.target, defenderOwner)!; // non-null: agent chose a legal attack
+  const finalDecl: AttackDecl = { ...proposed, defender };
+  const attackEntry: LogEntry = { player: attacker, kind: "attack", decl: finalDecl, rngBeforeApply: rng };
+  // endRound's rngBeforeApply is the POST-ATTACK state's rng — apply the attack to a THROWAWAY to read it (the
+  // same pattern commitAttackRound uses; applyEntry is pure, so the real apply inside commitEntries reproduces it).
+  const postAttackRng = applyEntry(s.game, attackEntry).state.rngState;
+  const endRoundEntry: LogEntry = { player: attacker, kind: "endRound", rngBeforeApply: postAttackRng };
+  const result = commitEntries(s, [attackEntry, endRoundEntry]); // ONE atomic put: attack + endRound + snapshot
+  // The round always closes here → clear any chainAttacker (commitEntries' {...s} spread carries the old value).
+  return { ...result, next: { ...result.next, chainAttacker: null } };
 }
 
 /** Apply a round's entries through applyEntry, threading state; build the atomic PersistOp + broadcasts.
