@@ -1,0 +1,470 @@
+[
+ {
+  "gameIndex": 0,
+  "nPlayers": 2,
+  "victoryType": "iron",
+  "turns": 2,
+  "winnerBases": 8,
+  "winnerRegime": "perimeter",
+  "winnerIron": 15,
+  "elimCauses": []
+ },
+ {
+  "gameIndex": 1,
+  "nPlayers": 3,
+  "victoryType": "iron",
+  "turns": 3,
+  "winnerBases": 11,
+  "winnerRegime": "perimeter",
+  "winnerIron": 16,
+  "elimCauses": [
+   "noIron",
+   "noIron"
+  ]
+ },
+ {
+  "gameIndex": 2,
+  "nPlayers": 4,
+  "victoryType": "iron",
+  "turns": 1,
+  "winnerBases": 3,
+  "winnerRegime": "radiating",
+  "winnerIron": 13,
+  "elimCauses": [
+   "noIron"
+  ]
+ },
+ {
+  "gameIndex": 3,
+  "nPlayers": 5,
+  "victoryType": "iron",
+  "turns": 1,
+  "winnerBases": 3,
+  "winnerRegime": "radiating",
+  "winnerIron": 12,
+  "elimCauses": []
+ },
+ {
+  "gameIndex": 4,
+  "nPlayers": 6,
+  "victoryType": "iron",
+  "turns": 1,
+  "winnerBases": 3,
+  "winnerRegime": "radiating",
+  "winnerIron": 13,
+  "elimCauses": []
+ },
+ {
+  "gameIndex": 5,
+  "nPlayers": 2,
+  "victoryType": "iron",
+  "turns": 3,
+  "winnerBases": 11,
+  "winnerRegime": "perimeter",
+  "winnerIron": 15,
+  "elimCauses": [
+   "noIron"
+  ]
+ },
+ {
+  "gameIndex": 6,
+  "nPlayers": 3,
+  "victoryType": "iron",
+  "turns": 1,
+  "winnerBases": 3,
+  "winnerRegime": "radiating",
+  "winnerIron": 14,
+  "elimCauses": []
+ },
+ {
+  "gameIndex": 7,
+  "nPlayers": 4,
+  "victoryType": "iron",
+  "turns": 3,
+  "winnerBases": 11,
+  "winnerRegime": "perimeter",
+  "winnerIron": 16,
+  "elimCauses": [
+   "emptyPerimeter",
+   "noIron"
+  ]
+ },
+ {
+  "gameIndex": 8,
+  "nPlayers": 5,
+  "victoryType": "iron",
+  "turns": 1,
+  "winnerBases": 3,
+  "winnerRegime": "radiating",
+  "winnerIron": 13,
+  "elimCauses": [
+   "noIron"
+  ]
+ },
+ {
+  "gameIndex": 9,
+  "nPlayers": 6,
+  "victoryType": "iron",
+  "turns": 17,
+  "winnerBases": 29,
+  "winnerRegime": "perimeter",
+  "winnerIron": 13,
+  "elimCauses": [
+   "noIron",
+   "noIron",
+   "noIron",
+   "noIron"
+  ]
+ },
+ {
+  "gameIndex": 10,
+  "nPlayers": 2,
+  "victoryType": "last-standing",
+  "turns": 1,
+  "winnerBases": 1,
+  "winnerRegime": "radiating",
+  "winnerIron": 1,
+  "elimCauses": [
+   "noIron"
+  ]
+ },
+ {
+  "gameIndex": 11,
+  "nPlayers": 3,
+  "victoryType": "iron",
+  "turns": 4,
+  "winnerBases": 11,
+  "winnerRegime": "perimeter",
+  "winnerIron": 12,
+  "elimCauses": []
+ },
+ {
+  "gameIndex": 12,
+  "nPlayers": 4,
+  "victoryType": "iron",
+  "turns": 3,
+  "winnerBases": 11,
+  "winnerRegime": "perimeter",
+  "winnerIron": 16,
+  "elimCauses": [
+   "emptyPerimeter",
+   "noIron"
+  ]
+ },
+ {
+  "gameIndex": 13,
+  "nPlayers": 5,
+  "victoryType": "iron",
+  "turns": 1,
+  "winnerBases": 3,
+  "winnerRegime": "radiating",
+  "winnerIron": 12,
+  "elimCauses": []
+ },
+ {
+  "gameIndex": 14,
+  "nPlayers": 6,
+  "victoryType": "iron",
+  "turns": 1,
+  "winnerBases": 3,
+  "winnerRegime": "radiating",
+  "winnerIron": 15,
+  "elimCauses": [
+   "noIron"
+  ]
+ },
+ {
+  "gameIndex": 15,
+  "nPlayers": 2,
+  "victoryType": "iron",
+  "turns": 1,
+  "winnerBases": 3,
+  "winnerRegime": "radiating",
+  "winnerIron": 12,
+  "elimCauses": []
+ },
+ {
+  "gameIndex": 16,
+  "nPlayers": 3,
+  "victoryType": "iron",
+  "turns": 2,
+  "winnerBases": 6,
+  "winnerRegime": "perimeter",
+  "winnerIron": 13,
+  "elimCauses": [
+   "noIron"
+  ]
+ },
+ {
+  "gameIndex": 17,
+  "nPlayers": 4,
+  "victoryType": "iron",
+  "turns": 3,
+  "winnerBases": 11,
+  "winnerRegime": "perimeter",
+  "winnerIron": 15,
+  "elimCauses": [
+   "noIron",
+   "noIron"
+  ]
+ },
+ {
+  "gameIndex": 18,
+  "nPlayers": 5,
+  "victoryType": "iron",
+  "turns": 4,
+  "winnerBases": 12,
+  "winnerRegime": "perimeter",
+  "winnerIron": 12,
+  "elimCauses": [
+   "noIron"
+  ]
+ },
+ {
+  "gameIndex": 19,
+  "nPlayers": 6,
+  "victoryType": "iron",
+  "turns": 1,
+  "winnerBases": 3,
+  "winnerRegime": "radiating",
+  "winnerIron": 13,
+  "elimCauses": []
+ },
+ {
+  "gameIndex": 20,
+  "nPlayers": 2,
+  "victoryType": "iron",
+  "turns": 4,
+  "winnerBases": 10,
+  "winnerRegime": "perimeter",
+  "winnerIron": 15,
+  "elimCauses": []
+ },
+ {
+  "gameIndex": 21,
+  "nPlayers": 3,
+  "victoryType": "iron",
+  "turns": 3,
+  "winnerBases": 12,
+  "winnerRegime": "perimeter",
+  "winnerIron": 16,
+  "elimCauses": [
+   "noIron"
+  ]
+ },
+ {
+  "gameIndex": 22,
+  "nPlayers": 4,
+  "victoryType": "iron",
+  "turns": 1,
+  "winnerBases": 3,
+  "winnerRegime": "radiating",
+  "winnerIron": 14,
+  "elimCauses": []
+ },
+ {
+  "gameIndex": 23,
+  "nPlayers": 5,
+  "victoryType": "iron",
+  "turns": 1,
+  "winnerBases": 3,
+  "winnerRegime": "radiating",
+  "winnerIron": 12,
+  "elimCauses": [
+   "noIron"
+  ]
+ },
+ {
+  "gameIndex": 24,
+  "nPlayers": 6,
+  "victoryType": "iron",
+  "turns": 3,
+  "winnerBases": 9,
+  "winnerRegime": "perimeter",
+  "winnerIron": 14,
+  "elimCauses": [
+   "noIron",
+   "noIron",
+   "noIron"
+  ]
+ },
+ {
+  "gameIndex": 25,
+  "nPlayers": 2,
+  "victoryType": "iron",
+  "turns": 3,
+  "winnerBases": 9,
+  "winnerRegime": "perimeter",
+  "winnerIron": 15,
+  "elimCauses": [
+   "noIron"
+  ]
+ },
+ {
+  "gameIndex": 26,
+  "nPlayers": 3,
+  "victoryType": "iron",
+  "turns": 2,
+  "winnerBases": 7,
+  "winnerRegime": "perimeter",
+  "winnerIron": 12,
+  "elimCauses": [
+   "noIron"
+  ]
+ },
+ {
+  "gameIndex": 27,
+  "nPlayers": 4,
+  "victoryType": "iron",
+  "turns": 3,
+  "winnerBases": 8,
+  "winnerRegime": "perimeter",
+  "winnerIron": 12,
+  "elimCauses": []
+ },
+ {
+  "gameIndex": 28,
+  "nPlayers": 5,
+  "victoryType": "iron",
+  "turns": 1,
+  "winnerBases": 3,
+  "winnerRegime": "radiating",
+  "winnerIron": 12,
+  "elimCauses": [
+   "emptyPerimeter",
+   "noIron"
+  ]
+ },
+ {
+  "gameIndex": 29,
+  "nPlayers": 6,
+  "victoryType": "iron",
+  "turns": 3,
+  "winnerBases": 9,
+  "winnerRegime": "perimeter",
+  "winnerIron": 12,
+  "elimCauses": [
+   "noIron",
+   "noIron",
+   "noIron"
+  ]
+ },
+ {
+  "gameIndex": 30,
+  "nPlayers": 2,
+  "victoryType": "iron",
+  "turns": 3,
+  "winnerBases": 11,
+  "winnerRegime": "perimeter",
+  "winnerIron": 15,
+  "elimCauses": []
+ },
+ {
+  "gameIndex": 31,
+  "nPlayers": 3,
+  "victoryType": "iron",
+  "turns": 3,
+  "winnerBases": 9,
+  "winnerRegime": "perimeter",
+  "winnerIron": 14,
+  "elimCauses": [
+   "emptyPerimeter"
+  ]
+ },
+ {
+  "gameIndex": 32,
+  "nPlayers": 4,
+  "victoryType": "none",
+  "turns": 61,
+  "winnerBases": null,
+  "winnerRegime": null,
+  "winnerIron": null,
+  "elimCauses": [
+   "noIron",
+   "noIron"
+  ]
+ },
+ {
+  "gameIndex": 33,
+  "nPlayers": 5,
+  "victoryType": "iron",
+  "turns": 1,
+  "winnerBases": 3,
+  "winnerRegime": "radiating",
+  "winnerIron": 13,
+  "elimCauses": []
+ },
+ {
+  "gameIndex": 34,
+  "nPlayers": 6,
+  "victoryType": "iron",
+  "turns": 2,
+  "winnerBases": 7,
+  "winnerRegime": "perimeter",
+  "winnerIron": 14,
+  "elimCauses": [
+   "noIron",
+   "noIron",
+   "noIron"
+  ]
+ },
+ {
+  "gameIndex": 35,
+  "nPlayers": 2,
+  "victoryType": "iron",
+  "turns": 4,
+  "winnerBases": 10,
+  "winnerRegime": "perimeter",
+  "winnerIron": 16,
+  "elimCauses": []
+ },
+ {
+  "gameIndex": 36,
+  "nPlayers": 3,
+  "victoryType": "iron",
+  "turns": 4,
+  "winnerBases": 11,
+  "winnerRegime": "perimeter",
+  "winnerIron": 14,
+  "elimCauses": [
+   "emptyPerimeter"
+  ]
+ },
+ {
+  "gameIndex": 37,
+  "nPlayers": 4,
+  "victoryType": "iron",
+  "turns": 4,
+  "winnerBases": 12,
+  "winnerRegime": "perimeter",
+  "winnerIron": 12,
+  "elimCauses": []
+ },
+ {
+  "gameIndex": 38,
+  "nPlayers": 5,
+  "victoryType": "iron",
+  "turns": 3,
+  "winnerBases": 10,
+  "winnerRegime": "perimeter",
+  "winnerIron": 13,
+  "elimCauses": [
+   "noIron",
+   "noIron"
+  ]
+ },
+ {
+  "gameIndex": 39,
+  "nPlayers": 6,
+  "victoryType": "iron",
+  "turns": 3,
+  "winnerBases": 10,
+  "winnerRegime": "perimeter",
+  "winnerIron": 14,
+  "elimCauses": [
+   "noIron",
+   "noIron",
+   "noIron"
+  ]
+ }
+]
