@@ -8,9 +8,11 @@ import { encodeState } from "../wire/codec";
 import { validateAttackDecl, validateBuildPieces, validatePass, validateTargetAttackable } from "./validation";
 import {
   commitAttackRound,
+  eligibleDefenders,
   extendDefender,
   openDefenderDecision,
   resolveDefender,
+  toWirePending,
   validateAttackers,
 } from "./pending";
 import { key } from "../geometry/cube";
@@ -269,6 +271,11 @@ export function applyCommand(s: SessionState, c: ClientCommand, ctx: CommandCtx)
       // decision is pending. All CAS/idempotency/own-seat logic lives in seats.ts (A5.1).
       return claimSeat(s, c, ctx);
     }
+    case "resync": {
+      // Non-mutating (bypasses the envelope guards): a full-state refresh, legal even while a decision is
+      // pending. reason is null here — "STALE_INDEX" etc. are envelope-generated reasons, not client-requested.
+      return keep({ ...NO_EFFECTS, reply: [resyncPayload(s, ctx.actingSeat, null)] });
+    }
     default: return keep(errorEffects(s, "UNKNOWN_TYPE", `Unknown command ${(c as { type?: string }).type}`));
   }
 }
@@ -281,13 +288,18 @@ function withChainAttacker(result: { next: SessionState; advanced: boolean }, at
 }
 
 /** Full-state resync payload (spec §3). A3 introduces the LOCKED SIGNATURE; A6 fills the seat-filtered pending
- *  projection. The roster comes from seats.ts's seatRoster (Phase A5). */
+ *  projection. The roster comes from seats.ts's seatRoster (Phase A5). The defender prompt is PRIVATE — included
+ *  ONLY in the prompted seat's resync, never another seat's (a non-prompted seat must not see who else can defend
+ *  or what the proposed attack was before the defender has acted). */
 export function resyncPayload(s: SessionState, requestingSeat: number, reason: string | null): ServerMessage {
+  const showPending = s.pending !== null && s.pending.promptedSeat === requestingSeat;
   return {
     type: "resync",
     snapshot: encodeState(s.game),
     logLength: s.logLength,
-    pending: null, // A3 creates no pending; A6 adds the seat-filtered projection
+    pending: showPending
+      ? toWirePending(s.pending!, eligibleDefenders(s.game, s.pending!.proposed.target, s.pending!.promptedSeat))
+      : null,
     seats: seatRoster(s),
     protocolVersion: PROTOCOL_VERSION,
     replayVersion: s.header.replayVersion,
