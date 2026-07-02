@@ -1,0 +1,192 @@
+[
+ {
+  "gameIndex": 0,
+  "boardHexes": 295,
+  "minHullFrac": 0.2033898305084746,
+  "minHullHexes": 60,
+  "minHullVertices": 6,
+  "medianHullFrac": 0.3423728813559322,
+  "bestDiskIron": 9,
+  "bestDiskPairIron": 14
+ },
+ {
+  "gameIndex": 1,
+  "boardHexes": 295,
+  "minHullFrac": 0.14576271186440679,
+  "minHullHexes": 43,
+  "minHullVertices": 6,
+  "medianHullFrac": 0.2305084745762712,
+  "bestDiskIron": 11,
+  "bestDiskPairIron": 16
+ },
+ {
+  "gameIndex": 2,
+  "boardHexes": 295,
+  "minHullFrac": 0.16271186440677965,
+  "minHullHexes": 48,
+  "minHullVertices": 7,
+  "medianHullFrac": 0.23728813559322035,
+  "bestDiskIron": 12,
+  "bestDiskPairIron": 16
+ },
+ {
+  "gameIndex": 3,
+  "boardHexes": 295,
+  "minHullFrac": 0.2711864406779661,
+  "minHullHexes": 80,
+  "minHullVertices": 7,
+  "medianHullFrac": 0.39661016949152544,
+  "bestDiskIron": 9,
+  "bestDiskPairIron": 13
+ },
+ {
+  "gameIndex": 4,
+  "boardHexes": 295,
+  "minHullFrac": 0.25084745762711863,
+  "minHullHexes": 74,
+  "minHullVertices": 7,
+  "medianHullFrac": 0.376271186440678,
+  "bestDiskIron": 9,
+  "bestDiskPairIron": 13
+ },
+ {
+  "gameIndex": 5,
+  "boardHexes": 295,
+  "minHullFrac": 0.25084745762711863,
+  "minHullHexes": 74,
+  "minHullVertices": 6,
+  "medianHullFrac": 0.3593220338983051,
+  "bestDiskIron": 9,
+  "bestDiskPairIron": 15
+ },
+ {
+  "gameIndex": 6,
+  "boardHexes": 295,
+  "minHullFrac": 0.14576271186440679,
+  "minHullHexes": 43,
+  "minHullVertices": 5,
+  "medianHullFrac": 0.2983050847457627,
+  "bestDiskIron": 14,
+  "bestDiskPairIron": 15
+ },
+ {
+  "gameIndex": 7,
+  "boardHexes": 295,
+  "minHullFrac": 0.17288135593220338,
+  "minHullHexes": 51,
+  "minHullVertices": 4,
+  "medianHullFrac": 0.28135593220338984,
+  "bestDiskIron": 11,
+  "bestDiskPairIron": 16
+ },
+ {
+  "gameIndex": 8,
+  "boardHexes": 295,
+  "minHullFrac": 0.1864406779661017,
+  "minHullHexes": 55,
+  "minHullVertices": 6,
+  "medianHullFrac": 0.28135593220338984,
+  "bestDiskIron": 11,
+  "bestDiskPairIron": 16
+ },
+ {
+  "gameIndex": 9,
+  "boardHexes": 295,
+  "minHullFrac": 0.19661016949152543,
+  "minHullHexes": 58,
+  "minHullVertices": 5,
+  "medianHullFrac": 0.36271186440677966,
+  "bestDiskIron": 9,
+  "bestDiskPairIron": 13
+ },
+ {
+  "gameIndex": 10,
+  "boardHexes": 295,
+  "minHullFrac": 0.16271186440677965,
+  "minHullHexes": 48,
+  "minHullVertices": 4,
+  "medianHullFrac": 0.28135593220338984,
+  "bestDiskIron": 11,
+  "bestDiskPairIron": 15
+ },
+ {
+  "gameIndex": 11,
+  "boardHexes": 295,
+  "minHullFrac": 0.27796610169491526,
+  "minHullHexes": 82,
+  "minHullVertices": 6,
+  "medianHullFrac": 0.4271186440677966,
+  "bestDiskIron": 8,
+  "bestDiskPairIron": 12
+ },
+ {
+  "gameIndex": 12,
+  "boardHexes": 295,
+  "minHullFrac": 0.18305084745762712,
+  "minHullHexes": 54,
+  "minHullVertices": 8,
+  "medianHullFrac": 0.33220338983050846,
+  "bestDiskIron": 9,
+  "bestDiskPairIron": 13
+ },
+ {
+  "gameIndex": 13,
+  "boardHexes": 295,
+  "minHullFrac": 0.22033898305084745,
+  "minHullHexes": 65,
+  "minHullVertices": 6,
+  "medianHullFrac": 0.34915254237288135,
+  "bestDiskIron": 9,
+  "bestDiskPairIron": 13
+ },
+ {
+  "gameIndex": 14,
+  "boardHexes": 295,
+  "minHullFrac": 0.2033898305084746,
+  "minHullHexes": 60,
+  "minHullVertices": 5,
+  "medianHullFrac": 0.29152542372881357,
+  "bestDiskIron": 11,
+  "bestDiskPairIron": 15
+ },
+ {
+  "gameIndex": 15,
+  "boardHexes": 295,
+  "minHullFrac": 0.16610169491525423,
+  "minHullHexes": 49,
+  "minHullVertices": 5,
+  "medianHullFrac": 0.38305084745762713,
+  "bestDiskIron": 10,
+  "bestDiskPairIron": 12
+ },
+ {
+  "gameIndex": 16,
+  "boardHexes": 295,
+  "minHullFrac": 0.17966101694915254,
+  "minHullHexes": 53,
+  "minHullVertices": 5,
+  "medianHullFrac": 0.3254237288135593,
+  "bestDiskIron": 11,
+  "bestDiskPairIron": 16
+ },
+ {
+  "gameIndex": 18,
+  "boardHexes": 295,
+  "minHullFrac": 0.26440677966101694,
+  "minHullHexes": 78,
+  "minHullVertices": 8,
+  "medianHullFrac": 0.38305084745762713,
+  "bestDiskIron": 10,
+  "bestDiskPairIron": 14
+ },
+ {
+  "gameIndex": 21,
+  "boardHexes": 295,
+  "minHullFrac": 0.21694915254237288,
+  "minHullHexes": 64,
+  "minHullVertices": 7,
+  "medianHullFrac": 0.3559322033898305,
+  "bestDiskIron": 10,
+  "bestDiskPairIron": 14
+ }
+]
