@@ -17,5 +17,8 @@
 node_modules/
 dist/
 
+# Generated Workers types (bunx wrangler types)
+worker-configuration.d.ts
+
 # macOS
 .DS_Store
