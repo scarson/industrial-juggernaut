@@ -276,6 +276,18 @@ export function applyCommand(s: SessionState, c: ClientCommand, ctx: CommandCtx)
       // pending. reason is null here — "STALE_INDEX" etc. are envelope-generated reasons, not client-requested.
       return keep({ ...NO_EFFECTS, reply: [resyncPayload(s, ctx.actingSeat, null)] });
     }
+    case "hello": {
+      // Non-mutating (bypasses the envelope guards; hello is not in MUTATING_TYPES) — legal even while a
+      // decision is pending. A mismatch here means the CLIENT's cached bundle is stale against THIS room
+      // (protocolVersion: wire contract changed under a redeployed DO; replayVersion: the client's cached SPA
+      // was built against different engine semantics than the room) → the client hard-reloads. This is a
+      // different mechanism from the DO's STORAGE replayVersion check (B3.3), which detects an old persisted
+      // log under new engine semantics — that one is about the room's own history, not the client's bundle.
+      if (c.protocolVersion !== PROTOCOL_VERSION || c.replayVersion !== s.header.replayVersion) {
+        return keep({ ...NO_EFFECTS, reply: [{ type: "reload" }] });
+      }
+      return keep({ ...NO_EFFECTS, reply: [resyncPayload(s, ctx.actingSeat, null)] });
+    }
     default: return keep(errorEffects(s, "UNKNOWN_TYPE", `Unknown command ${(c as { type?: string }).type}`));
   }
 }
