@@ -14,6 +14,7 @@ import {
   validateAttackers,
 } from "./pending";
 import { key } from "../geometry/cube";
+import { claimSeat, seatRoster } from "./seats";
 import type { AttackDecl, PlayerId } from "../engine/types";
 import type { LogEntry, SessionHeader } from "./types";
 import { PROTOCOL_VERSION, type ClientCommand, type RoomOptions, type ServerMessage, type WireErrorCode } from "../wire/protocol";
@@ -100,11 +101,30 @@ export function applyCommand(s: SessionState, c: ClientCommand, ctx: CommandCtx)
       // pending opened without appending, so logLength is unchanged since the prompt; a resync-then-retry client
       // resends the same index).
       if (c.expectedLogIndex !== s.logLength) return keep(resyncEffects(s, ctx.actingSeat, "STALE_INDEX"));
+      // Agent-seat backstop (defense in depth — see plan Discoveries "Agent-seat auth
+      // boundary"): openDefenderDecision only fires for HUMAN defenders (an agent/auto defender is substituted
+      // and applied immediately in the attack handler), so s.pending.promptedSeat is human-by-construction
+      // today. This check can never trip via a legitimate path — it exists so a future promptedSeat source
+      // can't silently reopen the hole this backstop closes. The host's own agent drive never calls
+      // applyCommand (driveOneStep/commitEntries only), so this cannot affect legitimate agent play.
+      if (s.seats[s.pending.promptedSeat]?.config.kind === "agent") {
+        return keep(errorEffects(s, "NOT_YOUR_TURN", "Agent seats are host-driven."));
+      }
       // Seat auth against the PROMPTED seat, not currentActor — only the defender may resolve their own decision.
       if (ctx.actingSeat !== s.pending.promptedSeat) return keep(errorEffects(s, "NOT_YOUR_TURN", "It is not your decision to resolve."));
       // Falls through to the resolveDecision case below (authorized).
     } else {
       if ("expectedLogIndex" in c && c.expectedLogIndex !== s.logLength) return keep(resyncEffects(s, ctx.actingSeat, "STALE_INDEX"));
+      // Agent-seat backstop (defense in depth — see plan Discoveries "Agent-seat auth
+      // boundary"): an agent seat CAN be currentActor (it's the agent's turn), so a rogue socket bound to that
+      // seat would PASS the currentActor check below — this must run regardless of the turn check's outcome.
+      // Legitimate clients never reach this: B2.2 mints seat tokens for human seats only and the WS upgrade
+      // refuses to bind a socket to an agent seat, so this state is unreachable once those layers land — this
+      // is a backstop, not a teaching surface. The host's own agent drive never calls applyCommand
+      // (driveOneStep/commitEntries only), so this cannot affect legitimate agent play.
+      if (s.seats[ctx.actingSeat]?.config.kind === "agent") {
+        return keep(errorEffects(s, "NOT_YOUR_TURN", "Agent seats are host-driven."));
+      }
       if (ctx.actingSeat !== currentActor(s)) return keep(errorEffects(s, "NOT_YOUR_TURN", "It is not your turn."));
       // During setup (turn 0) the ONLY legal mutating command is placeFirstBase (recordGame's composition).
       // Without this, a forced pass from an unplaced placer passes validatePass (legalActions' stuck fallback)
@@ -228,6 +248,10 @@ export function applyCommand(s: SessionState, c: ClientCommand, ctx: CommandCtx)
       // Non-mutating (bypasses the envelope guards). A wrong id means the decision was already resolved →
       // ALREADY_RESOLVED; a wrong seat → NOT_YOUR_TURN. Seat auth is validated HERE and AGAIN inside
       // extendDefender (defense in depth per plan Task A4.3) — both layers must agree before the clock re-arms.
+      // No agent-seat kind check here (deliberate, unlike the mutating-command backstop above and the pending
+      // carve-out's kind check): extendDecision only re-arms an alarm/deadline, it never appends a log entry or
+      // changes game state — there is no state-changing action for a kind check to guard. Its own promptedSeat
+      // auth (below, and again inside extendDefender) is already the correct control for this non-mutating path.
       if (s.pending === null || c.decisionId !== s.pending.decisionId) {
         return keep(errorEffects(s, "ALREADY_RESOLVED", "That decision is no longer pending."));
       }
@@ -239,6 +263,11 @@ export function applyCommand(s: SessionState, c: ClientCommand, ctx: CommandCtx)
         return keep(errorEffects(s, result.error.code as WireErrorCode, result.error.message));
       }
       return result;
+    }
+    case "claimSeat": {
+      // Non-mutating (bypasses the envelope guards): a roster ack, not a game action — legal even while a
+      // decision is pending. All CAS/idempotency/own-seat logic lives in seats.ts (A5.1).
+      return claimSeat(s, c, ctx);
     }
     default: return keep(errorEffects(s, "UNKNOWN_TYPE", `Unknown command ${(c as { type?: string }).type}`));
   }
@@ -252,14 +281,14 @@ function withChainAttacker(result: { next: SessionState; advanced: boolean }, at
 }
 
 /** Full-state resync payload (spec §3). A3 introduces the LOCKED SIGNATURE; A6 fills the seat-filtered pending
- *  projection. The roster is built inline here — Phase A5 owns any exported seatRoster helper. */
+ *  projection. The roster comes from seats.ts's seatRoster (Phase A5). */
 export function resyncPayload(s: SessionState, requestingSeat: number, reason: string | null): ServerMessage {
   return {
     type: "resync",
     snapshot: encodeState(s.game),
     logLength: s.logLength,
     pending: null, // A3 creates no pending; A6 adds the seat-filtered projection
-    seats: s.seats.map((seatRuntime) => ({ seat: seatRuntime.seat, claimed: seatRuntime.claimed, kind: seatRuntime.config.kind })),
+    seats: seatRoster(s),
     protocolVersion: PROTOCOL_VERSION,
     replayVersion: s.header.replayVersion,
     reason,

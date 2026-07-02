@@ -2,6 +2,8 @@
 // ABOUTME: the mutating/non-mutating split, the UNKNOWN_TYPE default, and the resyncPayload shape. Optimistic concurrency.
 import { test, expect } from "vitest";
 import { openSession, applyCommand, resyncPayload } from "../../src/session/session";
+import { driveOneStep } from "../../src/session/agent-drive";
+import { agentForSeat } from "../../src/session/agent-binding";
 import { decodeState } from "../../src/wire/codec";
 import { DEFAULT_ROOM_OPTIONS, PROTOCOL_VERSION } from "../../src/wire/protocol";
 import { defaultConfig } from "../../src/engine/config";
@@ -21,6 +23,34 @@ const header: SessionHeader = {
 };
 
 const freshSession = (): SessionState => openSession(header, DEFAULT_ROOM_OPTIONS);
+
+// A 1-human+1-agent header (same seed/config/board as `header`) for the agent-seat backstop tests below.
+const agentHeader: SessionHeader = { ...header, seats: [{ kind: "human" }, { kind: "agent", agent: "heuristic" }] };
+const freshAgentSession = (): SessionState => openSession(agentHeader, DEFAULT_ROOM_OPTIONS);
+
+/** Drives setup to completion, returning the resulting PLAY-phase state. Human seats place via `applyCommand`
+ *  (the real wire path); agent seats place via `driveOneStep` (the real host agent-drive path — NEVER
+ *  `applyCommand`, matching how the DO host actually drives agent seats). Mirrors the "envelope guards pass"
+ *  test's loop for the human-only case; the mixed-seat case needs both drivers. */
+function completeSetup(s: SessionState): SessionState {
+  let cur = s;
+  let idx = 0;
+  while (cur.game.phase.turn === 0) {
+    const placer = cur.game.phase.order[cur.game.phase.indexInOrder]!;
+    if (cur.header.seats[placer]!.kind === "agent") {
+      const r = driveOneStep(cur, agentForSeat, { nowEpochMs: 1_000_000, decisionId: "setup-drive" });
+      if (r.effects.persist === null) throw new Error(`agent setup drive produced no persist at idx ${idx}`);
+      cur = r.next;
+    } else {
+      const hex = legalFirstBaseHexes(cur.game)[0]!;
+      const r = applyCommand(cur, { type: "placeFirstBase", expectedLogIndex: idx, hex }, mkCtx(placer));
+      if (r.effects.persist === null) throw new Error(`setup placement rejected at idx ${idx}`);
+      cur = r.next;
+    }
+    idx += 1;
+  }
+  return cur;
+}
 
 const mkCtx = (actingSeat: number): CommandCtx => ({
   actingSeat,
@@ -227,4 +257,74 @@ test("resyncPayload accepts a null reason", () => {
   const payload = resyncPayload(s, 0, null);
   if (payload.type !== "resync") throw new Error("expected resync");
   expect(payload.reason).toBeNull();
+});
+
+test("agent-seat backstop: a mutating command from the agent seat ON the agent's turn is rejected as host-driven", () => {
+  // The dangerous cell: currentActor === the agent seat, so the turn check alone would PASS a rogue socket
+  // bound to that seat. Drive setup to completion, confirm the agent seat is indeed the current actor, then
+  // send a mutating `build` as that seat — the kind check must fire regardless of the turn check's outcome.
+  const s = completeSetup(freshAgentSession());
+  const actor = s.game.phase.order[s.game.phase.indexInOrder]!;
+  expect(s.seats[actor]!.config.kind).toBe("agent"); // pins the dangerous cell: it IS this seat's turn
+
+  const { next, effects } = applyCommand(s, { type: "build", expectedLogIndex: s.logLength, pieces: [] }, mkCtx(actor));
+
+  expect(next).toBe(s);
+  expect(effects.persist).toBeNull();
+  expect(effects.reply).toHaveLength(1);
+  const reply = effects.reply[0]!;
+  expect(reply.type).toBe("error");
+  if (reply.type !== "error") throw new Error("expected error");
+  expect(reply.code).toBe("NOT_YOUR_TURN");
+  expect(reply.message).toMatch(/host-driven/);
+});
+
+test("agent-seat backstop: the human seat's commands are unaffected", () => {
+  // Same 1-human+1-agent header (seat 0 human, seat 1 agent). Setup order places seat 0 first (pinned: the
+  // dangerous-cell test above shows setup ends on seat 1's turn) — so a legal placeFirstBase from the HUMAN
+  // seat at the very start of the game must still go through untouched by the backstop.
+  const s = freshAgentSession();
+  const hex = legalFirstBaseHexes(s.game)[0]!;
+  const { next, effects } = applyCommand(s, { type: "placeFirstBase", expectedLogIndex: 0, hex }, mkCtx(0));
+
+  expect(next).not.toBe(s); // the command was accepted and applied
+  expect(effects.persist).not.toBeNull();
+});
+
+test("agent-seat backstop: a pending decision prompting an agent-kind seat is rejected (defense in depth — unreachable via a legitimate path today)", () => {
+  // openDefenderDecision only ever fires for HUMAN defenders (an agent/auto defender is substituted and applied
+  // immediately — see the attack handler and driveAttack), so a Pending with an agent-kind promptedSeat cannot
+  // arise via legitimate play. Constructed synthetically here (minimalPending + a 1-human+1-agent session) to
+  // pin the second defense-in-depth layer regardless.
+  const base = freshAgentSession();
+  const s: SessionState = { ...base, pending: { ...minimalPending(), promptedSeat: 1 } }; // seat 1 = agent
+  const { next, effects } = applyCommand(
+    s,
+    { type: "resolveDecision", expectedLogIndex: 0, decisionId: "pending-1", defender: { x: 0, y: 0, z: 0 } },
+    mkCtx(1),
+  );
+
+  expect(next).toBe(s);
+  expect(effects.persist).toBeNull();
+  expect(effects.reply).toHaveLength(1);
+  const reply = effects.reply[0]!;
+  expect(reply.type).toBe("error");
+  if (reply.type !== "error") throw new Error("expected error");
+  expect(reply.code).toBe("NOT_YOUR_TURN");
+  expect(reply.message).toMatch(/host-driven/);
+});
+
+test("agent-seat backstop: claimSeat from an agent-kind seat is non-mutating and still succeeds (A5.1 behavior, unchanged)", () => {
+  // claimSeat bypasses the mutating-command guard chain entirely (it's a roster ack, not a game action) — the
+  // backstop covers game-mutating commands only. Claiming an agent seat is harmless and ephemeral (no persist),
+  // so this behavior is intentionally left as-is; this test pins it against regression.
+  const s = freshAgentSession();
+  const agentSeat = s.seats.findIndex((sr) => sr.config.kind === "agent");
+  const { next, effects } = applyCommand(s, { type: "claimSeat", requestId: "req-1", seat: agentSeat }, mkCtx(agentSeat));
+
+  expect(effects.reply).toHaveLength(1);
+  const reply = effects.reply[0]!;
+  expect(reply.type).toBe("seatClaimed");
+  expect(effects.persist).toBeNull();
+  expect(next.seats[agentSeat]!.claimed).toBe(true);
 });
