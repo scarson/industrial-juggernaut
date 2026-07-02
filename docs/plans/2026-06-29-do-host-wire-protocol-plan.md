@@ -59,11 +59,11 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** Not started.
+**Overall:** In progress — Part A execution started 2026-07-02.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
-| A1 — Wire protocol types + codecs | ⬜ Not started | — | — |
+| A1 — Wire protocol types + codecs | ✅ Shipped | cf57bbea, 08557106, + test-strengthen commit | branch `feat/wire-protocol`; PR pending |
 | A2 — Reducer skeleton + agent-drive seam | ⬜ Not started | — | — |
 | A3 — Command processing / round state machine | ⬜ Not started | — | — |
 | A4 — Pending decisions + write-lock | ⬜ Not started | — | — |
@@ -83,7 +83,7 @@ notes and commit messages.
 - _(none yet)_
 
 ### Discoveries
-- _(none yet)_
+- **Generated boards contain `-0` cube coordinates** (found 2026-07-02 while strengthening the A1.2 codec test with a real-JSON round-trip). `JSON.stringify` canonicalizes `-0` → `0`, so a state that crosses the wire differs from the server's in-memory state under `Object.is`-style comparison. Verified **inert** for engine semantics: hex identity is `key()`'s template-literal string (`src/geometry/cube.ts:15`, GEO-4) and `String(-0) === "0"`; numeric comparisons use `===` (`-0 === 0`); `stateHash` canonicalizes through `key()` + template literals. Wire fidelity is therefore asserted via `stateHash` equality (the protocol's own divergence detector), not deep equality. **SPA-plan relevance:** client code must never compare server-decoded state to locally-generated state with `Object.is`-style deep equality (e.g. vitest `toEqual`) — use `stateHash` or key-canonical comparisons.
 
 ---
 
@@ -285,7 +285,7 @@ export type AlarmIntent =
 
 ## Phase A1 — Wire protocol types + codecs
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED 2026-07-02 — commits cf57bbea (A1.1), 08557106 (A1.2), + a codec-test strengthening commit (real-JSON wire-path round-trip, `-0` discovery — see Discoveries). Two-stage reviewed (spec + quality) per task. Phase review done from 3 perspectives: contract completeness vs spec §3 (verbatim, verified), bigint precision per spec §7 (>2^53 seed, `toBe` identity, real-JSON path), client-importability (type-only imports verified; codec's sole value import is the rng codec).
 
 Defines the client↔server contract and the JSON-safe codecs. Pure types + bigint-aware (de)serialization. This is the protocol the SPA client (deliverable 2) will import, so it lives in its own `src/wire` directory, importable without pulling in the reducer or the engine's value graph.
 
@@ -295,7 +295,7 @@ Defines the client↔server contract and the JSON-safe codecs. Pure types + bigi
 - Create: `src/wire/protocol.ts`
 - Test: `test/wire/protocol.test.ts`
 
-- [ ] **Step 1: Write the failing test** (`test/wire/protocol.test.ts`) — a type-presence + discriminant smoke pinning the command/message unions and the error-code catalog. It compiles the unions and asserts exhaustive discriminants.
+- [x] **Step 1: Write the failing test** (`test/wire/protocol.test.ts`) — a type-presence + discriminant smoke pinning the command/message unions and the error-code catalog. It compiles the unions and asserts exhaustive discriminants.
 
 ```ts
 // ABOUTME: Type-presence + discriminant smoke for the wire protocol contract.
@@ -334,7 +334,7 @@ test("PROTOCOL_VERSION is a positive integer", () => {
 
 Run `bun run typecheck` → FAIL (`src/wire/protocol.ts` does not exist).
 
-- [ ] **Step 2: Create `src/wire/protocol.ts`** with the full contract. Import engine types with `import type` only (no value imports — keeps `src/wire` light for the client).
+- [x] **Step 2: Create `src/wire/protocol.ts`** with the full contract. Import engine types with `import type` only (no value imports — keeps `src/wire` light for the client).
 
 ```ts
 // ABOUTME: The Industrial Juggernaut wire protocol — client commands, server messages, error codes.
@@ -425,16 +425,16 @@ export const WIRE_ERROR_CODES = [
 export type WireErrorCode = (typeof WIRE_ERROR_CODES)[number];
 ```
 
-- [ ] **Step 3: Run** `bun run typecheck && bun run test -- wire/protocol` → green. Full `bun run test` → green (pure additions). Pristine output.
+- [x] **Step 3: Run** `bun run typecheck && bun run test -- wire/protocol` → green. Full `bun run test` → green (pure additions). Pristine output.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/wire/protocol.ts test/wire/protocol.test.ts
 git commit -m "feat(wire): protocol contract — ClientCommand/ServerMessage unions + error-code catalog"
 ```
 
-- [ ] **Step 5: Apply the Execution Discipline block.**
+- [x] **Step 5: Apply the Execution Discipline block.**
 
 ### Task A1.2: State + pending codecs (bigint-safe)
 
@@ -444,7 +444,7 @@ git commit -m "feat(wire): protocol contract — ClientCommand/ServerMessage uni
 
 **Why:** `GameState.rngState` is `{state: bigint, inc: bigint}` and `JSON.stringify` throws on bigint (spec §3). The resync snapshot crosses the wire as JSON, so the materialized state needs a codec that round-trips bigints **bit-exactly** via the shared rng codec (`BigInt()`, never `Number()`). Pitfall: the bigint↔decimal precision contract (spec §7) — uint64 values above 2^53 must survive.
 
-- [ ] **Step 1: Write the failing test** (`test/wire/codec.test.ts`) — round-trip a real `initGame` state (which has a non-trivial `rngState`) and a `pending` record; assert structural + bit-exact equality. Use the session test helper for a real header.
+- [x] **Step 1: Write the failing test** (`test/wire/codec.test.ts`) — round-trip a real `initGame` state (which has a non-trivial `rngState`) and a `pending` record; assert structural + bit-exact equality. Use the session test helper for a real header.
 
 ```ts
 // ABOUTME: Round-trip tests for the wire state/pending codecs (bigint bit-exactness).
@@ -474,9 +474,9 @@ test("encodePending/decodePending round-trip the wire pending shape", () => {
 
 > **No forward reference:** the A1 codec operates ONLY on wire types (`EncodedState`, `EncodedPending`), both defined in `src/wire/protocol.ts` (A1). The storage-side `Pending` type (A4, `session-types.ts`) is NEVER imported by `src/wire/codec.ts` — the `Pending → EncodedPending` projection (`toWirePending`, A4.1, defined below) lives in the session layer, not the wire codec. A1 has no dependency on A4.
 
-- [ ] **Step 2: Run** `bun run test -- wire/codec` → FAIL (`src/wire/codec.ts` missing).
+- [x] **Step 2: Run** `bun run test -- wire/codec` → FAIL (`src/wire/codec.ts` missing).
 
-- [ ] **Step 3: Create `src/wire/codec.ts`.** Encode the whole `GameState` by replacing `rngState` with its `EncodedRng`; everything else in `GameState` is JSON-safe (numbers, strings, arrays of plain objects). Decode reverses it. Use `encodeRng`/`decodeRng` from `src/rng/codec` (the shared, `BigInt()`-only codec).
+- [x] **Step 3: Create `src/wire/codec.ts`.** Encode the whole `GameState` by replacing `rngState` with its `EncodedRng`; everything else in `GameState` is JSON-safe (numbers, strings, arrays of plain objects). Decode reverses it. Use `encodeRng`/`decodeRng` from `src/rng/codec` (the shared, `BigInt()`-only codec).
 
 ```ts
 // ABOUTME: Wire codecs — GameState/pending ↔ JSON-safe forms (rngState bigints via the rng codec).
@@ -503,16 +503,16 @@ export function decodePending(e: EncodedPending): EncodedPending { return e; }
 
 > **Do NOT** put `rngBeforeApply` on the wire `EncodedPending` — the RNG-to-install-on-resolution is a **storage-only** crash-recovery field (spec §3 pending payload), never sent to clients. The wire prompt carries only what the client renders (target + eligible defenders + deadline).
 
-- [ ] **Step 4: Run** `bun run test -- wire/codec` → PASS. Full `bun run test` → green.
+- [x] **Step 4: Run** `bun run test -- wire/codec` → PASS. Full `bun run test` → green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/wire/codec.ts test/wire/codec.test.ts
 git commit -m "feat(wire): state + pending codecs — bigint-safe GameState round-trip"
 ```
 
-- [ ] **Step 6: Apply the Execution Discipline block.**
+- [x] **Step 6: Apply the Execution Discipline block.**
 
 **After Phase A1:** review from 3+ perspectives (wire-contract completeness vs spec §3; bigint precision per spec §7; client-importability — no value imports leaked). Update the Execution Status banner + table.
 
