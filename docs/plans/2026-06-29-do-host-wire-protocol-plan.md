@@ -63,8 +63,8 @@ notes and commit messages.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
-| A1 — Wire protocol types + codecs | ✅ Shipped | cf57bbea, 08557106, + test-strengthen commit | branch `feat/wire-protocol`; PR pending |
-| A2 — Reducer skeleton + agent-drive seam | ⬜ Not started | — | — |
+| A1 — Wire protocol types + codecs | ✅ Merged | cf57bbea, 08557106, a9a758c0 → merge 251a5af0 | PR #35 (Routine, auto-merged on green `check`) |
+| A2 — Reducer skeleton + agent-drive seam | ✅ Shipped | fa0b32af, 80489f96, 6cd7ea46, 99c35ca4, 85dc724a, 3414c6a5 | branch `feat/session-reducer-skeleton`; PR pending; see Deviations (A2.3, A2.4) |
 | A3 — Command processing / round state machine | ⬜ Not started | — | — |
 | A4 — Pending decisions + write-lock | ⬜ Not started | — | — |
 | A5 — Seat-claim CAS + multi-tab | ⬜ Not started | — | — |
@@ -80,7 +80,8 @@ notes and commit messages.
 | B9 — DO/wire pitfalls documentation | ⬜ Not started | — | — |
 
 ### Deviations
-- _(none yet)_
+- **A2.4 (2026-07-02): two deviations from the plan's `agent-drive.ts` code block.** (1) The unused `encodeState` import was removed (pre-authorized by the plan's own note; only `encodeEntry` is used). (2) The plan's `if (terminal)` guard is `if (terminal !== null && terminal.kind === "victory")` in code — the plan's snippet would not typecheck because `applyEntry.terminal` carries the full `Status | null` union while `.players`/`.reason` are victory-only. Runtime-identical (round.ts only ever assigns a victory status to `terminal`); the plan snippet was wrong, the code is right.
+- **A2.3 (2026-07-02): `src/session/record.ts` DRY-refactored** to import `agentForSeat` from the new `src/session/agent-binding.ts`, deleting its inline copy (the plan's optional Step 4, taken per the duplication rule). Semantics preserved (verified against `git show 80489f96:src/session/record.ts`; the human-seat throw message is now `agentForSeat: a human seat has no agent`, still matching record.test.ts's `/human seat/i`). record.ts net −10/+2; no other restructuring.
 
 ### Discoveries
 - **Generated boards contain `-0` cube coordinates** (found 2026-07-02 while strengthening the A1.2 codec test with a real-JSON round-trip). `JSON.stringify` canonicalizes `-0` → `0`, so a state that crosses the wire differs from the server's in-memory state under `Object.is`-style comparison. Verified **inert** for engine semantics: hex identity is `key()`'s template-literal string (`src/geometry/cube.ts:15`, GEO-4) and `String(-0) === "0"`; numeric comparisons use `===` (`-0 === 0`); `stateHash` canonicalizes through `key()` + template literals. Wire fidelity is therefore asserted via `stateHash` equality (the protocol's own divergence detector), not deep equality. **SPA-plan relevance:** client code must never compare server-decoded state to locally-generated state with `Object.is`-style deep equality (e.g. vitest `toEqual`) — use `stateHash` or key-canonical comparisons.
@@ -520,7 +521,7 @@ git commit -m "feat(wire): state + pending codecs — bigint-safe GameState roun
 
 ## Phase A2 — Reducer skeleton + agent-drive seam
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED 2026-07-02 — commits fa0b32af (A2.1), 80489f96 (A2.2), 6cd7ea46 (A2.3 + record.ts DRY refactor), 99c35ca4 + 85dc724a (A2.4 + rng-seam test strengthening after quality review), 3414c6a5 (A2.5). Two-stage reviewed per task (A2.4 quality gate ran on Opus; its rng-seam finding was fixed with a mutation-check proof). Phase review: recordGame-composition faithfulness verified path-by-path (A2.4 review); storage-raw/wire-encoded split verified (raw entries + snapshot in put, encodeEntry on broadcast); agent-purity invariant verified by grep (only agent-binding.ts value-imports src/agent). gameOver-path test coverage is intentionally deferred to A4.5's cross-check — A4 executor MUST NOT skip it.
 
 Establishes the in-memory `SessionState`, the `Effects` plumbing, the injected `agentForSeat` seam, and the agent-drive loop for **non-attack** rounds (setup placement, eliminated-seat `roundSkipped`, agent `build`/`pass`). Tested with a **fake agent** to exercise the loop mechanics in isolation. Agent **attack** rounds are added in A4 (they route through the pending-decision flow). This is the architectural decision #2 (injection) made concrete.
 
@@ -530,7 +531,7 @@ Establishes the in-memory `SessionState`, the `Effects` plumbing, the injected `
 - Create: `src/session/session-types.ts`
 - Test: `test/session/session-types.test.ts` (type-presence smoke)
 
-- [ ] **Step 1: Write the failing test** — a smoke that constructs a `SessionState` from a real header + `DEFAULT_ROOM_OPTIONS` and asserts the initial shape.
+- [x] **Step 1: Write the failing test** — a smoke that constructs a `SessionState` from a real header + `DEFAULT_ROOM_OPTIONS` and asserts the initial shape.
 
 ```ts
 // ABOUTME: Type-presence + initial-shape smoke for the reducer's shared types.
@@ -548,7 +549,7 @@ test("DEFAULT_ROOM_OPTIONS has defender timeout OFF", () => {
 
 Run `bun run typecheck` → FAIL (`session-types.ts` missing).
 
-- [ ] **Step 2: Create `src/session/session-types.ts`** exactly as specified in the plan's "File structure" + the `Effects` contract in the Part A intro. Full content:
+- [x] **Step 2: Create `src/session/session-types.ts`** exactly as specified in the plan's "File structure" + the `Effects` contract in the Part A intro. Full content:
 
 ```ts
 // ABOUTME: Shared types for the interactive GameSession reducer (state, pending, seats, effects).
@@ -619,9 +620,9 @@ export type Effects = {
 export const NO_EFFECTS: Effects = { persist: null, broadcast: [], reply: [], toSeat: [], alarm: null };
 ```
 
-- [ ] **Step 3: Run** `bun run typecheck && bun run test -- session/session-types` → green. Full suite green.
-- [ ] **Step 4: Commit** — `git commit -m "feat(session): shared reducer types — SessionState, Pending, SeatRuntime, Effects"`
-- [ ] **Step 5: Apply the Execution Discipline block.**
+- [x] **Step 3: Run** `bun run typecheck && bun run test -- session/session-types` → green. Full suite green.
+- [x] **Step 4: Commit** — `git commit -m "feat(session): shared reducer types — SessionState, Pending, SeatRuntime, Effects"`
+- [x] **Step 5: Apply the Execution Discipline block.**
 
 ### Task A2.2: `openSession` + storage-key helpers
 
@@ -632,7 +633,7 @@ export const NO_EFFECTS: Effects = { persist: null, broadcast: [], reply: [], to
 
 **Why a shared `keys.ts`:** the reducer builds the `PersistOp.put` map keyed by storage keys, and the host (B3) reads/writes those same keys. One module owns the layout so they cannot drift.
 
-- [ ] **Step 1: Write the failing test** — `openSession` produces a setup-phase state (turn 0), `logLength: 0`, no pending, unclaimed seats; key helpers zero-pad.
+- [x] **Step 1: Write the failing test** — `openSession` produces a setup-phase state (turn 0), `logLength: 0`, no pending, unclaimed seats; key helpers zero-pad.
 
 ```ts
 // ABOUTME: openSession + storage-key layout tests.
@@ -662,8 +663,8 @@ test("logKey zero-pads to 6 digits", () => {
 });
 ```
 
-- [ ] **Step 2: Run** → FAIL.
-- [ ] **Step 3: Create `src/session/keys.ts`:**
+- [x] **Step 2: Run** → FAIL.
+- [x] **Step 3: Create `src/session/keys.ts`:**
 
 ```ts
 // ABOUTME: Durable storage key layout for a GameRoom — header / log:NNNNNN / snapshot / pending.
@@ -679,7 +680,7 @@ export function logKey(index: number): string { return `log:${String(index).padS
 
 > 6 digits caps at 999,999 log entries — far beyond any real game (a long 6-player game is hundreds of entries). If a game ever approached the cap that would itself be a defect; do NOT widen speculatively (YAGNI).
 
-- [ ] **Step 4: Create `src/session/session.ts`** with `openSession` (the `applyCommand`/`resyncPayload` functions are added in A3/A6):
+- [x] **Step 4: Create `src/session/session.ts`** with `openSession` (the `applyCommand`/`resyncPayload` functions are added in A3/A6):
 
 ```ts
 // ABOUTME: The interactive GameSession reducer core — openSession, applyCommand (A3), resyncPayload (A6).
@@ -702,9 +703,9 @@ export function openSession(header: SessionHeader, roomOptions: RoomOptions): Se
 ```
 > The Worker (B2.2) sets each seat's `authorizedDigest` at room init (from the minted seat tokens) via the DO init request; `openSession` starts them `null` (pre-init). `roomOptions` is also persisted at init and reloaded on rehydrate (B3.1/B3.3) — the defender-timeout toggle MUST survive eviction, never silently revert to OFF.
 
-- [ ] **Step 5: Run** `bun run test -- session/open-session` → PASS. Full suite green.
-- [ ] **Step 6: Commit** — `git commit -m "feat(session): openSession + storage-key layout"`
-- [ ] **Step 7: Apply the Execution Discipline block.**
+- [x] **Step 5: Run** `bun run test -- session/open-session` → PASS. Full suite green.
+- [x] **Step 6: Commit** — `git commit -m "feat(session): openSession + storage-key layout"`
+- [x] **Step 7: Apply the Execution Discipline block.**
 
 ### Task A2.3: `agentForSeat` binding (the one agent-importing module)
 
@@ -715,7 +716,7 @@ export function openSession(header: SessionHeader, roomOptions: RoomOptions): Se
 
 **Why:** architectural decision #2. This is the SINGLE module that value-imports `src/agent`. The reducer's drive loop takes `agentForSeat` as a parameter and never imports `src/agent` itself; the DO entrypoint imports this binding. Mirror `record.ts`'s existing inline `agentForSeat` (see `src/session/record.ts:14-19`).
 
-- [ ] **Step 1: Write the failing test** — the binding returns a greedy agent for a greedy seat, heuristic for heuristic, and throws on a human seat.
+- [x] **Step 1: Write the failing test** — the binding returns a greedy agent for a greedy seat, heuristic for heuristic, and throws on a human seat.
 
 ```ts
 // ABOUTME: agentForSeat binding tests — maps SeatConfig to the real engine agents.
@@ -730,8 +731,8 @@ test("agentForSeat returns a callable for agent seats and throws on human", () =
 });
 ```
 
-- [ ] **Step 2: Run** → FAIL.
-- [ ] **Step 3: Create `src/session/agent-binding.ts`:**
+- [x] **Step 2: Run** → FAIL.
+- [x] **Step 3: Create `src/session/agent-binding.ts`:**
 
 ```ts
 // ABOUTME: The one module that value-imports src/agent — maps a SeatConfig to its driving Agent.
@@ -748,10 +749,10 @@ export function agentForSeat(seat: SeatConfig): Agent {
 }
 ```
 
-- [ ] **Step 4 (optional DRY):** refactor `src/session/record.ts` to `import { agentForSeat } from "./agent-binding"` and delete its inline `agentForSeat`. If you do, run the full session suite to confirm `recordGame` still passes (this touches shipped plan-1 code — record the refactor as a **Deviation**). If skipping, note it; duplication of a 4-line function is tolerable.
-- [ ] **Step 5: Run** `bun run test -- session/agent-binding` → PASS. Full suite green.
-- [ ] **Step 6: Commit** — `git commit -m "feat(session): agentForSeat binding — the sole agent-importing module"`
-- [ ] **Step 7: Apply the Execution Discipline block.**
+- [x] **Step 4 (optional DRY):** refactor `src/session/record.ts` to `import { agentForSeat } from "./agent-binding"` and delete its inline `agentForSeat`. If you do, run the full session suite to confirm `recordGame` still passes (this touches shipped plan-1 code — record the refactor as a **Deviation**). If skipping, note it; duplication of a 4-line function is tolerable.
+- [x] **Step 5: Run** `bun run test -- session/agent-binding` → PASS. Full suite green.
+- [x] **Step 6: Commit** — `git commit -m "feat(session): agentForSeat binding — the sole agent-importing module"`
+- [x] **Step 7: Apply the Execution Discipline block.**
 
 ### Task A2.4: Agent-drive loop (non-attack rounds)
 
@@ -761,7 +762,7 @@ export function agentForSeat(seat: SeatConfig): Agent {
 
 **Why:** the agent-drive invariant (spec §3): after any wake/applied event, while the current actor is an agent (or an eliminated seat) and no decision is pending and the game is live, drive one round forward, logging each. Each agent **round** is one atomic event (B3 persists it). Attack rounds are deferred to A4. **Test with a FAKE agent** (`(state, player) => ({ action: { kind: "build", pieces: [...] }, state })` or a `pass` agent) — this isolates the loop from real agent attack behavior and is the payoff of the injection seam.
 
-- [ ] **Step 1: Write the failing test.** Build a 2-seat all-"agent" session, place via setup-drive with a fake first-base picker, then drive with a fake pass-agent; assert each step appends exactly one `log:N`, that `needsDrive` flips false at a human seat, and that a closed round emits a `snapshot` key + a `turnRollover` broadcast.
+- [x] **Step 1: Write the failing test.** Build a 2-seat all-"agent" session, place via setup-drive with a fake first-base picker, then drive with a fake pass-agent; assert each step appends exactly one `log:N`, that `needsDrive` flips false at a human seat, and that a closed round emits a `snapshot` key + a `turnRollover` broadcast.
 
 ```ts
 // ABOUTME: Agent-drive loop tests with a FAKE agent (isolates loop mechanics from real agent policy).
@@ -793,8 +794,8 @@ test("driveOneStep appends one log entry per agent round and closes rounds with 
 
 > The executor writes the full assertions; the contract above is exact. **The engine does NOT enforce `allowPass`** — `applyAction` accepts an unconditional `pass` (spec §0: "`applyAction` is not a complete rules oracle ... accepts unconditional `pass`"). So `applyEntry` will NOT reject the fake pass-agent's entry. Use `config.allowPass: true` anyway so the *game itself* is legitimate (voluntary pass is illegal under DER #5; a fake pass-agent in an `allowPass:false` game would produce a rules-illegal trajectory and confuse the test's intent). Agent-driven entries are **trusted** (not validated) — the reducer validates `pass` only on the *human-command* path (`validatePass`), exactly as `recordGame` trusts its agents. Setup placement does NOT consult the injected agent — it uses `representativeFirstBase` directly (matching `recordGame`). **Do NOT** route setup placement through the injected agent.
 
-- [ ] **Step 2: Run** → FAIL.
-- [ ] **Step 3: Create `src/session/agent-drive.ts`:**
+- [x] **Step 2: Run** → FAIL.
+- [x] **Step 3: Create `src/session/agent-drive.ts`:**
 
 ```ts
 // ABOUTME: Agent-drive loop — advances agent/eliminated rounds (logging each) until a human seat / pending / end.
@@ -894,16 +895,16 @@ export function commitEntries(s: SessionState, entries: LogEntry[]): DriveResult
 > **Note on `turnRollover.ironWeights`:** A6 fills the 2-player iron-weight array; A2 ships `null`. Do NOT block A2 on it. `import { status } from "../engine/status"` (already imported in `agent-drive.ts`).
 > **Note on snapshot storage:** the snapshot stores the RAW `GameState` (`state: game`) — DO storage uses structured clone, so `rngState` bigints persist natively (CF research: SQLite-backed DO storage round-trips bigint without JSON). The wire `applied`/`resync` messages use `encodeEntry`/`encodeState` (JSON-safe). Storage = raw; wire = encoded. Pitfall **DO-CODEC-1** (B9).
 
-- [ ] **Step 4: Run** `bun run test -- session/agent-drive` → PASS. Full suite green.
-- [ ] **Step 5: Commit** — `git commit -m "feat(session): agent-drive loop for non-attack rounds (fake-agent tested)"`
-- [ ] **Step 6: Apply the Execution Discipline block.**
+- [x] **Step 4: Run** `bun run test -- session/agent-drive` → PASS. Full suite green.
+- [x] **Step 5: Commit** — `git commit -m "feat(session): agent-drive loop for non-attack rounds (fake-agent tested)"`
+- [x] **Step 6: Apply the Execution Discipline block.**
 
 ### Task A2.5: Export the A2 surface
 
 **Files:**
 - Modify: `src/session/index.ts` (add exports)
 
-- [ ] **Step 1:** add to `src/session/index.ts`:
+- [x] **Step 1:** add to `src/session/index.ts`:
 
 ```ts
 export { openSession } from "./session";
@@ -916,9 +917,9 @@ export { PENDING_TOMBSTONE } from "./session-types";
 
 > `src/session/index.ts` is already the agent-ful barrel (it exports `recordGame`). Adding `agentForSeat` (which imports `src/agent`) is consistent. **Do NOT** add any of these to `src/index.ts` (the engine barrel must stay agent-free — foundation Phase 6 purity).
 
-- [ ] **Step 2: Run** `bun run typecheck && bun run test` → green.
-- [ ] **Step 3: Commit** — `git commit -m "feat(session): export the A2 reducer surface"`
-- [ ] **Step 4: Apply the Execution Discipline block.**
+- [x] **Step 2: Run** `bun run typecheck && bun run test` → green.
+- [x] **Step 3: Commit** — `git commit -m "feat(session): export the A2 reducer surface"`
+- [x] **Step 4: Apply the Execution Discipline block.**
 
 **After Phase A2:** review from 3+ perspectives (drive-loop faithfulness to `recordGame`'s composition; the storage-raw/wire-encoded split; injection seam keeps `agent-drive.ts` value-import-free of `src/agent`). Update Execution Status.
 
