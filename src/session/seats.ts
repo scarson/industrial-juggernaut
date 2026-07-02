@@ -1,0 +1,48 @@
+// ABOUTME: claimSeat — the seat-claim roster ack (spec §3, plan Phase A5). Pure; no token/digest handling.
+// ABOUTME: The socket authenticates at the WS upgrade (Part B); claimSeat only records the roster ack.
+import { NO_EFFECTS, type CommandCtx, type Effects, type SessionState } from "./session-types";
+import type { ServerMessage, WireErrorCode } from "../wire/protocol";
+
+/** Builds the identical `{ type: "error", ... }` reply shape session.ts's errorEffects constructs — duplicated
+ *  locally rather than imported to avoid a session.ts <-> seats.ts import cycle (session.ts imports seats.ts to
+ *  wire the claimSeat case into its switch). */
+function errorReply(s: SessionState, code: WireErrorCode, message: string): ServerMessage {
+  return { type: "error", code, message, currentLogIndex: s.logLength };
+}
+
+/**
+ * `claimSeat` — a lightweight roster ack, NOT an authentication step (spec §3, plan Phase A5 "Auth model").
+ * By the time this command reaches the reducer, `ctx.actingSeat` is already the authenticated seat (bound at
+ * the WS upgrade, Part B); the reducer never sees a token or digest. Non-mutating: no log entry, no
+ * `expectedLogIndex`, exempt from the A3.1 envelope guards — legal even while a decision is pending.
+ *
+ * Order: the bounds check runs BEFORE the own-seat check. `seat` arrives off the wire as a bare number with no
+ * prior validation; dereferencing `s.seats[seat]` before confirming it exists would crash on malformed input
+ * (e.g. `seat: 99` on a 2-seat room). Checking bounds first keeps the own-seat comparison's `s.seats[seat]`
+ * access below always safe, and produces a clear MALFORMED reply instead of an uncaught TypeError.
+ *
+ * `effects.persist` is ALWAYS null: `claimed`/`lastRequestId` are ephemeral roster state (session-types.ts
+ * SeatRuntime), not persisted — the durable auth fact is `authorizedDigest` in the header bundle (Part B).
+ * No broadcast/toSeat/alarm — reply only; the roster rides the next resync (plan-observed limitation, see
+ * A5.1 report: other clients don't see a seat fill in live).
+ */
+export function claimSeat(
+  s: SessionState,
+  c: { seat: number; requestId: string },
+  ctx: CommandCtx,
+): { next: SessionState; effects: Effects } {
+  const seatRuntime = s.seats[c.seat];
+  if (seatRuntime === undefined) {
+    return { next: s, effects: { ...NO_EFFECTS, reply: [errorReply(s, "MALFORMED", `No seat ${c.seat} in this room.`)] } };
+  }
+  if (ctx.actingSeat !== c.seat) {
+    return { next: s, effects: { ...NO_EFFECTS, reply: [errorReply(s, "NOT_YOUR_TURN", "A socket may only claim the seat it authenticated as.")] } };
+  }
+  const reply: ServerMessage = { type: "seatClaimed", seat: c.seat, requestId: c.requestId };
+  if (seatRuntime.lastRequestId === c.requestId) {
+    return { next: s, effects: { ...NO_EFFECTS, reply: [reply] } }; // idempotent re-ack — no state change
+  }
+  const seats = s.seats.map((sr, i) => (i === c.seat ? { ...sr, claimed: true, lastRequestId: c.requestId } : sr));
+  const next: SessionState = { ...s, seats };
+  return { next, effects: { ...NO_EFFECTS, reply: [reply] } };
+}
