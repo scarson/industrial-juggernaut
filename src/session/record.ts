@@ -4,19 +4,11 @@
 import { initGame } from "../engine/init";
 import { status } from "../engine/status";
 import { currentPlayer, representativeFirstBase } from "../engine/turn";
-import { greedyAgent, type Agent } from "../agent/agent";
-import { heuristicAgent } from "../agent/heuristic-agent";
+import { agentForSeat } from "./agent-binding";
 import { applyEntry } from "./round";
 import { stateHash } from "./hash";
 import type { GameEvent, GameState } from "../engine/types";
-import type { LogEntry, SeatConfig, SessionHeader } from "./types";
-
-function agentForSeat(seat: SeatConfig): Agent {
-  if (seat.kind === "human") throw new Error("recordGame: human seat unsupported (interactive play is plan 2)");
-  if (seat.agent === "greedy") return greedyAgent(seat.archetype);
-  if (seat.agent === "heuristic") return heuristicAgent();
-  throw new Error(`recordGame: unsupported agent ${(seat as any).agent}`);
-}
+import type { LogEntry, SessionHeader } from "./types";
 
 export type RecordResult = {
   header: SessionHeader;
