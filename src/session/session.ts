@@ -194,6 +194,11 @@ export function applyCommand(s: SessionState, c: ClientCommand, ctx: CommandCtx)
       // set would wedge the room (the deferred apply throws forever). Order per the plan.
       const targetBase = s.game.bases.find((b) => key(b.hex) === key(c.decl.target));
       if (targetBase === undefined) {
+        // MALFORMED, not a resync: a stale client view implies a stale expectedLogIndex, and the STALE_INDEX
+        // envelope guard above fires before this lookup — so a command reaching here already carried a FRESH index.
+        // A base cannot vanish from the board without a log entry (which would have advanced logLength and tripped
+        // STALE_INDEX), so a fresh index paired with a missing target base is malformed/buggy client input, never a
+        // legitimately stale view. STALE_INDEX structurally owns the stale-view case; this path is deliberate.
         return keep(errorEffects(s, "MALFORMED", "No base exists at the attack target."));
       }
       const defenderOwner = targetBase.owner;

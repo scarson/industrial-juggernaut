@@ -39,21 +39,27 @@ function idsForStep(step: number): { nowEpochMs: number; decisionId: string } {
 //       an exact bit-for-bit PREFIX of recordGame's, and recordGame's dropped tail is PURELY `placeFirstBase` entries):
 //         • recordGame places EVERY seat's first base unconditionally (`while (state.phase.turn === 0)`, record.ts:38),
 //           and only THEN checks born-terminal victory (record.ts:43). So it always logs N placements for N seats.
-//         • The interactive drive stops the moment an iron victory materializes: needsDrive returns false when
-//           status()==victory (agent-drive.ts:26) — AND this is CORRECT for interactive play, because applyCommand
-//           itself rejects EVERY mutating command (including a placeFirstBase) once status()==victory with GAME_OVER
-//           (session.ts:87). In a 4-player game a single well-placed first base can already control ≥ victoryThreshold
-//           iron, so an iron victory can be decided after only 2 of 4 placements; the remaining seats can NEVER place
-//           in the interactive/DO-host world (their placeFirstBase would be GAME_OVER-rejected). recordGame's extra
-//           tail placements are therefore genuinely UNREACHABLE interactively.
+//         • The interactive drive stops the moment an iron victory materializes: the clinching placeFirstBase's
+//           commitEntries runs status() on the post-placement state and, on victory, reports terminal AND broadcasts a
+//           single gameOver (agent-drive.ts — the placement-batch status check that dissolves the B3 host obligation).
+//           The drive loop breaks on that terminal signal (`r.terminal !== null`), same as a mid-GAME victory. This is
+//           CORRECT for interactive play, because applyCommand ALSO rejects every mutating command (including a
+//           placeFirstBase) once status()==victory with GAME_OVER (session.ts:87). In a 4-player game a single
+//           well-placed first base can already control ≥ victoryThreshold iron, so an iron victory can be decided after
+//           only 2 of 4 placements; the remaining seats can NEVER place in the interactive/DO-host world (their
+//           placeFirstBase would be GAME_OVER-rejected). recordGame's extra tail placements are therefore genuinely
+//           UNREACHABLE interactively.
 //         Reconciliation (exact, not a weakening): when the drive stops while still in setup (`droveStoppedInSetup`),
 //         assert `drive.log === rg.log.slice(0, drive.log.length)` (exact prefix, bigints included) AND that the
 //         dropped tail `rg.log.slice(drive.log.length)` is entirely `placeFirstBase` — proving nothing but redundant
-//         post-victory setup placements were truncated. Otherwise assert full `drive.log === rg.log`.
+//         post-victory setup placements were truncated. Otherwise assert full `drive.log === rg.log`. AND, because the
+//         clinching placement now emits a gameOver, assert exactly ONE gameOver at the terminal step with NO
+//         turnRollover (a placement never closes a round) — the mid-setup analogue of Obligation A below.
 //
 // An all-agent session never legitimately halts on a pending (agents defend via representativeDefender, never a human
-// prompt) — so needsDrive going false without a victory would be a STALL, itself a divergence. driveToStop asserts the
-// loop only ever exits via a mid-game terminal, a mid-setup/born victory, or the cap — never a silent stall.
+// prompt), and every victory — mid-game, born-terminal, or mid-setup — now surfaces through the terminal signal. So
+// needsDrive going false WITHOUT a terminal or a cap would be a STALL, itself a divergence: the `exit === null`
+// fallthrough in driveToStop asserts that case is a victory purely as a stall tripwire (unreachable on the happy path).
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 type DriveOutcome = {
@@ -95,12 +101,14 @@ function driveToStop(header: SessionHeader, turnCap: number): DriveOutcome {
 
   const droveStoppedInSetup = s.game.phase.turn === 0;
   if (exit === null) {
-    // The loop fell out because needsDrive went false without a mid-game terminal or a cap. In an all-agent game the
-    // ONLY legitimate such exit is a victory — either a born-terminal victory after the last placement, or (4-player)
-    // a mid-setup iron victory before every seat has placed (reconciliation case (3)). Assert we really are at a
-    // victory, else this is a STALL (e.g. an unexpected pending) — fail loudly with the state.
+    // The loop fell out because needsDrive went false WITHOUT a terminal or a cap. Every victory — mid-game,
+    // born-terminal, and mid-setup — now surfaces through the terminal signal (driveOneStep's clinching placement
+    // reports terminal, breaking the loop above with exit "terminal"), so on the happy path this branch is
+    // UNREACHABLE. Reaching it means needsDrive went false with no victory signalled — a genuine STALL (e.g. an
+    // unexpected pending). Assert a victory here purely as the stall tripwire; label the exit setup-victory so a
+    // future regression that resurrected the silent-victory path (needsDrive-false-without-terminal) is still caught.
     const st = status(s.game);
-    expect(st.kind, `drive loop stalled: needsDrive false but not a victory (turn=${s.game.phase.turn}, pending=${s.pending !== null})`).toBe("victory");
+    expect(st.kind, `drive loop stalled: needsDrive false but no terminal signalled (turn=${s.game.phase.turn}, pending=${s.pending !== null})`).toBe("victory");
     exit = "setup-victory";
   }
   return { log, hashes, terminal, exit, droveStoppedInSetup, broadcasts };
@@ -148,6 +156,24 @@ function assertParity(name: string, seats: SeatConfig[], seed: bigint, config: R
     // so its boundaryHashes are empty and the drive's are too; slicing is a no-op but keep it exact.
     expectedLog = rg.log.slice(0, drive.log.length);
     expectedHashes = rg.boundaryHashes.slice(0, drive.hashes.length);
+
+    // NEW BEHAVIOR (mid-setup gameOver — the B3 obligation now dissolved in commitEntries): the clinching
+    // placeFirstBase reports terminal and broadcasts a single gameOver. Pin it — the mid-setup analogue of
+    // Obligation A. Exactly ONE gameOver across the whole driven game, at the terminal (last) step, with NO
+    // turnRollover there (a placement never closes a round → no advanceRound → no rollover), and winners/cause
+    // matching the drive's captured terminal (which IS status() of the drive's final state at the clinching step).
+    expect(drive.exit, `[${name}] a mid-setup victory now surfaces through the terminal signal`).toBe("terminal");
+    expect(drive.terminal, `[${name}] the drive captured the mid-setup terminal`).not.toBeNull();
+    const midSetupTerminal = drive.terminal as Extract<ReturnType<typeof status>, { kind: "victory" }>;
+    expect(midSetupTerminal.kind).toBe("victory");
+    const allGameOvers = drive.broadcasts.flat().filter((m) => m.type === "gameOver");
+    expect(allGameOvers, `[${name}] exactly one gameOver across the whole mid-setup game`).toHaveLength(1);
+    const terminalStep = drive.broadcasts[drive.broadcasts.length - 1]!;
+    expect(terminalStep.filter((m) => m.type === "gameOver"), `[${name}] the gameOver is at the terminal step`).toHaveLength(1);
+    expect(terminalStep.some((m) => m.type === "turnRollover"), `[${name}] no turnRollover at a mid-setup victory`).toBe(false);
+    const midSetupGameOver = allGameOvers[0] as Extract<ServerMessage, { type: "gameOver" }>;
+    expect(midSetupGameOver.winners, `[${name}] mid-setup gameOver winners == terminal.players`).toEqual(midSetupTerminal.players);
+    expect(midSetupGameOver.cause, `[${name}] mid-setup gameOver cause == terminal.reason`).toBe(midSetupTerminal.reason);
   }
 
   // Bit-for-bit log parity — the RAW entry arrays (rngBeforeApply bigints included). On a mismatch, surface the first

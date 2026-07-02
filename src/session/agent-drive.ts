@@ -156,6 +156,18 @@ export function commitEntries(s: SessionState, entries: LogEntry[]): DriveResult
         : null;
       broadcast.push({ type: "turnRollover", order: game.phase.order, ironWeights });
     }
+  } else if (terminal === null && entries.some((e) => e.kind === "placeFirstBase")) {
+    // Mid-setup victory: applyEntry's placeFirstBase branch cannot report terminal (placements never close a
+    // round — no advanceRound, no status() there), so a victory decided mid-setup — reachable in 3+ player games
+    // where an early placement already controls the iron threshold — would otherwise end the game with NO gameOver
+    // ever broadcast. status() is run here on the post-application state; the cost is bounded to setup placements
+    // (≤6 per game). No snapshot is written (snapshots are round-boundary artifacts; the round did NOT close).
+    // Play-phase victories always surface through a closing entry above, so this check is placement-batches only.
+    const setupStatus = status(game);
+    if (setupStatus.kind === "victory") {
+      terminal = setupStatus;
+      broadcast.push({ type: "gameOver", winners: setupStatus.players, cause: setupStatus.reason });
+    }
   }
   const next: SessionState = { ...s, game, logLength };
   const effects: Effects = { ...NO_EFFECTS, persist: { put }, broadcast };
