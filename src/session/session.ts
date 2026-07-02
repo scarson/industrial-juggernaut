@@ -14,6 +14,7 @@ import {
   validateAttackers,
 } from "./pending";
 import { key } from "../geometry/cube";
+import { claimSeat } from "./seats";
 import type { AttackDecl, PlayerId } from "../engine/types";
 import type { LogEntry, SessionHeader } from "./types";
 import { PROTOCOL_VERSION, type ClientCommand, type RoomOptions, type ServerMessage, type WireErrorCode } from "../wire/protocol";
@@ -239,6 +240,11 @@ export function applyCommand(s: SessionState, c: ClientCommand, ctx: CommandCtx)
         return keep(errorEffects(s, result.error.code as WireErrorCode, result.error.message));
       }
       return result;
+    }
+    case "claimSeat": {
+      // Non-mutating (bypasses the envelope guards): a roster ack, not a game action — legal even while a
+      // decision is pending. All CAS/idempotency/own-seat logic lives in seats.ts (A5.1).
+      return claimSeat(s, c, ctx);
     }
     default: return keep(errorEffects(s, "UNKNOWN_TYPE", `Unknown command ${(c as { type?: string }).type}`));
   }
