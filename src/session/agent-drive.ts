@@ -47,19 +47,29 @@ export function driveOneStep(
   // SETUP: agent auto-places via representativeFirstBase (NOT via the injected agent).
   if (s.game.phase.turn === 0) {
     const entry: LogEntry = { player: p, kind: "placeFirstBase", hex: representativeFirstBase(s.game, p), rngBeforeApply: s.game.rngState };
-    return commitEntries(s, [entry]); // placeFirstBase never closes a round → no snapshot
+    return commitEntries(s, [entry]); // placeFirstBase never closes a round (no chain possible in setup) → no snapshot, no clear
   }
-  // PLAY, eliminated seat: roundSkipped.
+  // PLAY, eliminated seat: roundSkipped (reachable with an open chain: the attacker died in its own losing attack).
   if (s.game.players[p]!.eliminated) {
-    return commitEntries(s, [{ player: p, kind: "roundSkipped", rngBeforeApply: s.game.rngState }]);
+    return clearChainOnClose(commitEntries(s, [{ player: p, kind: "roundSkipped", rngBeforeApply: s.game.rngState }]), s.chainAttacker);
   }
   // PLAY, agent seat: select + map to entries.
   const choice = agentForSeat(s.header.seats[p]!)(s.game, p);
   const rng = choice.state.rngState; // post-selection, pre-apply
   const a = choice.action;
-  if (a.kind === "build") return commitEntries(s, [{ player: p, kind: "build", pieces: a.pieces.map((x) => ({ type: x.type, hex: x.hex })), rngBeforeApply: rng }]);
-  if (a.kind === "pass") return commitEntries(s, [{ player: p, kind: "pass", rngBeforeApply: rng }]);
+  if (a.kind === "build") return clearChainOnClose(commitEntries(s, [{ player: p, kind: "build", pieces: a.pieces.map((x) => ({ type: x.type, hex: x.hex })), rngBeforeApply: rng }]), s.chainAttacker);
+  if (a.kind === "pass") return clearChainOnClose(commitEntries(s, [{ player: p, kind: "pass", rngBeforeApply: rng }]), s.chainAttacker);
   return driveAttack(s, p, a.attacks, rng, ids);
+}
+
+/** Clear `chainAttacker` when the committed round closed — the "cleared on any round close" invariant
+ *  (session-types.ts). commitEntries' `{...s}` spread carries the OLD value, so every close path through the
+ *  drive must apply this (the mirror of session.ts's per-handler clear; commitEntries itself stays chain-agnostic).
+ *  A dangling chain is reachable here: an agent-attacks-human resolution can leave the round OPEN with
+ *  `chainAttacker` set, and the next drive step may close the round via build/pass/roundSkipped instead of
+ *  another attack. */
+function clearChainOnClose(result: DriveResult, prev: PlayerId | null): DriveResult {
+  return { ...result, next: { ...result.next, chainAttacker: result.advanced ? null : prev } };
 }
 
 /** The agent attack branch. v1 agents emit exactly ONE declaration (mirrors recordGame's single-decl assert). When
@@ -89,7 +99,9 @@ function driveAttack(
   }
 
   // Agent/auto defender: substitute the deterministic representative defender, then apply attack + endRound.
-  const defender = representativeDefender(s.game, proposed.target, defenderOwner)!; // non-null: agent chose a legal attack
+  // Non-null `!`: the guarantee comes from legalActions (src/engine/legal.ts skips any target whose
+  // representativeDefender is null), not a local check — the trusted agent chose from legalActions.
+  const defender = representativeDefender(s.game, proposed.target, defenderOwner)!;
   const finalDecl: AttackDecl = { ...proposed, defender };
   const attackEntry: LogEntry = { player: attacker, kind: "attack", decl: finalDecl, rngBeforeApply: rng };
   // endRound's rngBeforeApply is the POST-ATTACK state's rng — apply the attack to a THROWAWAY to read it (the
@@ -97,8 +109,7 @@ function driveAttack(
   const postAttackRng = applyEntry(s.game, attackEntry).state.rngState;
   const endRoundEntry: LogEntry = { player: attacker, kind: "endRound", rngBeforeApply: postAttackRng };
   const result = commitEntries(s, [attackEntry, endRoundEntry]); // ONE atomic put: attack + endRound + snapshot
-  // The round always closes here → clear any chainAttacker (commitEntries' {...s} spread carries the old value).
-  return { ...result, next: { ...result.next, chainAttacker: null } };
+  return clearChainOnClose(result, s.chainAttacker); // endRound always closes → the chain always clears here
 }
 
 /** Apply a round's entries through applyEntry, threading state; build the atomic PersistOp + broadcasts.

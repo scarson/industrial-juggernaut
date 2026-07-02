@@ -275,6 +275,68 @@ test("rngBeforeApply is the agent-RETURNED (post-selection) rng, not the pre-sel
 });
 
 // ===========================================================================
+// chainAttacker invariant: "cleared on any round close" (session-types.ts). A
+// pre-set chain is reachable in the drive: agent attacks a human, the
+// resolution leaves the round OPEN (attacker still has a legal attack), the
+// host re-drives, and the agent's policy picks build/pass — or the attacker
+// was eliminated mid-chain and the drive lands roundSkipped. Every close path
+// through driveOneStep must clear it (commitEntries' {...s} spread carries the
+// old value).
+// ===========================================================================
+
+describe("driveOneStep clears chainAttacker on every round close", () => {
+  /** Play-phase state with the agent (seat 0) current and a dangling open chain simulated. */
+  function playStateWithChain(): SessionState {
+    const s0 = openAgentHumanSession();
+    const afterAgentSetup = driveOneStep(s0, () => passAgent, IDS).next;
+    const humanHex = representativeFirstBase(afterAgentSetup.game, 1);
+    const afterSetup = commitEntries(afterAgentSetup, [
+      { player: 1, kind: "placeFirstBase", hex: humanHex, rngBeforeApply: afterAgentSetup.game.rngState },
+    ]).next;
+    expect(currentActor(afterSetup)).toBe(0);
+    return { ...afterSetup, chainAttacker: 0 };
+  }
+
+  test("pass close clears a pre-set chainAttacker", () => {
+    const s = playStateWithChain();
+    const res = driveOneStep(s, () => passAgent, IDS);
+    expect(res.advanced).toBe(true); // the pass closed the round
+    expect(res.next.chainAttacker).toBeNull();
+  });
+
+  test("build close clears a pre-set chainAttacker", () => {
+    const s = playStateWithChain();
+    // The REAL heuristic agent at this seed-1n position deterministically picks a round-closing build.
+    const res = driveOneStep(s, agentForSeat, IDS);
+    const put = res.effects.persist!.put;
+    const entry = Object.entries(put).find(([k]) => k.startsWith("log:"))![1] as LogEntry;
+    expect(entry.kind).toBe("build"); // pins the fixture — this test exercises the build branch
+    expect(res.advanced).toBe(true);
+    expect(res.next.chainAttacker).toBeNull();
+  });
+
+  test("roundSkipped close clears a pre-set chainAttacker (attacker eliminated mid-chain)", () => {
+    const withChain = playStateWithChain();
+    // Eliminate the current player (the chain's attacker). In this 2-player game the skip's round close is a
+    // last-standing victory (terminal) — advanced is true on a terminal close too, so the clear must still fire.
+    const s: SessionState = {
+      ...withChain,
+      game: {
+        ...withChain.game,
+        players: withChain.game.players.map((pl) => (pl.id === 0 ? { ...pl, eliminated: true } : pl)),
+      },
+    };
+    const res = driveOneStep(s, () => passAgent, IDS);
+    const put = res.effects.persist!.put;
+    const entry = Object.entries(put).find(([k]) => k.startsWith("log:"))![1] as LogEntry;
+    expect(entry.kind).toBe("roundSkipped"); // pins the fixture — the eliminated-actor branch
+    expect(res.advanced).toBe(true);
+    expect(res.terminal).not.toBeNull(); // 2p: the sole live coalition wins at the close
+    expect(res.next.chainAttacker).toBeNull();
+  });
+});
+
+// ===========================================================================
 // A4.4 — the agent attack branch. Synthetic boards (auto-close.test.ts pattern):
 // a real attack applied via commitEntries runs applyEliminations after every
 // entry, so every surviving player needs iron ON one of its own base hexes
@@ -469,6 +531,23 @@ test("driveOneStep — agent attacks a HUMAN defender: opens a pending, NO log e
   expect(res.next.pending!.promptedSeat).toBe(1);
   expect(res.next.pending!.declaringPlayer).toBe(0);
   expect(needsDrive(res.next)).toBe(false);
+
+  // Alarm pass-through at THIS entry point: DEFAULT_ROOM_OPTIONS has the defender timeout DISABLED → no alarm
+  // (openDefenderDecision's effects flow through the DriveResult verbatim — pinned here, not just via applyCommand).
+  expect(res.effects.alarm).toBeNull();
+  expect(res.next.pending!.deadlineEpochMs).toBeNull();
+});
+
+test("driveOneStep — agent attacks a HUMAN defender with the timeout ENABLED: alarm set to now + seconds", () => {
+  const pre = synthGame(attackBases(), { iron: IRON });
+  const s0 = synthSession(pre, [{ kind: "agent", agent: "heuristic" }, { kind: "human" }]);
+  const s: SessionState = { ...s0, roomOptions: { defenderTimeout: { enabled: true, seconds: 90 } } };
+
+  const res = driveOneStep(s, () => attackAgentOnT(DEF_A), IDS);
+
+  const expectedDeadline = IDS.nowEpochMs + 90 * 1000;
+  expect(res.effects.alarm).toEqual({ action: "set", atEpochMs: expectedDeadline });
+  expect(res.next.pending!.deadlineEpochMs).toBe(expectedDeadline);
 });
 
 test("driveOneStep — malformed agent attack (attacks.length !== 1) throws (mirrors recordGame)", () => {
