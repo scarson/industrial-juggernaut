@@ -291,27 +291,46 @@ export class GameRoom extends DurableObject<Env> {
     // Build the game state. Cheap path: install the snapshot's post-close state and apply ONLY the tail. No
     // snapshot: replay the whole log (the tail IS the full log from index 0). Either way `applyEntry` installs each
     // entry's rngBeforeApply (GEO-3). When frozen, we still reconstruct the state so resync / the replay viewer work.
-    let game: GameState = snapshot !== null ? snapshot.state : session.game;
-    for (const { entry } of tail) {
-      game = applyEntry(game, entry).state;
+    try {
+      let game: GameState = snapshot !== null ? snapshot.state : session.game;
+      for (const { entry } of tail) {
+        game = applyEntry(game, entry).state;
+      }
+      session.game = game;
+      session.logLength = (snapshot !== null ? snapshot.logIndex + 1 : 0) + tail.length;
+      // Derive chainAttacker from the LAST applied log entry: an `attack` entry does NOT close the round, so if the
+      // last entry is an attack the chain is still open and belongs to that entry's player. Any other last entry (or
+      // an empty tail) means no open chain. This exactly reconstructs an open attack chain across eviction so a
+      // reconnecting attacker can still send endRound. (Not persisted — session-types.ts.)
+      const lastEntry: LogEntry | null = tail.length > 0 ? tail[tail.length - 1]!.entry : null;
+      session.chainAttacker = lastEntry !== null && lastEntry.kind === "attack" ? lastEntry.player : null;
+    } catch {
+      // The stored log does not replay under the current engine. A frozen room with an unreplayable log serves the
+      // best-available state for resync — snapshot.state when a snapshot exists, else the deterministic openSession
+      // initial state — with logLength/chainAttacker consistent with THAT state (the unapplied tail contributes
+      // neither). The raw stored log remains the authoritative record for the replay viewer (recorded under the
+      // engine version stamped on the snapshot/header, per the freeze labeling). Reaching here NOT-frozen means an
+      // unreplayable log under a MATCHING version stamp (storage corruption / an unbumped engine change): freeze
+      // now — serving a stale state as live would let mutating commands append against it.
+      if (!this.frozen) {
+        await writeFrozen(this.ctx.storage);
+        this.frozen = true;
+      }
+      session.game = snapshot !== null ? snapshot.state : session.game;
+      session.logLength = snapshot !== null ? snapshot.logIndex + 1 : 0;
+      session.chainAttacker = null;
     }
-    session.game = game;
-    session.logLength = (snapshot !== null ? snapshot.logIndex + 1 : 0) + tail.length;
 
     // Reload the live pending (a tombstone / absent value → null).
     session.pending = await readPending(this.ctx.storage);
 
-    // Derive chainAttacker from the LAST applied log entry: an `attack` entry does NOT close the round, so if the
-    // last entry is an attack the chain is still open and belongs to that entry's player. Any other last entry (or
-    // an empty tail) means no open chain. This exactly reconstructs an open attack chain across eviction so a
-    // reconnecting attacker can still send endRound. (Not persisted — session-types.ts.)
-    const lastEntry: LogEntry | null = tail.length > 0 ? tail[tail.length - 1]!.entry : null;
-    session.chainAttacker = lastEntry !== null && lastEntry.kind === "attack" ? lastEntry.player : null;
-
     this.session = session;
 
     // Self-heal a lost alarm: if a pending is live with a deadline, re-arm the timeout alarm (idempotent — it
-    // overwrites the single alarm slot; P1-15). Covers a setAlarm that failed before eviction.
+    // overwrites the single alarm slot; P1-15). Covers a setAlarm that failed before eviction. Alarm-loss window:
+    // a crash BETWEEN persist(PENDING) and setAlarm (the command path persists first) loses the alarm until the
+    // next wake re-arms it here. Acceptable liveness: a live pending implies a prompted defender and connected
+    // clients whose traffic wakes the room, so the window closes on the first message after the crash.
     if (session.pending !== null && session.pending.deadlineEpochMs !== null) {
       await this.ctx.storage.setAlarm(session.pending.deadlineEpochMs);
     }
@@ -345,11 +364,22 @@ export class GameRoom extends DurableObject<Env> {
     }
     // Re-replay the snapshot-boundary entries 0..snapshot.logIndex from openSession under the CURRENT engine.
     const boundaryLog = await readLogHead(this.ctx.storage, snapshot.logIndex);
-    let game = openSession(header, roomOptions).game;
-    for (const entry of boundaryLog) {
-      game = applyEntry(game, entry).state;
+    let boundaryHash: string;
+    try {
+      let game = openSession(header, roomOptions).game;
+      for (const entry of boundaryLog) {
+        game = applyEntry(game, entry).state;
+      }
+      boundaryHash = stateHash(game);
+    } catch {
+      // The recorded log does not even APPLY under the current engine (a bumped engine now rejects a
+      // previously-legal entry) — strictly stronger divergence evidence than a hash mismatch. Without this catch
+      // the throw would propagate out of rehydrate BEFORE writeFrozen commits, leaving the room an unmarked brick
+      // that re-throws on every wake. Only the pure replay is wrapped: applyEntry/openSession touch no storage, so
+      // a transient storage error can never be misread as divergence (readLogHead sits outside the try).
+      return false;
     }
-    if (stateHash(game) !== snapshot.stateHash) return false; // hash diverges → the played game replays differently
+    if (boundaryHash !== snapshot.stateHash) return false; // hash diverges → the played game replays differently
     // Hash matches: continue ONLY if the tail is empty. A non-empty tail is unverifiable (no per-entry hash).
     return tailLength === 0;
   }

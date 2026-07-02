@@ -18,6 +18,7 @@ import {
   type Snapshot,
 } from "../../src/session";
 import { REPLAY_VERSION } from "../../src/host/version";
+import { decodeState } from "../../src/wire/codec";
 import type { ClientCommand, RoomOptions, ServerMessage } from "../../src/wire/protocol";
 import { representativeFirstBase, defaultConfig, legalActions } from "../../src/index";
 import { key } from "../../src/geometry/cube";
@@ -545,6 +546,140 @@ describe("rehydrate — alarm self-heal from the live pending deadline", () => {
 
     // MECHANISM: the alarm is re-armed to the EXACT pending deadline.
     expect(alarmAfterWake).toBe(deadline);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Hardening: a THROWING replay must freeze cleanly (not brick the room), and a frozen room whose log cannot
+// replay must still serve its best-available state so resync / the replay viewer keep working.
+// ---------------------------------------------------------------------------
+describe("rehydrate — a throwing boundary re-replay freezes cleanly (no unmarked brick)", () => {
+  test("mismatched version + a boundary entry the engine rejects → wake completes, frozen, FROZEN reply, resync answered", async () => {
+    const stub = freshStub();
+    const header = makeHeader([{ kind: "human" }, { kind: "human" }]);
+    await initRoom(stub, header, ROOM_OPTIONS_OFF, ["a".repeat(64), "b".repeat(64)]);
+    await playToSnapshot(stub); // log 0..2, snapshot@2
+
+    // Corrupt the BOUNDARY log so the mismatch re-replay THROWS: overwrite log:1 (the second placement) to place
+    // on log:0's hex — placeFirstBase throws "hex is already occupied", standing in for a bumped engine that now
+    // rejects a previously-legal entry. Stamp a foreign replayVersion so the mismatch path runs (the re-replay
+    // throws BEFORE any hash comparison, so the stored stateHash is irrelevant here).
+    await runInDurableObject(stub, async (_inst, state) => {
+      const e0 = (await state.storage.get<LogEntry>(logKey(0))) as Extract<LogEntry, { kind: "placeFirstBase" }>;
+      const e1 = (await state.storage.get<LogEntry>(logKey(1))) as Extract<LogEntry, { kind: "placeFirstBase" }>;
+      expect(e0.kind).toBe("placeFirstBase");
+      expect(e1.kind).toBe("placeFirstBase");
+      const snap = (await state.storage.get<Snapshot>(SNAPSHOT_KEY))!;
+      await state.storage.put({
+        [logKey(1)]: { ...e1, hex: e0.hex },
+        [SNAPSHOT_KEY]: { ...snap, replayVersion: FOREIGN_REPLAY_VERSION },
+      });
+    });
+    await evictDurableObject(stub);
+
+    const { frozenFlag, resyncAnswered, sawFrozen } = await runInDurableObject(stub, async (inst: GameRoom, state) => {
+      const sent = installCapturingSink(inst);
+      // The wake MUST complete — an uncaught throw here is the unmarked-brick regression (rehydrate re-throwing
+      // on every wake with the room never marked frozen).
+      await inst.handleCommand({ type: "resync" }, mkCtx(0));
+      const flag = await state.storage.get<boolean>(FROZEN_KEY);
+      const s = (inst as unknown as { session: SessionState }).session;
+      // Any mutating command → FROZEN from the HOST interception (before the reducer would say NOT_YOUR_TURN).
+      await inst.handleCommand({ type: "endRound", expectedLogIndex: s.logLength }, mkCtx(0));
+      return {
+        frozenFlag: flag,
+        resyncAnswered: sent.some((x) => x.msg.type === "resync"),
+        sawFrozen: sent.some((x) => x.msg.type === "error" && x.msg.code === "FROZEN"),
+      };
+    });
+
+    expect(frozenFlag).toBe(true); // writeFrozen COMMITTED despite the throwing re-replay
+    expect(resyncAnswered).toBe(true); // the frozen room still answers resync
+    expect(sawFrozen).toBe(true); // mutating command → FROZEN
+  });
+});
+
+describe("rehydrate — a frozen room with an unreplayable log serves best-available state", () => {
+  test("snapshot case: a throwing TAIL entry → frozen, resync carries the stored snapshot.state", async () => {
+    const stub = freshStub();
+    const header = makeHeader([{ kind: "human" }, { kind: "human" }]);
+    await initRoom(stub, header, ROOM_OPTIONS_OFF, ["a".repeat(64), "b".repeat(64)]);
+    await playToSnapshot(stub); // log 0..2, snapshot@2 (correct stateHash)
+
+    // Append a TAIL entry the current engine REJECTS at apply: a placeFirstBase in PLAY phase always throws
+    // ("not in setup phase") — standing in for a tail recorded under an engine whose semantics changed. Keep the
+    // snapshot's CORRECT stateHash so the freeze comes from the unverifiable tail, and the rebuild throw is
+    // exercised on a room that froze the "hash matches, tail non-empty" way.
+    await runInDurableObject(stub, async (_inst, state) => {
+      const snap = (await state.storage.get<Snapshot>(SNAPSHOT_KEY))!;
+      const throwing: LogEntry = { player: 0, kind: "placeFirstBase", hex: H(0, 0), rngBeforeApply: makeSeed(1n) };
+      await state.storage.put({
+        [logKey(3)]: throwing,
+        [SNAPSHOT_KEY]: { ...snap, replayVersion: FOREIGN_REPLAY_VERSION },
+      });
+    });
+    await evictDurableObject(stub);
+
+    const { frozenFlag, servedHash, storedHash, resyncLogLength } = await runInDurableObject(
+      stub,
+      async (inst: GameRoom, state) => {
+        const sent = installCapturingSink(inst);
+        await inst.handleCommand({ type: "resync" }, mkCtx(0)); // the wake MUST complete
+        const resync = sent.find((x) => x.msg.type === "resync");
+        const snap = (await state.storage.get<Snapshot>(SNAPSHOT_KEY))!;
+        return {
+          frozenFlag: await state.storage.get<boolean>(FROZEN_KEY),
+          servedHash: resync && resync.msg.type === "resync" ? stateHash(decodeState(resync.msg.snapshot)) : null,
+          storedHash: stateHash(snap.state),
+          resyncLogLength: resync && resync.msg.type === "resync" ? resync.msg.logLength : null,
+        };
+      },
+    );
+
+    expect(frozenFlag).toBe(true);
+    // MECHANISM: the resync payload's state IS the stored snapshot.state (the best-available state) — the raw
+    // stored log remains the authoritative record for the replay viewer.
+    expect(servedHash).toBe(storedHash);
+    expect(resyncLogLength).toBe(3); // self-consistent with the served state (the snapshot covers entries 0..2)
+  });
+
+  test("no-snapshot case: a throwing log under a mismatched header → frozen, resync carries the initial state", async () => {
+    const stub = freshStub();
+    // The header itself carries a foreign replayVersion (the room was created under an older engine; no snapshot
+    // was ever written). The room's only log entry does not apply under the current engine.
+    const header: SessionHeader = {
+      ...makeHeader([{ kind: "human" }, { kind: "human" }]),
+      replayVersion: FOREIGN_REPLAY_VERSION,
+    };
+    await initRoom(stub, header, ROOM_OPTIONS_OFF, ["a".repeat(64), "b".repeat(64)]);
+
+    // One throwing entry: an off-board hex → placeFirstBase throws "hex is not on the board".
+    await runInDurableObject(stub, async (_inst, state) => {
+      const throwing: LogEntry = {
+        player: 0,
+        kind: "placeFirstBase",
+        hex: { x: 999, y: 999, z: -1998 },
+        rngBeforeApply: makeSeed(1n),
+      };
+      await state.storage.put(logKey(0), throwing);
+    });
+    await evictDurableObject(stub);
+
+    const { frozenFlag, servedHash, resyncLogLength } = await runInDurableObject(stub, async (inst: GameRoom, state) => {
+      const sent = installCapturingSink(inst);
+      await inst.handleCommand({ type: "resync" }, mkCtx(0)); // the wake MUST complete
+      const resync = sent.find((x) => x.msg.type === "resync");
+      return {
+        frozenFlag: await state.storage.get<boolean>(FROZEN_KEY),
+        servedHash: resync && resync.msg.type === "resync" ? stateHash(decodeState(resync.msg.snapshot)) : null,
+        resyncLogLength: resync && resync.msg.type === "resync" ? resync.msg.logLength : null,
+      };
+    });
+
+    expect(frozenFlag).toBe(true);
+    // Best-available state with no snapshot = the deterministic openSession initial state.
+    expect(servedHash).toBe(stateHash(openSession(header, ROOM_OPTIONS_OFF).game));
+    expect(resyncLogLength).toBe(0); // self-consistent: the served state reflects zero applied entries
   });
 });
 
