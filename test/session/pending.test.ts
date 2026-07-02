@@ -10,8 +10,7 @@ import {
   toWirePending,
 } from "../../src/session/pending";
 import { openSession } from "../../src/session/session";
-import { logKey } from "../../src/session/keys";
-import { PENDING_KEY } from "../../src/session/keys";
+import { logKey, PENDING_KEY, SNAPSHOT_KEY } from "../../src/session/keys";
 import { NO_EFFECTS, PENDING_TOMBSTONE } from "../../src/session/session-types";
 import type { CommandCtx, SessionState, Pending } from "../../src/session/session-types";
 import { validateAttackDecl } from "../../src/session/validation";
@@ -470,7 +469,7 @@ describe("resolveDefender", () => {
     expect(result.error.code).toBe("DEFENDER_IS_TARGET");
   });
 
-  test("valid defender → ONE persist.put with log:N AND PENDING_TOMBSTONE (atomic clear), alarm clear, stored rng installed", () => {
+  test("valid defender → ONE persist.put with attack log:N + auto-close endRound + PENDING_TOMBSTONE (atomic), alarm clear, stored rng installed", () => {
     // Discriminating RNG: the PENDING carries a DIFFERENT rng than the current game state,
     // so we can prove the applied entry threads the STORED pre-decision rng (GEO-3), not s.game.rngState.
     const storedRng = seed(777n);
@@ -486,11 +485,15 @@ describe("resolveDefender", () => {
     if ("error" in result) throw new Error(`unexpected error: ${result.error.code}`);
     const { next, effects } = result;
 
-    // Atomicity mechanism: BOTH keys in the SAME put object.
+    // A4.3 composition refactor: resolveDefender now lands the attack AND its auto-close endRound in the SAME
+    // atomic put (the A4.1→A4.3 seam). The canonical geometry commits all 3 fresh attackers → none remain fresh
+    // → no legal attack remains → the round auto-closes (endRound + SNAPSHOT_KEY) in the resolving put.
     expect(effects.persist).not.toBeNull();
     const put = effects.persist!.put;
-    const idx = pending.preDecisionLogLength; // the resolving append lands at logLength
+    const idx = pending.preDecisionLogLength; // the resolving attack append lands at logLength
     expect(put).toHaveProperty(logKey(idx));
+    expect(put).toHaveProperty(logKey(idx + 1)); // the auto-close endRound
+    expect(put).toHaveProperty(SNAPSHOT_KEY);     // the round closed → boundary snapshot
     expect(put[PENDING_KEY]).toBe(PENDING_TOMBSTONE);
 
     // The applied entry is an attack whose rngBeforeApply is the STORED rng (not the game rng).
@@ -503,12 +506,16 @@ describe("resolveDefender", () => {
     expect(entry.decl.defender).toEqual(DEF_A);
     expect(entry.decl.target).toEqual(T);
     expect(entry.decl.attackers).toEqual(ATTACKERS);
+    // The second entry is the auto-close endRound for the attacker.
+    const close = put[logKey(idx + 1)] as { kind: string; player: PlayerId };
+    expect(close.kind).toBe("endRound");
+    expect(close.player).toBe(pending.declaringPlayer);
 
     // Pending cleared in the returned state; alarm cleared.
     expect(next.pending).toBeNull();
     expect(effects.alarm).toEqual({ action: "clear" });
-    // The append advanced logLength by exactly the one attack entry.
-    expect(next.logLength).toBe(s.logLength + 1);
+    // logLength advanced by exactly two entries (attack + auto-close endRound).
+    expect(next.logLength).toBe(s.logLength + 2);
   });
 });
 
