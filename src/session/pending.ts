@@ -2,7 +2,8 @@
 // ABOUTME: Pure; opens the durable write-lock pending, resolves it atomically (append + tombstone in ONE put), re-arms the deadline.
 import { distance, key } from "../geometry/cube";
 import { legalActions } from "../engine/legal";
-import { commitEntries } from "./agent-drive";
+import { applyEntry } from "./round";
+import { commitEntries, type DriveResult } from "./agent-drive";
 import { validateAttackDecl } from "./validation";
 import { PENDING_KEY } from "./keys";
 import { NO_EFFECTS, PENDING_TOMBSTONE, type CommandCtx, type Effects, type Pending, type SessionState } from "./session-types";
@@ -143,30 +144,50 @@ export function openDefenderDecision(
 }
 
 /**
+ * Land an attack round in ONE atomic commit: the attack entry AND its auto-close `endRound` (when no legal
+ * attack remains for the actor). SHARED by all three attack-apply paths (the session.ts human-vs-agent-defender
+ * path, `driveOneStep`'s agent attack, and `resolveDefender`) so the attack+auto-close composition lives in one
+ * place. Applies the attack to a THROWAWAY post-state first to evaluate `autoCloseIfNoAttack` (per its post-attack
+ * PRECONDITION), then runs the SINGLE `commitEntries(s, [attack, ...(autoClose ? [endRound] : [])])` on the REAL
+ * state. The attack applies twice — once throwaway, once inside commitEntries — but `applyEntry` is pure, so both
+ * yield the same post-attack state. When no legal attack remains the endRound closes the round (snapshot +
+ * turnRollover/gameOver via commitEntries); otherwise the round stays open (the chain continues).
+ */
+export function commitAttackRound(s: SessionState, attackEntry: LogEntry): DriveResult {
+  // attackEntry.player is the attacker == the current player (attack never advanceRound); the throwaway
+  // post-attack state is the actor's remaining-attack surface autoCloseIfNoAttack must inspect (GEO-5: recompute).
+  const throwaway = applyEntry(s.game, attackEntry);
+  const autoClose = autoCloseIfNoAttack(throwaway.state, attackEntry.player);
+  return commitEntries(s, autoClose === null ? [attackEntry] : [attackEntry, autoClose]);
+}
+
+/**
  * Resolve a pending decision with the defender the prompted seat chose. Validates the completed declaration
  * (DUP_ATTACKERS / DEFENDER_IS_TARGET / DEFENDER_INELIGIBLE — no persist, no state change on error). On ok,
- * builds the final attack entry installing the STORED pre-decision rng (GEO-3 — NOT s.game.rngState), applies
- * it via `commitEntries`, and merges `[PENDING_KEY]: PENDING_TOMBSTONE` into that same single `persist.put` so
- * the resolving append and the pending-clear are ONE atomic put (never a separate delete). `next.pending = null`;
- * `alarm: { action: "clear" }`. Applies ONLY the attack entry — attack-round auto-close is composed by the caller (A4.3).
+ * builds the final attack entry installing the STORED pre-decision rng (GEO-3 — NOT s.game.rngState), lands the
+ * attack + its auto-close `endRound` (when the attack exhausts the actor) via `commitAttackRound`, and merges
+ * `[PENDING_KEY]: PENDING_TOMBSTONE` into that same single `persist.put` so the resolving append(s) and the
+ * pending-clear are ONE atomic put (never a separate delete). `next.pending = null`; `alarm: { action: "clear" }`.
+ * `advanced` surfaces whether the resolved attack closed the round (auto-close) so the command layer can maintain
+ * `chainAttacker` (cleared on close, else the attacker continues their chain).
  */
 export function resolveDefender(
   s: SessionState,
   pending: Pending,
   chosenDefender: Hex,
-): { next: SessionState; effects: Effects } | { error: SessionError } {
+): { next: SessionState; effects: Effects; advanced: boolean } | { error: SessionError } {
   const finalDecl: AttackDecl = { ...pending.proposed, defender: chosenDefender };
   const error = validateAttackDecl(s.game, pending.promptedSeat, finalDecl);
   if (error !== null) return { error };
 
   const entry: LogEntry = { player: pending.declaringPlayer, kind: "attack", decl: finalDecl, rngBeforeApply: pending.rngBeforeApply };
-  const committed = commitEntries(s, [entry]);
-  // Merge the pending-clear tombstone into the SAME atomic put built by commitEntries (attack does not
-  // self-close → commitEntries emitted no snapshot; the put holds just the log:N entry we now augment).
+  const committed = commitAttackRound(s, entry);
+  // Merge the pending-clear tombstone into the SAME atomic put built by commitAttackRound (the put already holds
+  // the attack log:N — and the endRound log:N+1 + snapshot when the attack auto-closed the round).
   const put = { ...committed.effects.persist!.put, [PENDING_KEY]: PENDING_TOMBSTONE };
   const effects: Effects = { ...committed.effects, persist: { put }, alarm: { action: "clear" } };
   const next: SessionState = { ...committed.next, pending: null };
-  return { next, effects };
+  return { next, effects, advanced: committed.advanced };
 }
 
 /**
@@ -175,7 +196,8 @@ export function resolveDefender(
  * deadline onto a pending opened with `deadlineEpochMs: null` would create a spurious liveness clock. When
  * enabled, pushes `deadlineEpochMs` to `ctx.nowEpochMs + roomOptions.defenderTimeout.seconds*1000`, persists the
  * updated pending, and sets the alarm. No log entry (the attack is still deferred). The prompted-seat
- * authorization is enforced by the caller (A4.3); the deadline math here re-uses the room's configured seconds.
+ * authorization is enforced by the command layer (it checks the acting seat against `pending.promptedSeat`
+ * before calling extendDefender); the deadline math here re-uses the room's configured seconds.
  */
 export function extendDefender(s: SessionState, pending: Pending, ctx: CommandCtx): { next: SessionState; effects: Effects } {
   const timeout = s.roomOptions.defenderTimeout;
