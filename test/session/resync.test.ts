@@ -5,6 +5,7 @@ import { openSession, applyCommand, resyncPayload } from "../../src/session/sess
 import { decodeState } from "../../src/wire/codec";
 import { stateHash } from "../../src/session/hash";
 import { DEFAULT_ROOM_OPTIONS, PROTOCOL_VERSION } from "../../src/wire/protocol";
+import type { RoomOptions } from "../../src/wire/protocol";
 import { defaultConfig } from "../../src/engine/config";
 import { seed } from "../../src/rng/pcg";
 import { key } from "../../src/geometry/cube";
@@ -77,8 +78,8 @@ function mkCtx(actingSeat: number, opts?: { nowEpochMs?: number; decisionId?: st
   };
 }
 
-function mkSession(game: GameState, seats: SeatConfig[]): SessionState {
-  const s = openSession(mkHeader(seats), DEFAULT_ROOM_OPTIONS);
+function mkSession(game: GameState, seats: SeatConfig[], roomOptions: RoomOptions = DEFAULT_ROOM_OPTIONS): SessionState {
+  const s = openSession(mkHeader(seats), roomOptions);
   return { ...s, game, logLength: 7 };
 }
 
@@ -103,10 +104,14 @@ function exhaustedBases(): Base[] {
 const DECL: AttackDecl = { target: T, attackers: ATTACKERS, defender: DEF };
 
 /** Opens a real human-vs-human pending via the attack command path (attack-command.test.ts's pattern). */
-function openedHumanPending(decisionId = "d-resync"): SessionState {
+function openedHumanPending(decisionId = "d-resync", opts?: { roomOptions?: RoomOptions; nowEpochMs?: number }): SessionState {
   const pre = synthGame(exhaustedBases(), { iron: IRON });
-  const s0 = mkSession(pre, [HUMAN, HUMAN]);
-  const opened = applyCommand(s0, { type: "attack", expectedLogIndex: s0.logLength, decl: DECL }, mkCtx(0, { decisionId }));
+  const s0 = mkSession(pre, [HUMAN, HUMAN], opts?.roomOptions ?? DEFAULT_ROOM_OPTIONS);
+  const opened = applyCommand(
+    s0,
+    { type: "attack", expectedLogIndex: s0.logLength, decl: DECL },
+    mkCtx(0, { decisionId, ...(opts?.nowEpochMs !== undefined ? { nowEpochMs: opts.nowEpochMs } : {}) }),
+  );
   if (opened.next.pending === null) throw new Error("expected a pending to open (human defender)");
   return opened.next;
 }
@@ -229,6 +234,30 @@ describe("resync command via applyCommand", () => {
     const forOther = applyCommand(s, { type: "resync" }, mkCtx(0)).effects.reply[0]!;
     if (forOther.type !== "resync") throw new Error("expected resync");
     expect(forOther.pending).toBeNull();
+  });
+
+  test("extendDecision → resync: the wire pending carries the EXTENDED deadline, not the original (projection reads the live pending)", () => {
+    // End-to-end through applyCommand only: open a pending in a timeout-ON room, extend the deadline, then
+    // resync as the prompted seat — the projected pending must reflect the post-extend state, pinning that
+    // resyncPayload projects the LIVE s.pending (not a stale copy captured at open/prompt time).
+    const roomOptions: RoomOptions = { defenderTimeout: { enabled: true, seconds: 120 } };
+    const s0 = openedHumanPending("d-extend", { roomOptions, nowEpochMs: 1_000_000 });
+    const originalDeadline = s0.pending!.deadlineEpochMs;
+    expect(originalDeadline).toBe(1_000_000 + 120 * 1000); // opened at 1_000_000, timeout 120s
+
+    // The prompted defender (seat 1) extends at a LATER time → the deadline moves.
+    const extended = applyCommand(s0, { type: "extendDecision", decisionId: "d-extend" }, mkCtx(1, { nowEpochMs: 5_000_000 }));
+    const s1 = extended.next;
+    const extendedDeadline = 5_000_000 + 120 * 1000;
+    expect(s1.pending!.deadlineEpochMs).toBe(extendedDeadline);
+    expect(extendedDeadline).not.toBe(originalDeadline); // non-vacuous: the two values genuinely differ
+
+    // Resync from the prompted seat: the wire pending carries the extended deadline, NOT the original.
+    const reply = applyCommand(s1, { type: "resync" }, mkCtx(1)).effects.reply[0]!;
+    if (reply.type !== "resync") throw new Error("expected resync");
+    expect(reply.pending).not.toBeNull();
+    expect(reply.pending!.deadlineEpochMs).toBe(extendedDeadline);
+    expect(reply.pending!.deadlineEpochMs).not.toBe(originalDeadline);
   });
 });
 
