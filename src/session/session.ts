@@ -40,6 +40,9 @@ export function applyCommand(s: SessionState, c: ClientCommand, ctx: CommandCtx)
     if (status(s.game).kind === "victory") return keep(errorEffects(s, "GAME_OVER", "The game is over."));
     if (s.pending !== null /* && not the matching answer — carve-out added in A4.3 */) return keep(errorEffects(s, "DECISION_PENDING", "A decision is pending."));
     if ("expectedLogIndex" in c && c.expectedLogIndex !== s.logLength) return keep(resyncEffects(s, ctx.actingSeat, "STALE_INDEX"));
+    // A4.3 carve-out applies HERE too: during a pending, currentActor is still the ATTACKER while the
+    // legitimate resolver is the prompted DEFENDER — resolveDecision/extendDecision must be authorized
+    // against s.pending.promptedSeat, not currentActor.
     if (ctx.actingSeat !== currentActor(s)) return keep(errorEffects(s, "NOT_YOUR_TURN", "It is not your turn."));
   }
   switch (c.type) { /* placeFirstBase / build / pass — Tasks A3.2-A3.3; attack/resolve/extend — A4 */ default: return keep(errorEffects(s, "UNKNOWN_TYPE", `Unknown command ${(c as { type?: string }).type}`)); }
