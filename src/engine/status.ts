@@ -152,8 +152,9 @@ function bountyCount(killBounty: GameState["config"]["killBounty"]): number {
  * full→12, half→6, none→0.
  *
  * MODELING NOTE (M1): the per-player 12 cap does NOT block bounty — basesInHand may
- * exceed 12, per the rulebook's "+12 when you eliminate a player". Bases of an
- * eliminated player leave play (removed from state.bases); board/iron unchanged.
+ * exceed 12, per the rulebook's "+12 when you eliminate a player". An eliminated
+ * player owns nothing afterward: its on-board bases are removed from state.bases AND
+ * its in-hand bases are zeroed; the board's factories/iron hexes are unchanged.
  */
 export function applyEliminations(
   state: GameState,
@@ -218,7 +219,10 @@ export function applyEliminations(
 
     if (awardsBounty) bountyTotal += bountyCount(state.config.killBounty);
 
-    players = players.map((p) => (p.id === d.id ? { ...p, eliminated: true } : p));
+    // An eliminated player owns nothing: its on-board bases are removed below and
+    // its in-hand bases leave play too (claimed by the killer as bounty, or — for a
+    // self-inflicted emptyPerimeter — forfeited to no one).
+    players = players.map((p) => (p.id === d.id ? { ...p, eliminated: true, basesInHand: 0 } : p));
     events.push({
       kind: "eliminated",
       player: d.id,
