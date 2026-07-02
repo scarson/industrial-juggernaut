@@ -82,6 +82,16 @@ export async function persistEvent(storage: DurableObjectStorage, op: PersistOp)
   await storage.put(op.put);
 }
 
+/**
+ * Read the head of the log — entries `[0 .. throughIndex]` inclusive, index-ordered. Used by the
+ * replayVersion-mismatch freeze check to re-replay the snapshot-boundary log under the current engine.
+ * Zero-padded keys make lexical list order == numeric order; `end` is exclusive so it stops after `throughIndex`.
+ */
+export async function readLogHead(storage: DurableObjectStorage, throughIndex: number): Promise<LogEntry[]> {
+  const rows = await storage.list<LogEntry>({ prefix: "log:", start: logKey(0), end: logKey(throughIndex + 1) });
+  return [...rows.values()];
+}
+
 /** A tail log entry paired with its true log index (parsed from the storage key). */
 export type TailEntry = { index: number; entry: LogEntry };
 

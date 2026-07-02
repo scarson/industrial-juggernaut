@@ -5,6 +5,7 @@ import {
   openSession,
   applyCommand,
   applyEntry,
+  stateHash,
   needsDrive,
   driveOneStep,
   agentForSeat,
@@ -15,17 +16,39 @@ import {
   readHeaderBundle,
   readInitialized,
   readFrozen,
+  writeFrozen,
   readPending,
   loadSnapshotAndTail,
+  readLogHead,
 } from "./storage";
+import { REPLAY_VERSION } from "./version";
 import type {
   SessionState,
   Effects,
   AlarmIntent,
   CommandCtx,
   SessionHeader,
+  Snapshot,
+  LogEntry,
 } from "../session";
+import type { GameState } from "../engine/types";
 import type { ClientCommand, RoomOptions, ServerMessage } from "../wire/protocol";
+
+/**
+ * The mutating command kinds — every game-state / pending write. A frozen room (recovery detected replay
+ * divergence, B3.3) rejects all of these with a FROZEN error emitted by the HOST (the reducer has no frozen
+ * concept — it stays frozen-agnostic). Non-mutating reads (`resync`, `hello`, `claimSeat` roster ack) still work
+ * so a client can reconnect and see the frozen state / the recorded replay.
+ */
+const MUTATING_COMMANDS: ReadonlySet<ClientCommand["type"]> = new Set([
+  "placeFirstBase",
+  "build",
+  "attack",
+  "endRound",
+  "pass",
+  "resolveDecision",
+  "extendDecision",
+]);
 
 /** The bindings this DO uses (mirrors wrangler.jsonc). */
 interface Env {
@@ -139,6 +162,22 @@ export class GameRoom extends DurableObject<Env> {
       return;
     }
 
+    // A frozen room (recovery divergence, B3.3) rejects every mutating command with a FROZEN error from the HOST.
+    // The reducer stays frozen-agnostic (it has no frozen concept); the host intercepts here so a frozen room
+    // never mutates. Non-mutating reads (resync / hello / claimSeat) fall through and are answered normally.
+    if (this.frozen && MUTATING_COMMANDS.has(command.type)) {
+      // `currentLogIndex: logLength` matches the reducer's errorEffects convention (session.ts) — the current head.
+      this.sink.reply([
+        {
+          type: "error",
+          code: "FROZEN",
+          message: "This room is frozen: it was recorded under an engine version that replays differently.",
+          currentLogIndex: this.session.logLength,
+        },
+      ]);
+      return;
+    }
+
     // 1. Validate + apply — synchronous, pure, NO await between here and the persist.
     const { next, effects } = applyCommand(this.session, command, ctx);
 
@@ -201,15 +240,17 @@ export class GameRoom extends DurableObject<Env> {
   }
 
   /**
-   * Rebuild `this.session` from storage on a wake with an empty cache. B3.2 ships the MINIMAL form: load the
-   * header bundle → openSession → install digests → replay the FULL log via applyEntry → reload pending.
+   * Rebuild `this.session` from storage on a wake with an empty cache (storage is the single source of truth).
+   * The cheap, steady-state path (replayVersion MATCHES): openSession → install digests → install the snapshot's
+   * post-close state (or replay the whole log if no snapshot yet) → apply the post-snapshot tail → reload pending →
+   * derive `chainAttacker` from the last log entry (reconstructs an open attack chain) → re-arm the timeout alarm →
+   * drive any agent rounds the wake unblocked. On a `replayVersion` MISMATCH (rare — the B8 CI guard forces a
+   * version bump on any replay-closure change), run the freeze-on-divergence check before continuing. An
+   * uninitialized room leaves `this.session` null (the caller replies ROOM_NOT_INITIALIZED).
    *
-   * B3.3 REPLACES this body with the cheap snapshot+tail path (install snapshot.state, apply only the
-   * post-snapshot tail), the replayVersion-mismatch freeze-on-divergence check, chainAttacker derivation from
-   * the last log entry, the pending-deadline alarm re-arm, and a post-rehydrate driveAgents. The structure below
-   * (load bundle → open → replay → reload pending → [B3.3: derive chain / re-arm / freeze / drive]) is kept so
-   * B3.3 extends rather than rewrites it. An uninitialized room leaves `this.session` null (the caller replies
-   * ROOM_NOT_INITIALIZED).
+   * GEO-3: recovery re-runs `applyEntry`, which installs each entry's `rngBeforeApply` before applying — the locked
+   * replay model. It never uses "the preceding entry's post-state". NO non-storage await anywhere in this path
+   * (the B3.2 concurrency invariant governs — see handleCommand).
    */
   private async rehydrate(): Promise<void> {
     const bundle = await readHeaderBundle(this.ctx.storage);
@@ -218,25 +259,98 @@ export class GameRoom extends DurableObject<Env> {
     this.frozen = await readFrozen(this.ctx.storage);
 
     const session = openSession(bundle.header, bundle.roomOptions);
+    // Rebuild seat runtime: authorizedDigest from the header bundle; claimed/lastRequestId are ephemeral (P1-9) —
+    // openSession already leaves them false/null, and sockets re-ack on reconnect.
     for (let seat = 0; seat < session.seats.length; seat++) {
       session.seats[seat]!.authorizedDigest = bundle.authorizedDigests[seat] ?? null;
     }
 
-    // B3.2 minimal replay: fold the FULL log from index 0 (no snapshot fast-path yet — B3.3 adds it).
-    const { tail } = await loadSnapshotAndTail(this.ctx.storage);
-    let game = session.game;
+    // Load the snapshot (post-close state at snapshot.logIndex) and the post-snapshot tail. With no snapshot yet
+    // (early game), `snapshot` is null and `tail` is the FULL log from index 0.
+    const { snapshot, tail } = await loadSnapshotAndTail(this.ctx.storage);
+
+    // The replayVersion the room was recorded under: the snapshot's stamp when there is a snapshot, else the
+    // header's stamp (the room's create-time REPLAY_VERSION). The plan keys the mismatch check on the snapshot's
+    // stamp; for a no-snapshot room there is no snapshot hash to validate, so we compare the header's replayVersion
+    // (which openSession/initGame reproduce deterministically from the header — no stored log to reinterpret when
+    // the log is empty, and any non-empty log under a mismatched header has NO stored hash to catch divergence).
+    const recordedReplayVersion = snapshot !== null ? snapshot.replayVersion : bundle.header.replayVersion;
+    const versionMatches = recordedReplayVersion === REPLAY_VERSION;
+
+    if (!versionMatches && !this.frozen) {
+      // MISMATCH (expensive path — taken ONLY on a version mismatch, which the CI guard makes rare). Decide whether
+      // the recorded game replays identically under the CURRENT engine before continuing; freeze if we cannot prove
+      // it. Skipped when already frozen (a prior wake decided; the freeze flag is authoritative).
+      const canContinue = await this.canContinueUnderCurrentEngine(bundle.header, bundle.roomOptions, snapshot, tail.length);
+      if (!canContinue) {
+        await writeFrozen(this.ctx.storage);
+        this.frozen = true;
+      }
+    }
+
+    // Build the game state. Cheap path: install the snapshot's post-close state and apply ONLY the tail. No
+    // snapshot: replay the whole log (the tail IS the full log from index 0). Either way `applyEntry` installs each
+    // entry's rngBeforeApply (GEO-3). When frozen, we still reconstruct the state so resync / the replay viewer work.
+    let game: GameState = snapshot !== null ? snapshot.state : session.game;
     for (const { entry } of tail) {
       game = applyEntry(game, entry).state;
     }
     session.game = game;
-    session.logLength = tail.length;
+    session.logLength = (snapshot !== null ? snapshot.logIndex + 1 : 0) + tail.length;
 
     // Reload the live pending (a tombstone / absent value → null).
     session.pending = await readPending(this.ctx.storage);
 
-    // B3.3 ADDS HERE: derive chainAttacker from the last log entry (an open attack chain), re-arm the
-    // pending-deadline alarm, run the replayVersion-mismatch freeze-on-divergence check, and call driveAgents().
+    // Derive chainAttacker from the LAST applied log entry: an `attack` entry does NOT close the round, so if the
+    // last entry is an attack the chain is still open and belongs to that entry's player. Any other last entry (or
+    // an empty tail) means no open chain. This exactly reconstructs an open attack chain across eviction so a
+    // reconnecting attacker can still send endRound. (Not persisted — session-types.ts.)
+    const lastEntry: LogEntry | null = tail.length > 0 ? tail[tail.length - 1]!.entry : null;
+    session.chainAttacker = lastEntry !== null && lastEntry.kind === "attack" ? lastEntry.player : null;
 
     this.session = session;
+
+    // Self-heal a lost alarm: if a pending is live with a deadline, re-arm the timeout alarm (idempotent — it
+    // overwrites the single alarm slot; P1-15). Covers a setAlarm that failed before eviction.
+    if (session.pending !== null && session.pending.deadlineEpochMs !== null) {
+      await this.ctx.storage.setAlarm(session.pending.deadlineEpochMs);
+    }
+
+    // Self-heal the agent-drive: a room evicted mid-agent-turn wakes and continues without a human message.
+    // Deterministic per GEO-3 (agents draw from the restored rngState) → re-driving reproduces the same entries,
+    // so the post-crash drive is idempotent. A frozen room drives nothing (driveAgents guards on `this.frozen`).
+    await this.driveAgents();
+  }
+
+  /**
+   * The replayVersion-mismatch decision (B3.3 step 3): can the recorded game continue under the CURRENT engine?
+   * There is exactly ONE stored hash — the snapshot's; the post-snapshot tail has NO per-entry hash. So:
+   *  - No snapshot: continue ONLY if the log is empty (nothing to reinterpret — openSession is deterministic from
+   *    the header). A non-empty log under a mismatched header has no stored hash to catch a silent divergence → freeze.
+   *  - Snapshot present: re-replay `log[0 .. snapshot.logIndex]` from openSession under the current engine and
+   *    compare `stateHash` to `snapshot.stateHash`. Hash DIVERGES → freeze (the played game replays differently).
+   *    Hash MATCHES but the tail is NON-EMPTY → freeze anyway (the mid-chain tail is unverifiable — snapshots are
+   *    only at round boundaries, so there is no hash for the tail; codex P1-7). Hash matches AND tail empty → continue.
+   * Reads only storage (the boundary log range) — the no-non-storage-await invariant holds.
+   */
+  private async canContinueUnderCurrentEngine(
+    header: SessionHeader,
+    roomOptions: RoomOptions,
+    snapshot: Snapshot | null,
+    tailLength: number,
+  ): Promise<boolean> {
+    if (snapshot === null) {
+      // A no-snapshot room continues under the new engine only when there is nothing to reinterpret (empty log).
+      return tailLength === 0;
+    }
+    // Re-replay the snapshot-boundary entries 0..snapshot.logIndex from openSession under the CURRENT engine.
+    const boundaryLog = await readLogHead(this.ctx.storage, snapshot.logIndex);
+    let game = openSession(header, roomOptions).game;
+    for (const entry of boundaryLog) {
+      game = applyEntry(game, entry).state;
+    }
+    if (stateHash(game) !== snapshot.stateHash) return false; // hash diverges → the played game replays differently
+    // Hash matches: continue ONLY if the tail is empty. A non-empty tail is unverifiable (no per-entry hash).
+    return tailLength === 0;
   }
 }
