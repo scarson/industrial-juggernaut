@@ -59,17 +59,17 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** In progress — Part A execution started 2026-07-02.
+**Overall:** PART A FULLY MERGED to dev 2026-07-02 (PRs #35, #36, #37, #40, #43, #42 — #43 supersedes the auto-closed #41). Part B started 2026-07-02.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
 | A1 — Wire protocol types + codecs | ✅ Merged | cf57bbea, 08557106, a9a758c0 → merge 251a5af0 | PR #35 (Routine, auto-merged on green `check`) |
 | A2 — Reducer skeleton + agent-drive seam | ✅ Merged | fa0b32af…3414c6a5 → merge 28c5759e | PR #36 (Routine, auto-merged); see Deviations (A2.3, A2.4) |
 | A3 — Command processing / round state machine | ✅ Merged | 9d56776d…73a3212c → merge a8cbb5e2 | PR #37 (Routine, auto-merged); see Deviations (A3, A3.2) + Discoveries (setup guard) |
-| A4 — Pending decisions + write-lock | ✅ Shipped | cb8d5b90…a09f6e37 (13 commits incl. review fixes + pitfall doc) | **PR #40 — Review-class, Sam merges**; see Deviations (A4) + Discoveries (5 entries) |
-| A5 — Seat-claim CAS + multi-tab | ✅ Shipped | 82d5e9af, 356e551d | branch `feat/session-seats` stacked on PR #40's branch; **PR pending — Review-class, Sam merges**; auto-retargets to dev when #40 merges |
-| A6 — Resync, handshake, events, malformed-traffic shapes | ✅ Shipped | d50d1a3f, 491c984c, e90614c3, 4ed0bda4, 86750f58, 3648fb0c | branch `feat/session-resync` stacked on PR #41; PR pending (Routine, merges after the stack) |
-| B1 — Shared-config scaffolding | ⬜ Not started | — | — |
+| A4 — Pending decisions + write-lock | ✅ Merged | 13 commits → merge 86a0f7d5 | PR #40 (Review, Sam-authorized merge); see Deviations (A4) + Discoveries |
+| A5 — Seat-claim CAS + multi-tab | ✅ Merged | incl. backstop + seatClaimed broadcast → merge 0eb97adf | PR #43 (Review, Sam-authorized; supersedes #41, auto-closed by the base-branch deletion — see the stacked-PR trap memory) |
+| A6 — Resync, handshake, events, malformed-traffic shapes | ✅ Merged | incl. the mid-setup gameOver fix 519c1cb3 → merge 61f7132a | PR #42 (Routine, auto-merged post-rebase) |
+| B1 — Shared-config scaffolding | ✅ Shipped | 9dd81593, 01f5e252, e4126b6e, f5ac197c, c95ad8cb | branch `feat/host-config`; **PR pending — Review-class, Sam merges**; vitest 4.1.9 across 1970 tests (2 migration points); safe-before-B8 verified |
 | B2 — Worker shell + room addressing | ⬜ Not started | — | — |
 | B3 — GameRoom DO: storage + critical section + recovery | ⬜ Not started | — | — |
 | B4 — Hibernation | ⬜ Not started | — | — |
@@ -1375,7 +1375,7 @@ Part B is the thin host that *performs* the reducer's effects on Cloudflare. It 
 
 ## Phase B1 — Shared-config scaffolding
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED 2026-07-02 on branch `feat/host-config` — commits 9dd81593 (B1.1 wrangler.jsonc) + c95ad8cb (committed placeholder-assets generator, no-clobber), 01f5e252 + e4126b6e (B1.2: vitest 2.1.9→4.1.9 + pool 0.18.0 + workers-types; projects config with the node glob `test/**/*.test.ts` preserved and `test/host/**` carved out; tsconfig.host.json with `"files": []`; .gitignore covers worker-configuration.d.ts), f5ac197c (B1.3: REPLAY_VERSION=3ac0b788dbcc353d / AGENT_VERSION=d1c2fe210dc2bb5d, 26/8-file closures, --check discrimination-proven; additive node-shims extension — flagged to the sweep track). **B1.1 verification used `bunx wrangler types` (config-shape pass; both dry-runs fail only on the expected missing worker.ts entry, per this task's own carve-out).** Only two vitest-4 migration points across 1970 tests, both call-site-only (3-arg it() form; testTimeout 120s — verified STRICTER than vitest 2's unenforced sync-body timeouts). Phase review verdicts (Opus blast-radius gate): SAFE to merge before B8 (empty host project never instantiates the workerd pool — verified against the installed pool + workerd install path for fresh CI); `src/session/types.ts` correctly OMITTED from the replay closure (pure type exports, fully erased; behavior-affecting LogEntry changes necessarily edit the gated codec.ts/round.ts); B7 intel recorded: `cloudflareTest()` plugin form, helpers import from `cloudflare:test`.
 
 **⚠️ Classify the PR `Review — shared build/CI config + first Worker surface` (Sam eyes the wrangler config + the vitest version bump).** Carries the **`## Shared-config changes`** heading.
 
@@ -1386,7 +1386,7 @@ Stands up the Worker config + the workers test pool **without breaking the exist
 **Files:**
 - Create: `wrangler.jsonc`
 
-- [ ] **Step 1: Create `wrangler.jsonc`** (verified against the wrangler 4.x `config-schema.json` + current docs). **`durable_objects` is NON-INHERITABLE — it is repeated in `env.staging` on purpose; do NOT "DRY" it away.** `migrations` is top-level only (envs inherit + track their own apply-state). `run_worker_first` is an `assets` sub-field. `/api/*` deep-matches `/api/games/:id/ws`.
+- [x] **Step 1: Create `wrangler.jsonc`** (verified against the wrangler 4.x `config-schema.json` + current docs). **`durable_objects` is NON-INHERITABLE — it is repeated in `env.staging` on purpose; do NOT "DRY" it away.** `migrations` is top-level only (envs inherit + track their own apply-state). `run_worker_first` is an `assets` sub-field. `/api/*` deep-matches `/api/games/:id/ws`.
 
 ```jsonc
 {
@@ -1421,8 +1421,8 @@ Stands up the Worker config + the workers test pool **without breaking the exist
 
 > **The `dist/client` assets dir does not exist yet** (it's the SPA plan's output, deliverable 2) and `dist/` is gitignored, so do NOT try to commit a placeholder into it (it won't commit, and force-adding into a gitignored build dir is a smell). Instead, the assets dir is **generated at dry-run/deploy time**: add a tiny `scripts/ensure-placeholder-assets.ts` (or a `mkdir -p dist/client && printf '<!doctype html><title>Industrial Juggernaut (staging)</title>' > dist/client/index.html` shell step) that the deploy workflow (B8.2) runs **before** `wrangler deploy`, and that you run locally before `wrangler deploy --dry-run`. The real SPA build replaces this when deliverable 2 lands. **Do NOT** build a real SPA here (out of scope). `new_sqlite_classes` is **irreversible** after first deploy — that's why it's pinned at `v1`.
 
-- [ ] **Step 2: Verify** `bunx wrangler deploy --dry-run` (and `--dry-run --env staging`) succeeds (no deploy — dry run only; **never** a real local deploy). Expected: it validates config + bundles. If it complains about the missing DO class (`GameRoom` not yet implemented), that's expected until B3 — re-run the dry-run after B3, and for B1 accept a config-validation pass via `bunx wrangler types` (which validates the binding shape). State which check you used.
-- [ ] **Step 3: Commit** — `git commit -m "chore(host): wrangler.jsonc — Worker + GameRoom DO + assets + staging env"`
+- [x] **Step 2: Verify** `bunx wrangler deploy --dry-run` (and `--dry-run --env staging`) succeeds (no deploy — dry run only; **never** a real local deploy). Expected: it validates config + bundles. If it complains about the missing DO class (`GameRoom` not yet implemented), that's expected until B3 — re-run the dry-run after B3, and for B1 accept a config-validation pass via `bunx wrangler types` (which validates the binding shape). State which check you used.
+- [x] **Step 3: Commit** — `git commit -m "chore(host): wrangler.jsonc — Worker + GameRoom DO + assets + staging env"`
 
 ### Task B1.2: vitest workers pool (preserve the node suite)
 
@@ -1431,12 +1431,12 @@ Stands up the Worker config + the workers test pool **without breaking the exist
 - Modify: `vitest.config.ts` (→ projects shape)
 - Modify: `tsconfig.json` (exclude host) + Create `tsconfig.host.json`
 
-- [ ] **Step 1: Bump to the LATEST vitest + the matching pool, then verify the pool's config API — do this BEFORE writing any config.** The repo is pinned at **`vitest ^2.0.0`**; the workers pool needs vitest 4.x. **Decision (Sam, 2026-06-29): bump to the latest vitest (4.x) and the latest `@cloudflare/vitest-pool-workers` — NO fallback to an older vitest/pool.** Steps:
+- [x] **Step 1: Bump to the LATEST vitest + the matching pool, then verify the pool's config API — do this BEFORE writing any config.** The repo is pinned at **`vitest ^2.0.0`**; the workers pool needs vitest 4.x. **Decision (Sam, 2026-06-29): bump to the latest vitest (4.x) and the latest `@cloudflare/vitest-pool-workers` — NO fallback to an older vitest/pool.** Steps:
   1. **Bump:** `bun add -d vitest@latest @cloudflare/vitest-pool-workers@latest` (pin the resolved versions). This is a **two-major vitest bump (2 → 4) across all ~386 existing tests** (engine + session + sweep) — expect breakage and treat fixing it as IN-SCOPE remediation, not a blocker.
   2. **Run the FULL suite** (`bun run test`) immediately. **Fix every broken test** as the remediation path — migrate to the vitest-4 API (config shape, deprecated matchers, `vi` API changes) while **preserving each test's assertions** (a vitest-4 migration must keep coverage; fix the call site, do NOT weaken the assertion — assertion-rigor rule). Flag the bump + the fixes in the PR (`## Shared-config changes`) so the sweep track isn't surprised it shares the dependency.
   3. **Verify the pool's config API against the INSTALLED version** (it changed across releases: older `defineWorkersConfig` + `poolOptions.workers`; newer a `cloudflareTest()` Vite plugin in `plugins:[]`). Read the installed package's README/`dist` exports and use whichever it exposes — Step 3 below shows the plugin form; if the installed version differs, use its form (and verify the B7 helper import paths, `cloudflare:test` vs `cloudflare:workers`). Record the installed versions + API as a Deviation.
 
-- [ ] **Step 2: Append to `package.json`** (append-only to `devDependencies` + `scripts`; `wrangler` is already present):
+- [x] **Step 2: Append to `package.json`** (append-only to `devDependencies` + `scripts`; `wrangler` is already present):
 
 ```jsonc
 // devDependencies (add):
@@ -1449,7 +1449,7 @@ Stands up the Worker config + the workers test pool **without breaking the exist
 
 `bun run test` (existing `vitest run`) runs BOTH projects after the config change below.
 
-- [ ] **Step 3: Convert `vitest.config.ts`** to the projects shape. **Current verified API:** the `cloudflareTest()` *Vite plugin* from `@cloudflare/vitest-pool-workers` (NOT the old `defineWorkersConfig`/`poolOptions.workers`; `vitest.workspace.ts` is deprecated). The node project preserves `test/**/*.test.ts` (sweep depends on it) and excludes `test/host/**` so host tests don't double-run.
+- [x] **Step 3: Convert `vitest.config.ts`** to the projects shape. **Current verified API:** the `cloudflareTest()` *Vite plugin* from `@cloudflare/vitest-pool-workers` (NOT the old `defineWorkersConfig`/`poolOptions.workers`; `vitest.workspace.ts` is deprecated). The node project preserves `test/**/*.test.ts` (sweep depends on it) and excludes `test/host/**` so host tests don't double-run.
 
 ```ts
 // ABOUTME: Vitest config — a plain-node project (engine/session/wire/sweep) + a workerd pool project (DO host).
@@ -1474,7 +1474,7 @@ export default defineConfig({
 
 > The workers project must NOT set a custom `environment`/`runner` (the plugin owns the runtime). `main` is required so `runInDurableObject` can reach the real `GameRoom` instance (CF research). Until B2/B3 create `src/host/worker.ts`, the host project has no tests (B7 adds them) — that's fine; an empty project is a no-op.
 
-- [ ] **Step 4: Worker-scoped tsconfig.** Modify `tsconfig.json` to `"exclude": ["src/host", "test/host", ...existing]` (keeps the engine/session/wire typecheck Workers-types-free, proving they don't use Worker globals). Create `tsconfig.host.json`:
+- [x] **Step 4: Worker-scoped tsconfig.** Modify `tsconfig.json` to `"exclude": ["src/host", "test/host", ...existing]` (keeps the engine/session/wire typecheck Workers-types-free, proving they don't use Worker globals). Create `tsconfig.host.json`:
 
 ```jsonc
 {
@@ -1488,8 +1488,8 @@ export default defineConfig({
 
 Update the `typecheck` script to run both: `"typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.host.json --noEmit"`. Add `@cloudflare/workers-types` to devDeps (or run `bunx wrangler types` to generate `worker-configuration.d.ts` and reference it). **Do NOT** add Workers types to the root tsconfig (project convention: don't relax the root; the host tsconfig extends it).
 
-- [ ] **Step 5: Verify** `bun run typecheck` (both projects) + `bun run test` (both projects; host project empty for now) → green. `bun.lock` will change (new devDeps) — expected; commit it.
-- [ ] **Step 6: Commit** — `git commit -m "chore(test): vitest workers pool project + Worker tsconfig (node suite preserved)"`
+- [x] **Step 5: Verify** `bun run typecheck` (both projects) + `bun run test` (both projects; host project empty for now) → green. `bun.lock` will change (new devDeps) — expected; commit it.
+- [x] **Step 6: Commit** — `git commit -m "chore(test): vitest workers pool project + Worker tsconfig (node suite preserved)"`
 
 ### Task B1.3: `version.ts` + the replay-version script (created EARLY — B2 depends on it)
 
@@ -1500,10 +1500,10 @@ Update the `typecheck` script to run both: `"typecheck": "tsc -p tsconfig.json -
 
 **Why here (not B8):** `worker.ts` (B2.2) stamps `header.replayVersion` from `src/host/version.ts`, so the constant must EXIST before B2 (codex P1-12 cross-task ordering). B1 creates the script + the committed constants; B8 only adds the CI `--check` guard step + the deploy workflow.
 
-- [ ] **Step 1:** write `scripts/compute-replay-version.ts` hashing the full replay closure (see B8.1 for the exact file set: `engine`+`rng`+`board`+`geometry`+`session/round.ts`+`session/hash.ts`+`session/codec.ts`+`session/replay.ts`) → a stable hex digest; `AGENT_VERSION` = hash of `src/agent/**`. Support a `--check` flag (compare to the committed constant, exit non-zero on mismatch).
-- [ ] **Step 2:** run it once; write the computed values into `src/host/version.ts` as `export const REPLAY_VERSION = "<hash>"; export const AGENT_VERSION = "<hash>";` (+ the 2-line ABOUTME). `version.ts` has no Worker-API usage — it's plain string constants (typechecks under either tsconfig).
-- [ ] **Step 3:** `test/version.test.ts` (node project) asserts `REPLAY_VERSION === computeReplayVersion()` and `AGENT_VERSION === computeAgentVersion()` (so an unbumped closure change fails the test AND the B8 `--check`). Commit `feat(host): replayVersion/agentVersion constants + compute script`.
-- [ ] **Apply the Execution Discipline block.**
+- [x] **Step 1:** write `scripts/compute-replay-version.ts` hashing the full replay closure (see B8.1 for the exact file set: `engine`+`rng`+`board`+`geometry`+`session/round.ts`+`session/hash.ts`+`session/codec.ts`+`session/replay.ts`) → a stable hex digest; `AGENT_VERSION` = hash of `src/agent/**`. Support a `--check` flag (compare to the committed constant, exit non-zero on mismatch).
+- [x] **Step 2:** run it once; write the computed values into `src/host/version.ts` as `export const REPLAY_VERSION = "<hash>"; export const AGENT_VERSION = "<hash>";` (+ the 2-line ABOUTME). `version.ts` has no Worker-API usage — it's plain string constants (typechecks under either tsconfig).
+- [x] **Step 3:** `test/version.test.ts` (node project) asserts `REPLAY_VERSION === computeReplayVersion()` and `AGENT_VERSION === computeAgentVersion()` (so an unbumped closure change fails the test AND the B8 `--check`). Commit `feat(host): replayVersion/agentVersion constants + compute script`.
+- [x] **Apply the Execution Discipline block.**
 
 **After Phase B1:** review from 3+ perspectives (node glob preserved for sweep; vitest bump impact assessed; root typecheck stays Workers-types-free; the replay-closure file set is complete). **`## Shared-config changes`** must list every edited file. Update Execution Status.
 
