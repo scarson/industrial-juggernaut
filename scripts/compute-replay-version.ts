@@ -33,15 +33,21 @@ const AGENT_CLOSURE_GLOBS = ["src/agent"];
 
 const HASH_LENGTH = 16;
 
+// Restricted to .ts files: a stray non-code file (a .DS_Store, a future README.md or fixture)
+// dropped into a closure dir would otherwise perturb the hash and spuriously bump
+// REPLAY_VERSION, forcing live rooms onto B3.3's expensive recovery path and risking a freeze
+// mid-attack-chain. The closure is 100% .ts today, so this filter doesn't change the hash it
+// produces on the current tree (verified: computeReplayVersion() was identical before and after
+// this change).
 function listFiles(entryPath: string): string[] {
   const stat = statSync(entryPath);
-  if (stat.isFile()) return [entryPath];
+  if (stat.isFile()) return entryPath.endsWith(".ts") ? [entryPath] : [];
   const out: string[] = [];
   for (const entry of readdirSync(entryPath, { withFileTypes: true })) {
     const full = join(entryPath, entry.name);
     if (entry.isDirectory()) {
       out.push(...listFiles(full));
-    } else if (entry.isFile()) {
+    } else if (entry.isFile() && entry.name.endsWith(".ts")) {
       out.push(full);
     }
   }
