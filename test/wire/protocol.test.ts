@@ -22,6 +22,9 @@ test("WIRE_ERROR_CODES contains the session-layer codes used by validation + env
     "PASS_NOT_FORCED", "ATTACK_NOT_SINGLE_DECL", "DUP_ATTACKERS",
     "DEFENDER_IS_TARGET", "DEFENDER_INELIGIBLE", "NO_ELIGIBLE_DEFENDER",
     "MIXED_PIECE_TYPES", "DUP_PIECES",
+    // build-rule violations enforced by the engine at apply time (A3.3):
+    "BUILD_EMPTY", "BUILD_BOOTSTRAP_FACTORY_ONLY", "BUILD_OVER_BUDGET",
+    "BUILD_ILLEGAL_FACTORY", "BUILD_NO_BASES_IN_HAND", "BUILD_ILLEGAL_BASE",
   ]) {
     expect(WIRE_ERROR_CODES).toContain(c);
   }

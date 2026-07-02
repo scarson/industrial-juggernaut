@@ -82,5 +82,10 @@ export const WIRE_ERROR_CODES = [
   "PASS_NOT_FORCED", "ATTACK_NOT_SINGLE_DECL", "DUP_ATTACKERS",
   "DEFENDER_IS_TARGET", "DEFENDER_INELIGIBLE", "NO_ELIGIBLE_DEFENDER",
   "MIXED_PIECE_TYPES", "DUP_PIECES",
+  // build-rule violations enforced by the engine at apply time (budget/placement are
+  // the engine's job, not pre-checked in the reducer) — one code per distinct,
+  // client-explainable rule failure reachable from a well-formed build command.
+  "BUILD_EMPTY", "BUILD_BOOTSTRAP_FACTORY_ONLY", "BUILD_OVER_BUDGET",
+  "BUILD_ILLEGAL_FACTORY", "BUILD_NO_BASES_IN_HAND", "BUILD_ILLEGAL_BASE",
 ] as const;
 export type WireErrorCode = (typeof WIRE_ERROR_CODES)[number];

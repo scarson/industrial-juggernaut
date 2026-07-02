@@ -165,10 +165,13 @@ test("non-mutating bypass: extendDecision skips the envelope guards even with a 
 });
 
 test("UNKNOWN_TYPE default: a mutating command that passes every guard hits the unimplemented default", () => {
-  // build with the correct index (0) and the current actor (seat 0). All guards pass; the switch has no
-  // build case yet → UNKNOWN_TYPE. A3.3 implements build and REPLACES this expectation.
+  // attack with the correct index (0) and the current actor (seat 0). All guards pass; the switch has no
+  // attack case yet (A4 implements it) → UNKNOWN_TYPE. (This slot previously used `build`, which A3.3
+  // implemented; attack is the next still-unimplemented mutating command, so it now pins the default.)
   const s = freshSession();
-  const { next, effects } = applyCommand(s, { type: "build", expectedLogIndex: 0, pieces: [] }, mkCtx(0));
+  const origin = { x: 0, y: 0, z: 0 };
+  const decl: AttackDecl = { target: origin, attackers: [], defender: origin };
+  const { next, effects } = applyCommand(s, { type: "attack", expectedLogIndex: 0, decl }, mkCtx(0));
 
   expect(next).toBe(s);
   expect(effects.persist).toBeNull();

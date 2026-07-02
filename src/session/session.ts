@@ -4,6 +4,7 @@ import { initGame } from "../engine/init";
 import { currentActor, commitEntries } from "./agent-drive";
 import { status } from "../engine/status";
 import { encodeState } from "../wire/codec";
+import { validateBuildPieces, validatePass } from "./validation";
 import type { LogEntry, SessionHeader } from "./types";
 import { PROTOCOL_VERSION, type ClientCommand, type RoomOptions, type ServerMessage, type WireErrorCode } from "../wire/protocol";
 import { NO_EFFECTS, type CommandCtx, type Effects, type SessionState } from "./session-types";
@@ -47,6 +48,29 @@ function placeFirstBaseErrorCode(message: string): WireErrorCode | null {
   return null;
 }
 
+/** Maps a `SessionError.code` from validateBuildPieces (src/session/validation.ts) to its WireErrorCode. The
+ *  validation codes are authored to match the catalog string-for-string, so this is an identity narrowing —
+ *  it exists to keep the string→WireErrorCode cast in one audited place. */
+function buildValidationErrorCode(code: string): WireErrorCode {
+  return code as WireErrorCode; // MIXED_PIECE_TYPES / DUP_PIECES — both in WIRE_ERROR_CODES
+}
+
+/** Maps an engine `applyBuild` thrown message (src/engine/apply.ts) to a WireErrorCode. Budget and placement
+ *  are the ENGINE's job at apply time (A3.2 policy — the reducer does NOT pre-check them), so these throws are
+ *  a NORMAL client-error path, not a bug. Each distinct client-explainable rule violation maps to its own code
+ *  (the client teaches from the code). "all pieces must be the same type" is intentionally absent: the reducer's
+ *  validateBuildPieces catches MIXED_PIECE_TYPES before the entry is built, so that throw is unreachable via the
+ *  wire and RETHROWS (null) as a reducer/engine invariant breach. */
+function buildEngineErrorCode(message: string): WireErrorCode | null {
+  if (message.includes("pieces must be non-empty")) return "BUILD_EMPTY";
+  if (message.includes("bootstrap budget is factory-only")) return "BUILD_BOOTSTRAP_FACTORY_ONLY";
+  if (message.includes("exceeds build budget")) return "BUILD_OVER_BUDGET";
+  if (message.includes("illegal factory placement")) return "BUILD_ILLEGAL_FACTORY";
+  if (message.includes("no bases in hand to place")) return "BUILD_NO_BASES_IN_HAND";
+  if (message.includes("illegal base placement")) return "BUILD_ILLEGAL_BASE";
+  return null;
+}
+
 export function applyCommand(s: SessionState, c: ClientCommand, ctx: CommandCtx): { next: SessionState; effects: Effects } {
   const keep = (effects: Effects) => ({ next: s, effects });   // rejected/no-op commands leave state unchanged
   if (isMutating(c)) {
@@ -71,7 +95,37 @@ export function applyCommand(s: SessionState, c: ClientCommand, ctx: CommandCtx)
         return keep(errorEffects(s, code, message));
       }
     }
-    /* build / pass — Task A3.3; attack/resolve/extend — A4 */
+    case "build": {
+      // Defense-in-depth §5: reject mixed-type / duplicate-hex builds BEFORE composing the entry. Budget and
+      // placement legality are NOT pre-checked here — they are the engine's job at apply time (A3.2 policy).
+      const validationError = validateBuildPieces(c.pieces);
+      if (validationError !== null) {
+        return keep(errorEffects(s, buildValidationErrorCode(validationError.code), validationError.message));
+      }
+      const entry: LogEntry = { player: ctx.actingSeat, kind: "build", pieces: c.pieces, rngBeforeApply: s.game.rngState };
+      try {
+        const result = commitEntries(s, [entry]); // applyEntry runs the engine build → budget/placement enforced here; build self-closes → snapshot + turnRollover
+        return { next: result.next, effects: result.effects };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const code = buildEngineErrorCode(message);
+        if (code === null) throw err; // unrecognized engine throw = reducer/engine bug, stay loud (A3.2 rethrow policy)
+        return keep(errorEffects(s, code, message));
+      }
+    }
+    case "pass": {
+      // Check 1: pass is legal only when config.allowPass OR the player is forced-pass (no other legal action).
+      const passError = validatePass(s.game);
+      if (passError !== null) {
+        return keep(errorEffects(s, passError.code as WireErrorCode, passError.message)); // PASS_NOT_FORCED
+      }
+      // No try/catch: pass runs applyAction(pass) (a no-op) + eliminations/stranded (pure), so no rule throw is
+      // reachable from a validated pass. Any throw here is a reducer/engine bug and propagates loud (A3.2 policy).
+      const entry: LogEntry = { player: ctx.actingSeat, kind: "pass", rngBeforeApply: s.game.rngState };
+      const result = commitEntries(s, [entry]); // pass self-closes the round → snapshot + turnRollover
+      return { next: result.next, effects: result.effects };
+    }
+    /* attack/resolve/extend — A4 */
     default: return keep(errorEffects(s, "UNKNOWN_TYPE", `Unknown command ${(c as { type?: string }).type}`));
   }
 }
