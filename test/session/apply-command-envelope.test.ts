@@ -151,8 +151,11 @@ test("non-mutating bypass: resync skips the envelope guards even with a pending 
   expect(reply.code).toBe("UNKNOWN_TYPE"); // NOT DECISION_PENDING — the guards were bypassed
 });
 
-test("non-mutating bypass: extendDecision skips the envelope guards even with a pending set", () => {
-  // extendDecision only re-arms the alarm; it is exempt from the envelope guards and the write-lock.
+test("non-mutating bypass: extendDecision skips the envelope guards and reaches its handler (A4.3)", () => {
+  // extendDecision only re-arms the alarm; it is exempt from the envelope guards and the write-lock. With a
+  // pending set (promptedSeat 1) it does NOT trip GAME_OVER/DECISION_PENDING/STALE_INDEX; it reaches the
+  // extendDecision handler, whose OWN seat auth rejects a non-prompted seat with NOT_YOUR_TURN (A4.3). Reaching
+  // that handler-level rejection (rather than the envelope's DECISION_PENDING) is the bypass proof.
   const s: SessionState = { ...freshSession(), pending: minimalPending() };
   const { next, effects } = applyCommand(s, { type: "extendDecision", decisionId: "pending-1" }, mkCtx(0));
 
@@ -162,14 +165,16 @@ test("non-mutating bypass: extendDecision skips the envelope guards even with a 
   const reply = effects.reply[0]!;
   expect(reply.type).toBe("error");
   if (reply.type !== "error") throw new Error("expected error");
-  expect(reply.code).toBe("UNKNOWN_TYPE"); // guards bypassed → default (A4 implements extendDecision)
+  expect(reply.code).toBe("NOT_YOUR_TURN"); // handler-level seat auth (seat 0 != promptedSeat 1), NOT DECISION_PENDING
 });
 
-test("UNKNOWN_TYPE default: a mutating command that passes every guard hits the unimplemented default", () => {
-  // attack in the PLAY phase (setup completed) with the correct index and the current actor. All guards pass —
-  // including the setup-phase SETUP_PLACEMENT_REQUIRED guard, which is why setup must finish first; the switch
-  // has no attack case yet (A4 implements it) → UNKNOWN_TYPE. (This slot previously used `build`, which A3.3
-  // implemented; attack is the next still-unimplemented mutating command, so it now pins the default.)
+test("envelope guards pass → the attack HANDLER runs (A4.3): an attack at an empty target hex → MALFORMED", () => {
+  // attack in the PLAY phase (setup completed) with the correct index and the current actor. Every envelope
+  // guard passes — including the setup-phase SETUP_PLACEMENT_REQUIRED guard, which is why setup must finish
+  // first — so control reaches the attack handler (A4.3). With no base at the target hex the handler replies
+  // MALFORMED. (This slot previously pinned the UNKNOWN_TYPE default for still-unimplemented mutating commands;
+  // A4.3 implements attack/endRound/resolveDecision, so no mutating command hits the default any more — the
+  // slot now proves the guards forward a well-formed mutating command into its handler.)
   let s = freshSession();
   let idx = 0;
   while (s.game.phase.turn === 0) {
@@ -191,7 +196,7 @@ test("UNKNOWN_TYPE default: a mutating command that passes every guard hits the 
   const reply = effects.reply[0]!;
   expect(reply.type).toBe("error");
   if (reply.type !== "error") throw new Error("expected error");
-  expect(reply.code).toBe("UNKNOWN_TYPE");
+  expect(reply.code).toBe("MALFORMED");
 });
 
 test("resyncPayload shape: snapshot round-trips and header fields match", () => {

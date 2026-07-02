@@ -3,8 +3,18 @@
 import { initGame } from "../engine/init";
 import { currentActor, commitEntries } from "./agent-drive";
 import { status } from "../engine/status";
+import { representativeDefender } from "../engine/legal";
 import { encodeState } from "../wire/codec";
-import { validateBuildPieces, validatePass } from "./validation";
+import { validateAttackDecl, validateBuildPieces, validatePass, validateTargetAttackable } from "./validation";
+import {
+  commitAttackRound,
+  extendDefender,
+  openDefenderDecision,
+  resolveDefender,
+  validateAttackers,
+} from "./pending";
+import { key } from "../geometry/cube";
+import type { AttackDecl, PlayerId } from "../engine/types";
 import type { LogEntry, SessionHeader } from "./types";
 import { PROTOCOL_VERSION, type ClientCommand, type RoomOptions, type ServerMessage, type WireErrorCode } from "../wire/protocol";
 import { NO_EFFECTS, type CommandCtx, type Effects, type SessionState } from "./session-types";
@@ -75,18 +85,36 @@ export function applyCommand(s: SessionState, c: ClientCommand, ctx: CommandCtx)
   const keep = (effects: Effects) => ({ next: s, effects });   // rejected/no-op commands leave state unchanged
   if (isMutating(c)) {
     if (status(s.game).kind === "victory") return keep(errorEffects(s, "GAME_OVER", "The game is over."));
-    if (s.pending !== null /* && not the matching answer — carve-out added in A4.3 */) return keep(errorEffects(s, "DECISION_PENDING", "A decision is pending."));
-    if ("expectedLogIndex" in c && c.expectedLogIndex !== s.logLength) return keep(resyncEffects(s, ctx.actingSeat, "STALE_INDEX"));
-    // A4.3 carve-out applies HERE too: during a pending, currentActor is still the ATTACKER while the
-    // legitimate resolver is the prompted DEFENDER — resolveDecision/extendDecision must be authorized
-    // against s.pending.promptedSeat, not currentActor.
-    if (ctx.actingSeat !== currentActor(s)) return keep(errorEffects(s, "NOT_YOUR_TURN", "It is not your turn."));
-    // During setup (turn 0) the ONLY legal mutating command is placeFirstBase (recordGame's composition).
-    // Without this, a forced pass from an unplaced placer passes validatePass (legalActions' stuck fallback)
-    // and reaches advanceRound, which THROWS on any turn-0 state (src/engine/turn.ts) — an uncaught crash on
-    // a legitimate wire command. Placed AFTER NOT_YOUR_TURN so it fires only for the in-turn, fresh-index seat.
-    if (s.game.phase.turn === 0 && c.type !== "placeFirstBase") {
-      return keep(errorEffects(s, "SETUP_PLACEMENT_REQUIRED", "Setup is in progress — place your first base."));
+    if (s.pending !== null) {
+      // WRITE-LOCK CARVE-OUT: while a pending decision holds the lock, the ONLY mutating command that gets
+      // through is a resolveDecision for THIS decision, from the prompted DEFENDER seat. Note the carve-out is
+      // what forces the NOT_YOUR_TURN check below to authorize against `s.pending.promptedSeat` rather than
+      // `currentActor` — during a pending the current actor is still the ATTACKER, but the legitimate resolver
+      // is the prompted defender. A mismatched resolveDecision id means the decision was already resolved and a
+      // new one may exist (or none) → ALREADY_RESOLVED; any other mutating command is simply locked out.
+      if (c.type !== "resolveDecision" || c.decisionId !== s.pending.decisionId) {
+        if (c.type === "resolveDecision") return keep(errorEffects(s, "ALREADY_RESOLVED", "That decision is no longer pending."));
+        return keep(errorEffects(s, "DECISION_PENDING", "A decision is pending."));
+      }
+      // A matching resolveDecision still carries expectedLogIndex — the STALE_INDEX guard still applies (the
+      // pending opened without appending, so logLength is unchanged since the prompt; a resync-then-retry client
+      // resends the same index).
+      if (c.expectedLogIndex !== s.logLength) return keep(resyncEffects(s, ctx.actingSeat, "STALE_INDEX"));
+      // Seat auth against the PROMPTED seat, not currentActor — only the defender may resolve their own decision.
+      if (ctx.actingSeat !== s.pending.promptedSeat) return keep(errorEffects(s, "NOT_YOUR_TURN", "It is not your decision to resolve."));
+      // Falls through to the resolveDecision case below (authorized).
+    } else {
+      if ("expectedLogIndex" in c && c.expectedLogIndex !== s.logLength) return keep(resyncEffects(s, ctx.actingSeat, "STALE_INDEX"));
+      if (ctx.actingSeat !== currentActor(s)) return keep(errorEffects(s, "NOT_YOUR_TURN", "It is not your turn."));
+      // During setup (turn 0) the ONLY legal mutating command is placeFirstBase (recordGame's composition).
+      // Without this, a forced pass from an unplaced placer passes validatePass (legalActions' stuck fallback)
+      // and reaches advanceRound, which THROWS on any turn-0 state (src/engine/turn.ts) — an uncaught crash on
+      // a legitimate wire command. Placed AFTER NOT_YOUR_TURN so it fires only for the in-turn, fresh-index seat.
+      // (A pending can never exist at turn 0 — attacks are impossible in setup — so this only runs in the
+      // no-pending branch, which is correct.)
+      if (s.game.phase.turn === 0 && c.type !== "placeFirstBase") {
+        return keep(errorEffects(s, "SETUP_PLACEMENT_REQUIRED", "Setup is in progress — place your first base."));
+      }
     }
   }
   switch (c.type) {
@@ -112,7 +140,10 @@ export function applyCommand(s: SessionState, c: ClientCommand, ctx: CommandCtx)
       const entry: LogEntry = { player: ctx.actingSeat, kind: "build", pieces: c.pieces, rngBeforeApply: s.game.rngState };
       try {
         const result = commitEntries(s, [entry]); // applyEntry runs the engine build → budget/placement enforced here; build self-closes → snapshot + turnRollover
-        return { next: result.next, effects: result.effects };
+        // A build closing the round clears any open attack chain (legalActions offers build mid-chain, so a human
+        // can build to end an attack round) — a stale chainAttacker would let this seat later endRound at
+        // round-start to skip a turn (DER #5). commitEntries' {...s} spread carries the OLD chainAttacker; clear it.
+        return { next: { ...result.next, chainAttacker: result.advanced ? null : s.chainAttacker }, effects: result.effects };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         const code = buildEngineErrorCode(message);
@@ -133,11 +164,86 @@ export function applyCommand(s: SessionState, c: ClientCommand, ctx: CommandCtx)
       // Any throw here is a reducer/engine bug and propagates loud (A3.2 policy).
       const entry: LogEntry = { player: ctx.actingSeat, kind: "pass", rngBeforeApply: s.game.rngState };
       const result = commitEntries(s, [entry]); // pass self-closes the round → snapshot + turnRollover
-      return { next: result.next, effects: result.effects };
+      // A pass closing the round clears any open attack chain (same DER #5 stale-token concern as build).
+      return { next: { ...result.next, chainAttacker: result.advanced ? null : s.chainAttacker }, effects: result.effects };
     }
-    /* attack/resolve/extend — A4 */
+    case "attack": {
+      // Attacker validation MUST precede acquiring the write-lock: opening a pending with an invalid attacker
+      // set would wedge the room (the deferred apply throws forever). Order per the plan.
+      const targetBase = s.game.bases.find((b) => key(b.hex) === key(c.decl.target));
+      if (targetBase === undefined) {
+        return keep(errorEffects(s, "MALFORMED", "No base exists at the attack target."));
+      }
+      const defenderOwner = targetBase.owner;
+      const attackersError = validateAttackers(s.game, ctx.actingSeat, c.decl.target, c.decl.attackers);
+      if (attackersError !== null) {
+        return keep(errorEffects(s, attackersError.code as WireErrorCode, attackersError.message));
+      }
+      const attackableError = validateTargetAttackable(s.game, c.decl.target, defenderOwner);
+      if (attackableError !== null) {
+        return keep(errorEffects(s, attackableError.code as WireErrorCode, attackableError.message)); // NO_ELIGIBLE_DEFENDER
+      }
+      // Human defender: open a durable pending decision (acquires the write-lock; no log entry until resolved).
+      if (s.seats[defenderOwner]!.config.kind === "human") {
+        const { pending, effects } = openDefenderDecision(s, c.decl, defenderOwner, ctx);
+        return { next: { ...s, pending }, effects };
+      }
+      // Agent/auto defender: substitute the deterministic representative defender and apply immediately.
+      // (validateTargetAttackable already guaranteed representativeDefender is non-null.)
+      const defender = representativeDefender(s.game, c.decl.target, defenderOwner)!;
+      const finalDecl: AttackDecl = { ...c.decl, defender };
+      const declError = validateAttackDecl(s.game, defenderOwner, finalDecl);
+      if (declError !== null) {
+        return keep(errorEffects(s, declError.code as WireErrorCode, declError.message));
+      }
+      const entry: LogEntry = { player: ctx.actingSeat, kind: "attack", decl: finalDecl, rngBeforeApply: s.game.rngState };
+      const result = commitAttackRound(s, entry); // ONE atomic put: attack log:N (+ auto-close endRound + snapshot)
+      return { next: withChainAttacker(result, ctx.actingSeat), effects: result.effects };
+    }
+    case "endRound": {
+      // endRound is legal ONLY to close YOUR open attack chain (chainAttacker === actingSeat). This stops a
+      // round-start endRound from illegally skipping a turn (voluntary pass is illegal, DER #5). The seat is
+      // already the currentActor (envelope guard), so chainAttacker === actingSeat implies it is the actor's turn.
+      if (s.chainAttacker !== ctx.actingSeat) {
+        return keep(errorEffects(s, "NOT_YOUR_TURN", "endRound is only legal to close your own open attack chain."));
+      }
+      const entry: LogEntry = { player: ctx.actingSeat, kind: "endRound", rngBeforeApply: s.game.rngState };
+      const result = commitEntries(s, [entry]); // closes the round → snapshot + turnRollover/gameOver
+      return { next: withChainAttacker(result, ctx.actingSeat), effects: result.effects };
+    }
+    case "resolveDecision": {
+      // A resolveDecision reaches the switch either authorized by the write-lock carve-out (pending present,
+      // matching id, prompted seat, fresh index) OR — when no pending exists — through the envelope's else
+      // branch. Guard the no-pending case (a ghost/late-retry id) as ALREADY_RESOLVED rather than dereferencing
+      // a null pending; the carve-out already covers the wrong-id/wrong-seat cases when a pending IS present.
+      if (s.pending === null) return keep(errorEffects(s, "ALREADY_RESOLVED", "That decision is no longer pending."));
+      const result = resolveDefender(s, s.pending, c.defender);
+      if ("error" in result) {
+        // The pending STAYS so the prompted defender can retry with a valid choice.
+        return keep(errorEffects(s, result.error.code as WireErrorCode, result.error.message));
+      }
+      return { next: withChainAttacker(result, s.pending.declaringPlayer), effects: result.effects };
+    }
+    case "extendDecision": {
+      // Non-mutating (bypasses the envelope guards); the COMMAND layer owns seat auth (extendDefender trusts its
+      // caller). A wrong id means the decision was already resolved → ALREADY_RESOLVED; a wrong seat → NOT_YOUR_TURN.
+      if (s.pending === null || c.decisionId !== s.pending.decisionId) {
+        return keep(errorEffects(s, "ALREADY_RESOLVED", "That decision is no longer pending."));
+      }
+      if (ctx.actingSeat !== s.pending.promptedSeat) {
+        return keep(errorEffects(s, "NOT_YOUR_TURN", "Only the prompted defender may extend their decision."));
+      }
+      return extendDefender(s, s.pending, ctx);
+    }
     default: return keep(errorEffects(s, "UNKNOWN_TYPE", `Unknown command ${(c as { type?: string }).type}`));
   }
+}
+
+/** Set `next.chainAttacker` after a round-applying result: the attacker when a legal attack remains (chain
+ *  continues, the round stayed open), else `null` when the round closed (commitEntries returned `advanced`).
+ *  commitEntries' `{...s}` spread carries the OLD chainAttacker, so every attack/endRound path MUST set it here. */
+function withChainAttacker(result: { next: SessionState; advanced: boolean }, attacker: PlayerId): SessionState {
+  return { ...result.next, chainAttacker: result.advanced ? null : attacker };
 }
 
 /** Full-state resync payload (spec §3). A3 introduces the LOCKED SIGNATURE; A6 fills the seat-filtered pending
