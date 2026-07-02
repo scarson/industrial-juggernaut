@@ -3,7 +3,7 @@
 import { test, expect } from "vitest";
 import * as S from "../../src/session/index";
 test("session barrel exposes record/replay/codec/hash/validation", () => {
-  for (const name of ["recordGame","replayLog","applyEntry","stateHash","encodeRecord","decodeRecord","encodeEntry","decodeEntry","validatePass","validateTargetAttackable","validateAttackDecl","validateBuildPieces","claimSeat","seatRoster"]) {
+  for (const name of ["recordGame","replayLog","applyEntry","stateHash","encodeRecord","decodeRecord","encodeEntry","decodeEntry","validatePass","validateTargetAttackable","validateAttackDecl","validateBuildPieces","claimSeat","seatRoster","malformedError","unknownTypeError","oversizedError"]) {
     expect(typeof (S as any)[name]).toBe("function");
   }
 });
