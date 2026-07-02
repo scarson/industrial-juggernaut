@@ -18,6 +18,8 @@ test("WIRE_ERROR_CODES contains the session-layer codes used by validation + env
     "STALE_INDEX", "DECISION_PENDING", "ALREADY_RESOLVED", "NOT_YOUR_TURN",
     "SEAT_TAKEN", "BAD_SEAT_TOKEN", "MALFORMED", "UNKNOWN_TYPE", "OVERSIZED",
     "VERSION_MISMATCH",
+    // setup-phase envelope guard (only placeFirstBase is legal during turn 0):
+    "SETUP_PLACEMENT_REQUIRED",
     // session validation codes (re-exported for the client's rule-explanation map):
     "PASS_NOT_FORCED", "ATTACK_NOT_SINGLE_DECL", "DUP_ATTACKERS",
     "DEFENDER_IS_TARGET", "DEFENDER_INELIGIBLE", "NO_ELIGIBLE_DEFENDER",

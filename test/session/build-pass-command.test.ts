@@ -214,6 +214,72 @@ test("legal pass (allowPass=true): the acting player passes — persists log:N +
   expect(snapshot.stateHash).toBe(stateHash(next.game));
 });
 
+// A 4-HUMAN header: setup has 4 placements, so after two placements the game is STILL in setup (turn 0) with
+// >=2 live coalitions — the state where a setup-phase pass/build from the current (unplaced) placer must be
+// envelope-rejected, not forwarded to the engine (advanceRound throws on any turn-0 state, turn.ts:246).
+const mkHeader4 = (): SessionHeader => ({
+  formatVersion: 1,
+  replayVersion: "test",
+  seed: 42n,
+  config: defaultConfig(),
+  boardSource: { kind: "generate", size: 96, ironCount: 14 },
+  seats: [{ kind: "human" }, { kind: "human" }, { kind: "human" }, { kind: "human" }],
+});
+
+/** A 4-player session with exactly the first TWO setup placements done: still turn 0, next placer has 0 bases. */
+function midSetup4(): SessionState {
+  let s = openSession(mkHeader4(), DEFAULT_ROOM_OPTIONS);
+  for (let idx = 0; idx < 2; idx++) {
+    const seat = currentSeat(s);
+    const hex = legalFirstBaseHexes(s.game)[0]!;
+    const r = applyCommand(s, { type: "placeFirstBase", expectedLogIndex: idx, hex }, mkCtx(seat));
+    if (r.effects.persist === null) throw new Error(`setup placement rejected at idx ${idx}`);
+    s = r.next;
+  }
+  expect(s.game.phase.turn).toBe(0); // still setup — two of four seats placed
+  return s;
+}
+
+test("SETUP_PLACEMENT_REQUIRED: a setup-phase pass from the current unplaced placer is rejected, not crashed", () => {
+  // The crash repro: with >=2 live coalitions already placed, validatePass sees the unplaced placer as
+  // FORCED (legalActions' stuck fallback returns only pass — no bases → no builds/attacks), so without an
+  // envelope guard the entry reaches applyEntry → applyEliminations(noBases) → status ongoing →
+  // advanceRound, which THROWS on turn 0 (turn.ts:246) — uncaught through applyCommand.
+  const s = midSetup4();
+  const seat = currentSeat(s);
+  expect(s.game.bases.some((b) => b.owner === seat)).toBe(false); // the placer has NOT placed yet
+
+  const { next, effects } = applyCommand(s, { type: "pass", expectedLogIndex: s.logLength }, mkCtx(seat));
+
+  expect(next).toBe(s);
+  expect(effects.persist).toBeNull();
+  expect(effects.reply).toHaveLength(1);
+  const reply = effects.reply[0]!;
+  expect(reply.type).toBe("error");
+  if (reply.type !== "error") throw new Error("expected error");
+  expect(reply.code).toBe("SETUP_PLACEMENT_REQUIRED");
+  expect(reply.currentLogIndex).toBe(s.logLength);
+});
+
+test("SETUP_PLACEMENT_REQUIRED: a setup-phase build from the current unplaced placer is rejected", () => {
+  // Same envelope hole, build flavor: during setup the ONLY legal mutating command is placeFirstBase.
+  // Without the guard this build reached the engine's apply path (turn-0 phase semantics are wrong there —
+  // the mapped budget throw fires incidentally, teaching the client the wrong rule).
+  const s = midSetup4();
+  const seat = currentSeat(s);
+  const pieces: Piece[] = [{ type: "factory", hex: s.game.board.hexes[0]! }]; // well-formed; setup makes it illegal
+
+  const { next, effects } = applyCommand(s, { type: "build", expectedLogIndex: s.logLength, pieces }, mkCtx(seat));
+
+  expect(next).toBe(s);
+  expect(effects.persist).toBeNull();
+  expect(effects.reply).toHaveLength(1);
+  const reply = effects.reply[0]!;
+  expect(reply.type).toBe("error");
+  if (reply.type !== "error") throw new Error("expected error");
+  expect(reply.code).toBe("SETUP_PLACEMENT_REQUIRED");
+});
+
 test("play-phase NOT_YOUR_TURN: the NON-current player sends a well-formed build → NOT_YOUR_TURN", () => {
   // Exercises the envelope's currentPlayer branch IN THE PLAY PHASE (previously only setup-phase tested):
   // currentActor() resolves to currentPlayer(game) when phase.turn !== 0. The non-current seat is rejected

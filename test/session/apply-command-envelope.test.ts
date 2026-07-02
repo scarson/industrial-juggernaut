@@ -5,6 +5,7 @@ import { openSession, applyCommand, resyncPayload } from "../../src/session/sess
 import { decodeState } from "../../src/wire/codec";
 import { DEFAULT_ROOM_OPTIONS, PROTOCOL_VERSION } from "../../src/wire/protocol";
 import { defaultConfig } from "../../src/engine/config";
+import { legalFirstBaseHexes } from "../../src/index";
 import type { SessionHeader } from "../../src/session/types";
 import type { CommandCtx, Pending, SessionState } from "../../src/session/session-types";
 import type { AttackDecl } from "../../src/engine/types";
@@ -165,13 +166,24 @@ test("non-mutating bypass: extendDecision skips the envelope guards even with a 
 });
 
 test("UNKNOWN_TYPE default: a mutating command that passes every guard hits the unimplemented default", () => {
-  // attack with the correct index (0) and the current actor (seat 0). All guards pass; the switch has no
-  // attack case yet (A4 implements it) → UNKNOWN_TYPE. (This slot previously used `build`, which A3.3
+  // attack in the PLAY phase (setup completed) with the correct index and the current actor. All guards pass —
+  // including the setup-phase SETUP_PLACEMENT_REQUIRED guard, which is why setup must finish first; the switch
+  // has no attack case yet (A4 implements it) → UNKNOWN_TYPE. (This slot previously used `build`, which A3.3
   // implemented; attack is the next still-unimplemented mutating command, so it now pins the default.)
-  const s = freshSession();
+  let s = freshSession();
+  let idx = 0;
+  while (s.game.phase.turn === 0) {
+    const placer = s.game.phase.order[s.game.phase.indexInOrder]!;
+    const hex = legalFirstBaseHexes(s.game)[0]!;
+    const r = applyCommand(s, { type: "placeFirstBase", expectedLogIndex: idx, hex }, mkCtx(placer));
+    if (r.effects.persist === null) throw new Error(`setup placement rejected at idx ${idx}`);
+    s = r.next;
+    idx += 1;
+  }
+  const actor = s.game.phase.order[s.game.phase.indexInOrder]!;
   const origin = { x: 0, y: 0, z: 0 };
   const decl: AttackDecl = { target: origin, attackers: [], defender: origin };
-  const { next, effects } = applyCommand(s, { type: "attack", expectedLogIndex: 0, decl }, mkCtx(0));
+  const { next, effects } = applyCommand(s, { type: "attack", expectedLogIndex: s.logLength, decl }, mkCtx(actor));
 
   expect(next).toBe(s);
   expect(effects.persist).toBeNull();

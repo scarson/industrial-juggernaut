@@ -81,6 +81,13 @@ export function applyCommand(s: SessionState, c: ClientCommand, ctx: CommandCtx)
     // legitimate resolver is the prompted DEFENDER — resolveDecision/extendDecision must be authorized
     // against s.pending.promptedSeat, not currentActor.
     if (ctx.actingSeat !== currentActor(s)) return keep(errorEffects(s, "NOT_YOUR_TURN", "It is not your turn."));
+    // During setup (turn 0) the ONLY legal mutating command is placeFirstBase (recordGame's composition).
+    // Without this, a forced pass from an unplaced placer passes validatePass (legalActions' stuck fallback)
+    // and reaches advanceRound, which THROWS on any turn-0 state (src/engine/turn.ts) — an uncaught crash on
+    // a legitimate wire command. Placed AFTER NOT_YOUR_TURN so it fires only for the in-turn, fresh-index seat.
+    if (s.game.phase.turn === 0 && c.type !== "placeFirstBase") {
+      return keep(errorEffects(s, "SETUP_PLACEMENT_REQUIRED", "Setup is in progress — place your first base."));
+    }
   }
   switch (c.type) {
     case "placeFirstBase": {
@@ -119,8 +126,11 @@ export function applyCommand(s: SessionState, c: ClientCommand, ctx: CommandCtx)
       if (passError !== null) {
         return keep(errorEffects(s, passError.code as WireErrorCode, passError.message)); // PASS_NOT_FORCED
       }
-      // No try/catch: pass runs applyAction(pass) (a no-op) + eliminations/stranded (pure), so no rule throw is
-      // reachable from a validated pass. Any throw here is a reducer/engine bug and propagates loud (A3.2 policy).
+      // No try/catch: setup passes are envelope-rejected (SETUP_PLACEMENT_REQUIRED above), and a validated
+      // PLAY-phase pass has no reachable rule throw — applyAction(pass) is a no-op, applyEliminations and
+      // removeEncircledStrandedBases never throw (they may legitimately fire, e.g. a noIron elimination on the
+      // first play-phase entry), and advanceRound only throws in setup (a victory-closing round skips it).
+      // Any throw here is a reducer/engine bug and propagates loud (A3.2 policy).
       const entry: LogEntry = { player: ctx.actingSeat, kind: "pass", rngBeforeApply: s.game.rngState };
       const result = commitEntries(s, [entry]); // pass self-closes the round → snapshot + turnRollover
       return { next: result.next, effects: result.effects };

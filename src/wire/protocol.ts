@@ -78,6 +78,7 @@ export const WIRE_ERROR_CODES = [
   "VERSION_MISMATCH", "ROOM_NOT_INITIALIZED", "GAME_OVER", "FROZEN",
   // setup placement (distinct codes feed the teaching surface — do NOT collapse to MALFORMED)
   "NOT_IN_SETUP", "HEX_OFF_BOARD", "HEX_NOT_OUTER", "HEX_OCCUPIED", "INVALID_ATTACKERS",
+  "SETUP_PLACEMENT_REQUIRED",
   // session validation (re-exported so the client maps codes → rule explanations)
   "PASS_NOT_FORCED", "ATTACK_NOT_SINGLE_DECL", "DUP_ATTACKERS",
   "DEFENDER_IS_TARGET", "DEFENDER_INELIGIBLE", "NO_ELIGIBLE_DEFENDER",
