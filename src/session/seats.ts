@@ -23,8 +23,12 @@ function errorReply(s: SessionState, code: WireErrorCode, message: string): Serv
  *
  * `effects.persist` is ALWAYS null: `claimed`/`lastRequestId` are ephemeral roster state (session-types.ts
  * SeatRuntime), not persisted — the durable auth fact is `authorizedDigest` in the header bundle (Part B).
- * No broadcast/toSeat/alarm — reply only; the roster rides the next resync (plan-observed limitation, see
- * A5.1 report: other clients don't see a seat fill in live).
+ *
+ * On the `claimed` false→true TRANSITION the `seatClaimed` message is ALSO broadcast: the protocol has no
+ * periodic refresh cycle (resyncs fire only on connect, STALE_INDEX, or an explicit request), so without the
+ * broadcast an idle lobby client would never see a seat fill. Re-acks (same requestId) and multi-tab acks on
+ * an already-claimed seat do NOT re-broadcast — the broadcast is gated on the transition, not on success.
+ * The reply carries the same message either way. No toSeat, no alarm.
  */
 export function claimSeat(
   s: SessionState,
@@ -44,7 +48,10 @@ export function claimSeat(
   }
   const seats = s.seats.map((sr, i) => (i === c.seat ? { ...sr, claimed: true, lastRequestId: c.requestId } : sr));
   const next: SessionState = { ...s, seats };
-  return { next, effects: { ...NO_EFFECTS, reply: [reply] } };
+  // Broadcast ONLY on the claim transition (false→true): an already-claimed seat re-acking (multi-tab) is
+  // roster-invisible to other clients, so re-broadcasting would be noise.
+  const broadcast = seatRuntime.claimed ? [] : [reply];
+  return { next, effects: { ...NO_EFFECTS, reply: [reply], broadcast } };
 }
 
 /** Projects `SessionState.seats` (the runtime roster, including auth internals like `authorizedDigest`) to the

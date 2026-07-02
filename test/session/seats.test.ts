@@ -1,4 +1,4 @@
-// ABOUTME: claimSeat (A5.1) — own-seat check, requestId idempotency, multi-tab re-ack, out-of-range seat guard.
+// ABOUTME: claimSeat (A5.1) — own-seat check, requestId idempotency, multi-tab re-ack, out-of-range seat guard, claim-transition broadcast.
 // ABOUTME: claimSeat is a roster ack, not authentication: ctx.actingSeat is already the authenticated seat. seatRoster (A5.2) is the shared roster-projection helper.
 import { test, expect } from "vitest";
 import { openSession, applyCommand } from "../../src/session/session";
@@ -36,7 +36,7 @@ const mkCtx = (actingSeat: number): CommandCtx => ({
   decisionId: "test-decision",
 });
 
-test("own-seat ack: seatClaimed reply, claimed set, requestId recorded, NO side effects beyond the reply", () => {
+test("own-seat ack: seatClaimed reply + broadcast on the claim transition; no persist/toSeat/alarm", () => {
   const s = freshSession();
   const { next, effects } = applyCommand(s, { type: "claimSeat", requestId: "req-1", seat: 0 }, mkCtx(0));
 
@@ -50,9 +50,11 @@ test("own-seat ack: seatClaimed reply, claimed set, requestId recorded, NO side 
   expect(next.seats[0]!.claimed).toBe(true);
   expect(next.seats[0]!.lastRequestId).toBe("req-1");
 
-  // The full NO-side-effects mechanism: ephemeral roster state is never persisted/broadcast/pushed/alarmed.
+  // The claimed false→true transition ALSO broadcasts the seatClaimed message: the protocol has no periodic
+  // refresh (resyncs fire only on connect/stale-index/explicit request), so without it an idle lobby client
+  // would never see a seat fill. Ephemeral roster state is still never persisted/pushed/alarmed.
   expect(effects.persist).toBeNull();
-  expect(effects.broadcast).toEqual([]);
+  expect(effects.broadcast).toEqual([{ type: "seatClaimed", seat: 0, requestId: "req-1" }]);
   expect(effects.toSeat).toEqual([]);
   expect(effects.alarm).toBeNull();
 
@@ -84,7 +86,7 @@ test("idempotent re-ack: same requestId returns the same seatClaimed reply, NO n
 
   expect(second.next).toBe(first.next); // identity — re-ack is a pure no-op
   expect(second.effects.persist).toBeNull();
-  expect(second.effects.broadcast).toEqual([]);
+  expect(second.effects.broadcast).toEqual([]); // no re-broadcast — the broadcast is gated on the claim transition
   expect(second.effects.toSeat).toEqual([]);
   expect(second.effects.alarm).toBeNull();
   expect(second.effects.reply).toHaveLength(1);
@@ -104,6 +106,10 @@ test("multi-tab: a second ack on the same seat with a different requestId succee
   expect(second.next.seats[0]!.claimed).toBe(true);
   expect(second.next.seats[0]!.lastRequestId).toBe("req-2");
   expect(second.effects.persist).toBeNull();
+  // claimed was ALREADY true — no false→true transition, so no re-broadcast (multi-tab acks stay quiet).
+  expect(second.effects.broadcast).toEqual([]);
+  expect(second.effects.toSeat).toEqual([]);
+  expect(second.effects.alarm).toBeNull();
   expect(second.effects.reply).toHaveLength(1);
   const reply = second.effects.reply[0]!;
   expect(reply.type).toBe("seatClaimed");
