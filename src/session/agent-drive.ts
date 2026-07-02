@@ -7,6 +7,7 @@ import { openDefenderDecision } from "./pending";
 import { status } from "../engine/status";
 import { currentPlayer, representativeFirstBase } from "../engine/turn";
 import { representativeDefender } from "../engine/legal";
+import { control } from "../engine/control";
 import type { Agent } from "../agent/agent";   // import type only — no value import of src/agent here
 import type { AttackDecl, PlayerId } from "../engine/types";
 import type { LogEntry, SeatConfig } from "./types";
@@ -143,7 +144,17 @@ export function commitEntries(s: SessionState, entries: LogEntry[]): DriveResult
       // `players` is the winning coalition (EMPTY [] for an all-eliminated/no-winner board, DER-N7 / status.ts:116).
       broadcast.push({ type: "gameOver", winners: terminal.players, cause: terminal.reason });
     } else {
-      broadcast.push({ type: "turnRollover", order: game.phase.order, ironWeights: null }); // ironWeights filled in A6
+      // ironWeights: the 2-player turn-order draw is iron-proportional (DER #12); the HUD draw ceremony needs a
+      // weight per player. Indexed by PlayerId — ironWeights[pid] = control(game, pid).iron.length — so the
+      // client aligns a weight to each player by id, not by broadcast-order position. `game` here is the
+      // POST-COMPOSITION state (post-advanceRound), the same state whose `order` is broadcast in this message.
+      // Computed fresh at this point of use, never cached (GEO-5); `control` already applies the DER-17
+      // non-ally-perimeter exclusion for radiating players (GEO-8) — used as-is, no re-derivation here.
+      // For 3+ players the order rule is not iron-weighted (DER #13) — ironWeights is null.
+      const ironWeights = game.players.length === 2
+        ? [control(game, 0).iron.length, control(game, 1).iron.length]
+        : null;
+      broadcast.push({ type: "turnRollover", order: game.phase.order, ironWeights });
     }
   }
   const next: SessionState = { ...s, game, logLength };

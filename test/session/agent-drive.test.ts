@@ -8,6 +8,7 @@ import { logKey, PENDING_KEY, SNAPSHOT_KEY } from "../../src/session/keys";
 import { stateHash } from "../../src/session/hash";
 import { representativeFirstBase } from "../../src/engine/turn";
 import { representativeDefender } from "../../src/engine/legal";
+import { control } from "../../src/engine/control";
 import { applyEntry } from "../../src/session/round";
 import { defaultConfig } from "../../src/engine/config";
 import { nextInt, seed } from "../../src/rng/pcg";
@@ -91,7 +92,7 @@ test("setup drive: agent seat auto-places one placeFirstBase, no snapshot, no ro
   expect(needsDrive(res.next)).toBe(false);
 });
 
-test("play drive: a fake pass-agent round closes the round — one pass entry + snapshot + turnRollover(ironWeights:null)", () => {
+test("play drive: a fake pass-agent round closes the round — one pass entry + snapshot + turnRollover(ironWeights, A6.3)", () => {
   const s0 = openAgentHumanSession();
 
   // Setup: agent seat 0 auto-places via the loop.
@@ -133,12 +134,17 @@ test("play drive: a fake pass-agent round closes the round — one pass entry + 
   expect(snap.stateHash).toBe(stateHash(res.next.game));
   expect(snap.replayVersion).toBe("test");
 
-  // Broadcasts: the `applied` pass, then a `turnRollover` with ironWeights null and the post-advance order.
+  // Broadcasts: the `applied` pass, then a `turnRollover` with the post-advance order and (this is a 2-player
+  // game) a non-null ironWeights matching an independently recomputed control() on the post-close state
+  // (A6.3 — the iron-weight mechanism itself is exhaustively covered by turn-rollover.test.ts; this test only
+  // pins that the agent-drive loop's turnRollover carries it).
   expect(res.effects.broadcast).toHaveLength(2);
   const applied = res.effects.broadcast[0]!;
   expect(applied).toMatchObject({ type: "applied", logIndex: 2 });
   const rollover = res.effects.broadcast[1]!;
-  expect(rollover).toEqual({ type: "turnRollover", order: res.next.game.phase.order, ironWeights: null });
+  if (rollover.type !== "turnRollover") throw new Error("expected turnRollover");
+  expect(rollover.order).toEqual(res.next.game.phase.order);
+  expect(rollover.ironWeights).toEqual([control(res.next.game, 0).iron.length, control(res.next.game, 1).iron.length]);
   // No gameOver on an ongoing round.
   expect(res.effects.broadcast.some((m) => m.type === "gameOver")).toBe(false);
 
