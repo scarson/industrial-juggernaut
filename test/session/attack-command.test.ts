@@ -564,6 +564,52 @@ describe("extendDecision", () => {
 // 8. chainAttacker + endRound.
 // ===========================================================================
 describe("chainAttacker + endRound", () => {
+  test("resolveDecision leaving a legal attack open sets chainAttacker to the ATTACKER (not the resolver); attacker endRound closes, defender endRound rejected", () => {
+    // Human-vs-human REMAINS scenario routed through openDefenderDecision → resolveDecision: the resolving
+    // defender (seat 1) answers, but the open chain belongs to the ATTACKER (pending.declaringPlayer, seat 0).
+    const pre = synthGame(remainsBases(), { iron: B_IRON });
+    const s0 = mkSession(pre, [HUMAN, HUMAN]);
+    const idx = s0.logLength;
+    const opened = applyCommand(s0, { type: "attack", expectedLogIndex: idx, decl: B_DECL }, mkCtx(0, { decisionId: "d-chain" }));
+    const s1 = opened.next;
+    expect(s1.pending).not.toBeNull();
+    expect(s1.chainAttacker).toBeNull(); // nothing applied yet — no chain while the decision is pending
+
+    // The prompted defender resolves with the eligible B_DEF.
+    const resolved = applyCommand(
+      s1,
+      { type: "resolveDecision", expectedLogIndex: s1.logLength, decisionId: "d-chain", defender: B_DEF },
+      mkCtx(1),
+    );
+    const s2 = resolved.next;
+
+    // (i) The round did NOT close: the put carries the attack log:N + PENDING_TOMBSTONE only — no SNAPSHOT_KEY,
+    // no auto-close endRound (the spare cluster still has a legal attack).
+    expect(resolved.effects.persist).not.toBeNull();
+    const putKeys = Object.keys(resolved.effects.persist!.put).sort();
+    expect(putKeys).toEqual([PENDING_KEY, logKey(idx)].sort());
+    expect(s2.logLength).toBe(idx + 1);
+    expect(s2.pending).toBeNull();
+
+    // (ii) chainAttacker is the ATTACKER (pending.declaringPlayer, seat 0), NOT the resolving defender seat 1.
+    expect(s2.chainAttacker).toBe(0);
+
+    // (iv) endRound from the DEFENDER (the resolver) → NOT_YOUR_TURN, identity, no persist.
+    const defenderClose = applyCommand(s2, { type: "endRound", expectedLogIndex: s2.logLength }, mkCtx(1));
+    expect(defenderClose.next).toBe(s2);
+    expect(defenderClose.effects.persist).toBeNull();
+    if (defenderClose.effects.reply[0]!.type !== "error") throw new Error("expected error");
+    expect(defenderClose.effects.reply[0]!.code).toBe("NOT_YOUR_TURN");
+
+    // (iii) endRound from the ATTACKER succeeds and closes the round (snapshot + close broadcast), chain nulled.
+    const attackerClose = applyCommand(s2, { type: "endRound", expectedLogIndex: s2.logLength }, mkCtx(0));
+    expect(attackerClose.effects.persist).not.toBeNull();
+    const closeKeys = Object.keys(attackerClose.effects.persist!.put).sort();
+    expect(closeKeys).toEqual([SNAPSHOT_KEY, logKey(s2.logLength)].sort());
+    expect(attackerClose.next.chainAttacker).toBeNull();
+    expect(attackerClose.next.logLength).toBe(s2.logLength + 1);
+  });
+
   test("an attack leaving a legal attack open sets chainAttacker; endRound from that attacker closes the round and nulls it", () => {
     const pre = synthGame(remainsBases(), { iron: B_IRON });
     const s0 = mkSession(pre, [HUMAN, AGENT]);

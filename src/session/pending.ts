@@ -191,15 +191,24 @@ export function resolveDefender(
 }
 
 /**
- * Re-arm the defender-decision deadline. When the room's defender timeout is DISABLED this is a pure no-op —
- * `{ next: s, effects: NO_EFFECTS }` — there is nothing to extend, and arming an alarm or stamping a non-null
- * deadline onto a pending opened with `deadlineEpochMs: null` would create a spurious liveness clock. When
- * enabled, pushes `deadlineEpochMs` to `ctx.nowEpochMs + roomOptions.defenderTimeout.seconds*1000`, persists the
- * updated pending, and sets the alarm. No log entry (the attack is still deferred). The prompted-seat
- * authorization is enforced by the command layer (it checks the acting seat against `pending.promptedSeat`
- * before calling extendDefender); the deadline math here re-uses the room's configured seconds.
+ * Re-arm the defender-decision deadline. Validates FIRST that the acting seat IS the prompted seat —
+ * `{ error: NOT_YOUR_TURN }` otherwise. The command layer (session.ts extendDecision handler) enforces the same
+ * check before calling in; BOTH layers validate (defense in depth per plan Task A4.3) so a non-prompted seat can
+ * never reset the defender's liveness clock even through a future caller that skips the command layer. When the
+ * room's defender timeout is DISABLED this is a pure no-op — `{ next: s, effects: NO_EFFECTS }` — there is
+ * nothing to extend, and arming an alarm or stamping a non-null deadline onto a pending opened with
+ * `deadlineEpochMs: null` would create a spurious liveness clock. When enabled, pushes `deadlineEpochMs` to
+ * `ctx.nowEpochMs + roomOptions.defenderTimeout.seconds*1000`, persists the updated pending, and sets the alarm.
+ * No log entry (the attack is still deferred).
  */
-export function extendDefender(s: SessionState, pending: Pending, ctx: CommandCtx): { next: SessionState; effects: Effects } {
+export function extendDefender(
+  s: SessionState,
+  pending: Pending,
+  ctx: CommandCtx,
+): { next: SessionState; effects: Effects } | { error: SessionError } {
+  if (ctx.actingSeat !== pending.promptedSeat) {
+    return { error: { code: "NOT_YOUR_TURN", message: "Only the prompted defender may extend their decision." } };
+  }
   const timeout = s.roomOptions.defenderTimeout;
   if (!timeout.enabled) return { next: s, effects: NO_EFFECTS };
   const deadlineEpochMs = ctx.nowEpochMs + timeout.seconds * 1000;
