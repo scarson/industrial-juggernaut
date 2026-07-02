@@ -261,7 +261,6 @@ describe("applyEliminations", () => {
 
   it("self-destruct: byPlayer === eliminated player & cause noIron => emptyPerimeter, no bounty", () => {
     const s = mkState({ board: 96, basesP0: [hex(0, 0, 0)], basesP1: [hex(30, -30, 0)], iron: [hex(30, -29, -1)] });
-    const beforeP0 = s.players[0]!.basesInHand;
     const { state, events } = applyEliminations(s, 0);
     const evt = events.find((e) => e.kind === "eliminated" && e.player === 0);
     expect(evt).toBeDefined();
@@ -269,8 +268,11 @@ describe("applyEliminations", () => {
       expect(evt.cause).toBe("emptyPerimeter");
       expect(evt.bountyTo).toBe(null);
     }
-    // No basesInHand change for anyone (self-inflicted).
-    expect(state.players[0]!.basesInHand).toBe(beforeP0);
+    // Self-inflicted: no bounty is awarded to anyone. The self-destructed player is
+    // eliminated and owns nothing (its forfeited bases are given to no one), while the
+    // surviving player's hand is untouched.
+    expect(state.players[0]!.basesInHand).toBe(0);
+    expect(state.players[1]!.basesInHand).toBe(s.players[1]!.basesInHand);
   });
 
   it("killBounty half => +6", () => {
@@ -317,6 +319,24 @@ describe("applyEliminations", () => {
     const { state } = applyEliminations(s, null);
     expect(state.bases.some((b) => b.owner === 0)).toBe(false);
     expect(state.bases.some((b) => b.owner === 1)).toBe(true);
+  });
+
+  it("eliminated player's basesInHand is zeroed (all their tokens leave play)", () => {
+    const s = mkState({
+      board: 96,
+      basesP0: [hex(0, 0, 0)],
+      basesP1: [hex(30, -30, 0)],
+      iron: [hex(30, -29, -1)],
+    });
+    // Precondition: p0 still holds unplaced bases in hand.
+    expect(s.players[0]!.basesInHand).toBeGreaterThan(0);
+    // p0 controls no iron => eliminated. On elimination its on-board bases are
+    // removed AND its in-hand bases leave play (an eliminated player owns nothing).
+    const { state } = applyEliminations(s, null);
+    expect(state.players[0]!.eliminated).toBe(true);
+    expect(state.players[0]!.basesInHand).toBe(0);
+    // The surviving player's hand is untouched.
+    expect(state.players[1]!.basesInHand).toBe(s.players[1]!.basesInHand);
   });
 });
 
