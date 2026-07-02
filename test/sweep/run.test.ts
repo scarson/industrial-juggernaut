@@ -6,9 +6,12 @@ import {
   gameSeed,
   proportionCI,
   runConfig,
+  runConfigEntries,
+  runGameEntry,
   sweepGrid,
   sweepOFAT,
 } from "../../src/sweep/run";
+import { computeMetrics, type GameEntry } from "../../src/sweep/metrics";
 import { defaultConfig } from "../../src/engine/config";
 import type { RuleConfig } from "../../src/engine/config";
 
@@ -138,6 +141,79 @@ describe("runConfig", () => {
       expect(m.ironVictoryFraction).toBeLessThanOrEqual(1);
       expect(m.setupDecidedFraction).toBeGreaterThanOrEqual(0);
       expect(m.setupDecidedFraction).toBeLessThanOrEqual(1);
+    },
+    TIMEOUT,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// runGameEntry / runConfigEntries — the parallel-decomposition seam
+// ---------------------------------------------------------------------------
+
+describe("runGameEntry / runConfigEntries — parallel decomposition", () => {
+  it(
+    "runConfigEntries(...) aggregated equals runConfig(...) — extraction is behavior-preserving",
+    () => {
+      const config = defaultConfig();
+      const opts = { games: 16, turnCap: TURN_CAP, baseSeed: 7n };
+      const seq = runConfig(config, opts);
+      const fromEntries = computeMetrics(runConfigEntries(config, opts));
+      expect(fromEntries).toEqual(seq);
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "PARALLEL == SEQUENTIAL: disjoint gameIndex shards merged in order yield identical metrics",
+    () => {
+      // The correctness invariant for process-sharded execution: each game's CRN
+      // seed = gameSeed(baseSeed, gameIndex) depends ONLY on (baseSeed, gameIndex),
+      // never on which shard ran it. So splitting [0..games) into disjoint index
+      // shards, running runGameEntry per index in each shard, and re-merging by
+      // gameIndex MUST reproduce the sequential GameEntry list byte-for-byte —
+      // hence identical computeMetrics output.
+      const config: RuleConfig = { ...defaultConfig(), boardSize: 61, ironCount: 8, radius: 4 };
+      const opts = { games: 15, turnCap: TURN_CAP, baseSeed: 11n };
+
+      // Sequential ground truth.
+      const sequential = runConfig(config, opts);
+
+      // Simulate 3 process shards over disjoint, INTERLEAVED gameIndex ranges
+      // (round-robin assignment is the most adversarial split — it scatters each
+      // shard's indices across the whole range rather than contiguous blocks).
+      const numShards = 3;
+      const shardEntries: { gameIndex: number; entry: GameEntry }[] = [];
+      for (let shard = 0; shard < numShards; shard++) {
+        for (let i = shard; i < opts.games; i += numShards) {
+          shardEntries.push({ gameIndex: i, entry: runGameEntry(config, opts, i) });
+        }
+      }
+
+      // Merge: reassemble in gameIndex order (the parent's job after collecting shards).
+      shardEntries.sort((a, b) => a.gameIndex - b.gameIndex);
+      const merged = computeMetrics(shardEntries.map((s) => s.entry));
+
+      expect(merged).toEqual(sequential);
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "runGameEntry uses the CRN seed gameSeed(baseSeed, gameIndex) and the rotated player count",
+    () => {
+      const config = defaultConfig();
+      const opts = { games: 0, turnCap: TURN_CAP, baseSeed: 5n, playerCounts: [2, 3, 4] };
+      // gameIndex 4 → seed 9, nPlayers = playerCounts[4 % 3] = playerCounts[1] = 3.
+      const seenSeeds: bigint[] = [];
+      const seenCounts: number[] = [];
+      const entry = runGameEntry(config, opts, 4, {
+        onGameSeed: (i, seed) => seenSeeds.push(seed),
+        onGamePlayed: (i, n) => seenCounts.push(n),
+      });
+      expect(seenSeeds).toEqual([gameSeed(5n, 4)]);
+      expect(seenSeeds).toEqual([9n]);
+      expect(seenCounts).toEqual([3]);
+      expect(entry.nPlayers).toBe(3);
     },
     TIMEOUT,
   );
