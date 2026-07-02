@@ -1,7 +1,7 @@
 // ABOUTME: claimSeat — the seat-claim roster ack (spec §3, plan Phase A5). Pure; no token/digest handling.
-// ABOUTME: The socket authenticates at the WS upgrade (Part B); claimSeat only records the roster ack.
+// ABOUTME: The socket authenticates at the WS upgrade (Part B); claimSeat only records the roster ack. seatRoster projects SessionState.seats to the wire roster shape.
 import { NO_EFFECTS, type CommandCtx, type Effects, type SessionState } from "./session-types";
-import type { ServerMessage, WireErrorCode } from "../wire/protocol";
+import type { ServerMessage, SeatRosterEntry, WireErrorCode } from "../wire/protocol";
 
 /** Builds the identical `{ type: "error", ... }` reply shape session.ts's errorEffects constructs — duplicated
  *  locally rather than imported to avoid a session.ts <-> seats.ts import cycle (session.ts imports seats.ts to
@@ -45,4 +45,11 @@ export function claimSeat(
   const seats = s.seats.map((sr, i) => (i === c.seat ? { ...sr, claimed: true, lastRequestId: c.requestId } : sr));
   const next: SessionState = { ...s, seats };
   return { next, effects: { ...NO_EFFECTS, reply: [reply] } };
+}
+
+/** Projects `SessionState.seats` (the runtime roster, including auth internals like `authorizedDigest`) to the
+ *  wire's `SeatRosterEntry[]` — seat index, claimed flag, and seat kind only. Used by `resyncPayload` (session.ts)
+ *  and any future roster-bearing message; kept here as the single source of truth for the projection. */
+export function seatRoster(s: SessionState): SeatRosterEntry[] {
+  return s.seats.map((seatRuntime) => ({ seat: seatRuntime.seat, claimed: seatRuntime.claimed, kind: seatRuntime.config.kind }));
 }

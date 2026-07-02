@@ -15,6 +15,7 @@ export { applyCommand, resyncPayload } from "./session";
 export { resolveDefender } from "./pending";
 export { needsDrive, driveOneStep } from "./agent-drive";
 export { agentForSeat } from "./agent-binding";
+export { claimSeat, seatRoster } from "./seats";
 export * from "./keys";
 export type { SessionState, Pending, SeatRuntime, Effects, PersistOp, AlarmIntent, CommandCtx } from "./session-types";
 export { PENDING_TOMBSTONE } from "./session-types";

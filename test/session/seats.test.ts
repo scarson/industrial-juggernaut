@@ -1,7 +1,8 @@
 // ABOUTME: claimSeat (A5.1) — own-seat check, requestId idempotency, multi-tab re-ack, out-of-range seat guard.
-// ABOUTME: claimSeat is a roster ack, not authentication: ctx.actingSeat is already the authenticated seat.
+// ABOUTME: claimSeat is a roster ack, not authentication: ctx.actingSeat is already the authenticated seat. seatRoster (A5.2) is the shared roster-projection helper.
 import { test, expect } from "vitest";
 import { openSession, applyCommand } from "../../src/session/session";
+import { seatRoster } from "../../src/session/seats";
 import { DEFAULT_ROOM_OPTIONS } from "../../src/wire/protocol";
 import { defaultConfig } from "../../src/engine/config";
 import type { SessionHeader } from "../../src/session/types";
@@ -15,6 +16,16 @@ const header: SessionHeader = {
   config: defaultConfig(),
   boardSource: { kind: "generate", size: 96, ironCount: 14 },
   seats: [{ kind: "human" }, { kind: "human" }],
+};
+
+// A mixed human+agent header for seatRoster's shape/order test.
+const mixedHeader: SessionHeader = {
+  formatVersion: 1,
+  replayVersion: "test",
+  seed: 42n,
+  config: defaultConfig(),
+  boardSource: { kind: "generate", size: 96, ironCount: 14 },
+  seats: [{ kind: "human" }, { kind: "agent", agent: "heuristic" }, { kind: "human" }],
 };
 
 const freshSession = (): SessionState => openSession(header, DEFAULT_ROOM_OPTIONS);
@@ -149,4 +160,17 @@ test("out-of-range seat index: a seat number with no matching roster entry is re
   expect(reply.type).toBe("error");
   if (reply.type !== "error") throw new Error("expected error");
   expect(reply.code).toBe("MALFORMED");
+});
+
+test("seatRoster: maps a mixed human+agent header to { seat, claimed, kind } in seat order, reflecting claims", () => {
+  const base = openSession(mixedHeader, DEFAULT_ROOM_OPTIONS);
+  const { next } = applyCommand(base, { type: "claimSeat", requestId: "req-1", seat: 1 }, mkCtx(1));
+
+  const roster = seatRoster(next);
+
+  expect(roster).toEqual([
+    { seat: 0, claimed: false, kind: "human" },
+    { seat: 1, claimed: true, kind: "agent" },
+    { seat: 2, claimed: false, kind: "human" },
+  ]);
 });
