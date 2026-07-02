@@ -531,12 +531,34 @@ describe("extendDefender", () => {
     const pending = mkPending(s.game.rngState); // deadlineEpochMs null, as openDefenderDecision built it
     const withPending: SessionState = { ...s, pending };
 
-    const { next, effects } = extendDefender(withPending, pending, mkCtx(1, { nowEpochMs: 9_000_000 }));
+    const result = extendDefender(withPending, pending, mkCtx(1, { nowEpochMs: 9_000_000 }));
+    if ("error" in result) throw new Error(`unexpected error: ${result.error.code}`);
+    const { next, effects } = result;
 
     expect(next).toBe(withPending); // identity — the pending stays exactly as-is
     expect(effects).toEqual(NO_EFFECTS);
     expect(effects.persist).toBeNull();
     expect(effects.alarm).toBeNull();
+  });
+
+  test("a non-prompted acting seat → { error: NOT_YOUR_TURN } — internal re-validation (defense in depth), no effects", () => {
+    // The command layer ALSO enforces this (session.ts extendDecision handler); the plan (Task A4.3) requires
+    // extendDefender to re-validate ctx.actingSeat === pending.promptedSeat internally too, so a future caller
+    // that skips the command layer cannot let a non-prompted seat reset the defender's liveness clock.
+    const roomOptions: RoomOptions = { defenderTimeout: { enabled: true, seconds: 90 } };
+    const s = mkAttackSession({ roomOptions });
+    const pending = mkPending(s.game.rngState); // promptedSeat: 1
+    const withPending: SessionState = { ...s, pending };
+
+    const result = extendDefender(withPending, pending, mkCtx(0, { nowEpochMs: 9_000_000 })); // seat 0 ≠ prompted 1
+
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) throw new Error("expected error");
+    expect(result.error.code).toBe("NOT_YOUR_TURN");
+    expect(result.error.message.length).toBeGreaterThan(0);
+    // An error result carries NO next/effects — nothing persisted, no alarm re-armed, no deadline pushed.
+    expect(result).not.toHaveProperty("next");
+    expect(result).not.toHaveProperty("effects");
   });
 
   test("pushes deadlineEpochMs to now+seconds*1000 and re-arms the alarm", () => {
@@ -547,7 +569,9 @@ describe("extendDefender", () => {
     const pending: Pending = { ...original, deadlineEpochMs: 1_000_000 + 90 * 1000 };
 
     const ctx = mkCtx(1, { nowEpochMs: 9_000_000 });
-    const { next, effects } = extendDefender(s, pending, ctx);
+    const result = extendDefender(s, pending, ctx);
+    if ("error" in result) throw new Error(`unexpected error: ${result.error.code}`);
+    const { next, effects } = result;
 
     const expected = 9_000_000 + 90 * 1000;
     // The persisted pending reflects the new deadline.

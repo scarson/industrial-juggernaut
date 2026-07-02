@@ -225,15 +225,20 @@ export function applyCommand(s: SessionState, c: ClientCommand, ctx: CommandCtx)
       return { next: withChainAttacker(result, s.pending.declaringPlayer), effects: result.effects };
     }
     case "extendDecision": {
-      // Non-mutating (bypasses the envelope guards); the COMMAND layer owns seat auth (extendDefender trusts its
-      // caller). A wrong id means the decision was already resolved → ALREADY_RESOLVED; a wrong seat → NOT_YOUR_TURN.
+      // Non-mutating (bypasses the envelope guards). A wrong id means the decision was already resolved →
+      // ALREADY_RESOLVED; a wrong seat → NOT_YOUR_TURN. Seat auth is validated HERE and AGAIN inside
+      // extendDefender (defense in depth per plan Task A4.3) — both layers must agree before the clock re-arms.
       if (s.pending === null || c.decisionId !== s.pending.decisionId) {
         return keep(errorEffects(s, "ALREADY_RESOLVED", "That decision is no longer pending."));
       }
       if (ctx.actingSeat !== s.pending.promptedSeat) {
         return keep(errorEffects(s, "NOT_YOUR_TURN", "Only the prompted defender may extend their decision."));
       }
-      return extendDefender(s, s.pending, ctx);
+      const result = extendDefender(s, s.pending, ctx);
+      if ("error" in result) {
+        return keep(errorEffects(s, result.error.code as WireErrorCode, result.error.message));
+      }
+      return result;
     }
     default: return keep(errorEffects(s, "UNKNOWN_TYPE", `Unknown command ${(c as { type?: string }).type}`));
   }
