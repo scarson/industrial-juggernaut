@@ -1,4 +1,4 @@
-// ABOUTME: Pending defender decisions (spec §3) — eligibleDefenders / validateAttackers / open / resolve / extend.
+// ABOUTME: Pending defender decisions (spec §3) — eligibleDefenders / validateAttackers / open / resolve / extend — plus the shared attack-round composition (commitAttackRound / autoCloseIfNoAttack).
 // ABOUTME: Pure; opens the durable write-lock pending, resolves it atomically (append + tombstone in ONE put), re-arms the deadline.
 import { distance, key } from "../geometry/cube";
 import { legalActions } from "../engine/legal";

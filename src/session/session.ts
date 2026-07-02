@@ -1,4 +1,4 @@
-// ABOUTME: The interactive GameSession reducer core — openSession, applyCommand (A3), resyncPayload (A6).
+// ABOUTME: The interactive GameSession reducer core — openSession, the applyCommand envelope + command handlers, resyncPayload.
 // ABOUTME: Pure: every state-changing call returns { next, effects }; the host performs the effects.
 import { initGame } from "../engine/init";
 import { currentActor, commitEntries } from "./agent-drive";
