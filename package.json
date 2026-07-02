@@ -7,13 +7,17 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "test:host": "vitest run --project host",
+    "test:node": "vitest run --project node",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.host.json --noEmit"
   },
   "devDependencies": {
-    "typescript": "^5.5.0",
-    "vitest": "^2.0.0",
+    "@cloudflare/vitest-pool-workers": "^0.18.0",
+    "@cloudflare/workers-types": "^4.20260702.1",
     "fast-check": "^3.20.0",
     "tsx": "^4.16.0",
+    "typescript": "^5.5.0",
+    "vitest": "^4.1.9",
     "wrangler": "^4.93.0"
   }
 }

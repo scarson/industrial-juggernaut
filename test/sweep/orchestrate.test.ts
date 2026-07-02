@@ -595,6 +595,7 @@ describe("report — markdown generation (hand-built fixtures)", () => {
 describe("findBalancedConfig — real-grid smoke (small, deterministic)", () => {
   it(
     "runs a small real grid deterministically and returns well-formed result",
+    { timeout: 120_000 },
     () => {
       // Small grid: 2 victoryThreshold values × 2 boardSize values = 4 configs
       // Small game count and generous turn cap for speed
@@ -647,6 +648,5 @@ describe("findBalancedConfig — real-grid smoke (small, deterministic)", () => 
           : `nearest misses: ${result1.nearestMisses?.length ?? 0}, top reasons: ${result1.nearestMisses?.[0]?.health.reasons.slice(0, 2).join("; ") ?? "none"}`,
       );
     },
-    { timeout: 120_000 },
   );
 });
