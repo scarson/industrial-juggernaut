@@ -193,7 +193,10 @@ export function extendDefender(s: SessionState, pending: Pending, ctx: CommandCt
 
 /** Returns the auto-close endRound entry when the actor has no legal attack remaining, else null
  *  (round stays open for a human to continue their chain). Sanctioned existence check (spec §3):
- *  existence over legalActions, never membership-testing a specific action. */
+ *  existence over legalActions, never membership-testing a specific action.
+ *  PRECONDITION: `game` is the POST-ATTACK state (attack applied, attacker fatigue recorded, actor
+ *  still the current player mid-round) — a pre-attack state silently overcounts remaining attacks.
+ *  legalActions derives the actor internally, so `actor` must be `game`'s current player. */
 export function autoCloseIfNoAttack(game: GameState, actor: PlayerId): LogEntry | null {
   const hasAttack = legalActions(game).some((a) => a.kind === "attack");
   return hasAttack ? null : { player: actor, kind: "endRound", rngBeforeApply: game.rngState };
