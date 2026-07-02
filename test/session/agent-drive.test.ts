@@ -7,6 +7,7 @@ import { logKey, SNAPSHOT_KEY } from "../../src/session/keys";
 import { stateHash } from "../../src/session/hash";
 import { representativeFirstBase } from "../../src/engine/turn";
 import { defaultConfig } from "../../src/engine/config";
+import { nextInt } from "../../src/rng/pcg";
 import { DEFAULT_ROOM_OPTIONS } from "../../src/wire/protocol";
 import type { Agent } from "../../src/agent/agent";
 import type { SessionHeader, LogEntry } from "../../src/session/types";
@@ -223,6 +224,46 @@ function assertAppliedCoherence(effects: { persist: { put: Record<string, unknow
     expect(Object.keys(put)).toContain(logKey(idx));
   }
 }
+
+test("rngBeforeApply is the agent-RETURNED (post-selection) rng, not the pre-selection game rng", () => {
+  const s0 = openAgentHumanSession();
+
+  // Reach play phase with the agent (seat 0) current.
+  const afterAgentSetup = driveOneStep(s0, () => passAgent).next;
+  const humanHex = representativeFirstBase(afterAgentSetup.game, 1);
+  const afterSetup = commitEntries(afterAgentSetup, [
+    { player: 1, kind: "placeFirstBase", hex: humanHex, rngBeforeApply: afterAgentSetup.game.rngState },
+  ]).next;
+  expect(currentActor(afterSetup)).toBe(0);
+
+  // A fake agent that makes a DRAW during selection, so its returned state carries an ADVANCED rng.
+  // This discriminates the capture point — the no-draw passAgent (returned state === input state)
+  // cannot tell `choice.state.rngState` (correct) apart from `s.game.rngState` (regression).
+  const drawingPassAgent: Agent = (state, _p) => ({
+    action: { kind: "pass" },
+    state: { ...state, rngState: nextInt(state.rngState, 1000).state },
+  });
+
+  const preSelectionRng = afterSetup.game.rngState;
+  const expectedPostSelectionRng = nextInt(preSelectionRng, 1000).state;
+  // Sanity: the draw actually advanced the rng, or the two assertions below would collapse into one.
+  expect(expectedPostSelectionRng).not.toEqual(preSelectionRng);
+
+  const res = driveOneStep(afterSetup, () => drawingPassAgent);
+
+  const put = res.effects.persist!.put;
+  const rawEntry = put[logKey(2)] as LogEntry;
+  expect(rawEntry.kind).toBe("pass");
+  // The capture point is POST-selection: the agent-returned state's rng — never the pre-selection game rng.
+  expect(rawEntry.rngBeforeApply).toEqual(expectedPostSelectionRng);
+  expect(rawEntry.rngBeforeApply).not.toEqual(preSelectionRng);
+
+  // End-to-end: the entry applies cleanly (applyEntry installs rngBeforeApply; a pass makes no draws
+  // before the round-close order draw) and the round closes normally.
+  expect(res.advanced).toBe(true);
+  expect(res.terminal).toBeNull();
+  expect(res.next.logLength).toBe(3);
+});
 
 test("driveOneStep throws for an agent attack round (deferred to Phase A4)", () => {
   const s0 = openAgentHumanSession();

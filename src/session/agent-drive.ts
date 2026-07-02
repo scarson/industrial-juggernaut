@@ -62,6 +62,8 @@ export function commitEntries(s: SessionState, entries: LogEntry[]): DriveResult
   let terminal: ReturnType<typeof status> | null = null;
   const put: Record<string, unknown> = {};
   const broadcast: ServerMessage[] = [];
+  // Caller contract: at most the FINAL entry closes/terminates the round, so each call emits at most
+  // one snapshot and one turnRollover/gameOver (e.g. an A4 attack chain ends with its endRound last).
   for (const entry of entries) {
     const out = applyEntry(game, entry);
     put[logKey(logLength)] = entry;                 // RAW entry (bigints store natively in DO storage)
