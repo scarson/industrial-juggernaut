@@ -14,7 +14,7 @@ import {
   validateAttackers,
 } from "./pending";
 import { key } from "../geometry/cube";
-import { claimSeat } from "./seats";
+import { claimSeat, seatRoster } from "./seats";
 import type { AttackDecl, PlayerId } from "../engine/types";
 import type { LogEntry, SessionHeader } from "./types";
 import { PROTOCOL_VERSION, type ClientCommand, type RoomOptions, type ServerMessage, type WireErrorCode } from "../wire/protocol";
@@ -258,14 +258,14 @@ function withChainAttacker(result: { next: SessionState; advanced: boolean }, at
 }
 
 /** Full-state resync payload (spec §3). A3 introduces the LOCKED SIGNATURE; A6 fills the seat-filtered pending
- *  projection. The roster is built inline here — Phase A5 owns any exported seatRoster helper. */
+ *  projection. The roster comes from seats.ts's seatRoster (Phase A5). */
 export function resyncPayload(s: SessionState, requestingSeat: number, reason: string | null): ServerMessage {
   return {
     type: "resync",
     snapshot: encodeState(s.game),
     logLength: s.logLength,
     pending: null, // A3 creates no pending; A6 adds the seat-filtered projection
-    seats: s.seats.map((seatRuntime) => ({ seat: seatRuntime.seat, claimed: seatRuntime.claimed, kind: seatRuntime.config.kind })),
+    seats: seatRoster(s),
     protocolVersion: PROTOCOL_VERSION,
     replayVersion: s.header.replayVersion,
     reason,
