@@ -35,14 +35,16 @@ function resyncEffects(s: SessionState, requestingSeat: number, reason: string):
 }
 
 /** Maps an engine `placeFirstBase` thrown message (src/engine/turn.ts) to a WireErrorCode. The client teaching
- *  surface maps codes -> explanations, so distinct engine failures MUST stay distinct codes here — never collapse. */
-function placeFirstBaseErrorCode(message: string): WireErrorCode {
+ *  surface maps codes -> explanations, so distinct engine failures MUST stay distinct codes here — never collapse.
+ *  Returns null for an unrecognized message — the caller rethrows: unknown throws are reducer/engine bugs, not
+ *  client errors, and must stay loud (MALFORMED is reserved for transport-layer malformed traffic). */
+function placeFirstBaseErrorCode(message: string): WireErrorCode | null {
   if (message.includes("not in setup phase")) return "NOT_IN_SETUP";
   if (message.includes("not this player's setup turn")) return "NOT_YOUR_TURN";
   if (message.includes("hex is not on the board")) return "HEX_OFF_BOARD";
   if (message.includes("hex must be an outermost-ring hex")) return "HEX_NOT_OUTER";
   if (message.includes("hex is already occupied")) return "HEX_OCCUPIED";
-  return "MALFORMED"; // unrecognized engine throw — never swallow the message
+  return null;
 }
 
 export function applyCommand(s: SessionState, c: ClientCommand, ctx: CommandCtx): { next: SessionState; effects: Effects } {
@@ -64,7 +66,9 @@ export function applyCommand(s: SessionState, c: ClientCommand, ctx: CommandCtx)
         return { next: result.next, effects: result.effects };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        return keep(errorEffects(s, placeFirstBaseErrorCode(message), message));
+        const code = placeFirstBaseErrorCode(message);
+        if (code === null) throw err;
+        return keep(errorEffects(s, code, message));
       }
     }
     /* build / pass — Task A3.3; attack/resolve/extend — A4 */
