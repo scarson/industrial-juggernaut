@@ -231,8 +231,8 @@ function applyOneAttack(
       players[player]!.basesInHand -= 1;
       events.push({ kind: "baseReplaced", hex: target, from: opponent, to: player });
     } else {
-      // MAXED OUT (12 bases on board, basesInHand === 0). Spec §8 allows EITHER
-      // relocating an existing base to the captured hex OR destroying the base
+      // No base in hand to place a replacement (basesInHand === 0). Spec §8 allows
+      // EITHER relocating an existing base to the captured hex OR destroying the base
       // with no replacement. For M1 we take the simpler spec-legal option:
       // DESTROY with no replacement. Optional relocation is deferred to a later
       // refinement (it carries the extra "resulting perimeter still meets an

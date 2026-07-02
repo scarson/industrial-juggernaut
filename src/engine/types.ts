@@ -35,7 +35,7 @@ export type BoardSource =
 
 export type Player = {
   id: PlayerId;
-  basesInHand: number; // of 12, how many not yet on board
+  basesInHand: number; // bases not yet on the board; starts at baseLimit (12) and can exceed it via kill bounty
   alliance: PlayerId[]; // ids in the same coalition (incl. self)
   eliminated: boolean;
 };
