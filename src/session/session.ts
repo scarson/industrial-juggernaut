@@ -1,10 +1,10 @@
 // ABOUTME: The interactive GameSession reducer core — openSession, applyCommand (A3), resyncPayload (A6).
 // ABOUTME: Pure: every state-changing call returns { next, effects }; the host performs the effects.
 import { initGame } from "../engine/init";
-import { currentActor } from "./agent-drive";
+import { currentActor, commitEntries } from "./agent-drive";
 import { status } from "../engine/status";
 import { encodeState } from "../wire/codec";
-import type { SessionHeader } from "./types";
+import type { LogEntry, SessionHeader } from "./types";
 import { PROTOCOL_VERSION, type ClientCommand, type RoomOptions, type ServerMessage, type WireErrorCode } from "../wire/protocol";
 import { NO_EFFECTS, type CommandCtx, type Effects, type SessionState } from "./session-types";
 
@@ -34,6 +34,17 @@ function resyncEffects(s: SessionState, requestingSeat: number, reason: string):
   return { ...NO_EFFECTS, reply: [resyncPayload(s, requestingSeat, reason)] };
 }
 
+/** Maps an engine `placeFirstBase` thrown message (src/engine/turn.ts) to a WireErrorCode. The client teaching
+ *  surface maps codes -> explanations, so distinct engine failures MUST stay distinct codes here — never collapse. */
+function placeFirstBaseErrorCode(message: string): WireErrorCode {
+  if (message.includes("not in setup phase")) return "NOT_IN_SETUP";
+  if (message.includes("not this player's setup turn")) return "NOT_YOUR_TURN";
+  if (message.includes("hex is not on the board")) return "HEX_OFF_BOARD";
+  if (message.includes("hex must be an outermost-ring hex")) return "HEX_NOT_OUTER";
+  if (message.includes("hex is already occupied")) return "HEX_OCCUPIED";
+  return "MALFORMED"; // unrecognized engine throw — never swallow the message
+}
+
 export function applyCommand(s: SessionState, c: ClientCommand, ctx: CommandCtx): { next: SessionState; effects: Effects } {
   const keep = (effects: Effects) => ({ next: s, effects });   // rejected/no-op commands leave state unchanged
   if (isMutating(c)) {
@@ -45,7 +56,20 @@ export function applyCommand(s: SessionState, c: ClientCommand, ctx: CommandCtx)
     // against s.pending.promptedSeat, not currentActor.
     if (ctx.actingSeat !== currentActor(s)) return keep(errorEffects(s, "NOT_YOUR_TURN", "It is not your turn."));
   }
-  switch (c.type) { /* placeFirstBase / build / pass — Tasks A3.2-A3.3; attack/resolve/extend — A4 */ default: return keep(errorEffects(s, "UNKNOWN_TYPE", `Unknown command ${(c as { type?: string }).type}`)); }
+  switch (c.type) {
+    case "placeFirstBase": {
+      const entry: LogEntry = { player: ctx.actingSeat, kind: "placeFirstBase", hex: c.hex, rngBeforeApply: s.game.rngState };
+      try {
+        const result = commitEntries(s, [entry]); // applyEntry runs the engine placeFirstBase — same throw surface, single apply path
+        return { next: result.next, effects: result.effects };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return keep(errorEffects(s, placeFirstBaseErrorCode(message), message));
+      }
+    }
+    /* build / pass — Task A3.3; attack/resolve/extend — A4 */
+    default: return keep(errorEffects(s, "UNKNOWN_TYPE", `Unknown command ${(c as { type?: string }).type}`));
+  }
 }
 
 /** Full-state resync payload (spec §3). A3 introduces the LOCKED SIGNATURE; A6 fills the seat-filtered pending
