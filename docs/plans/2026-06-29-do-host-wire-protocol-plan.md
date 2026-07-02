@@ -64,8 +64,8 @@ notes and commit messages.
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
 | A1 — Wire protocol types + codecs | ✅ Merged | cf57bbea, 08557106, a9a758c0 → merge 251a5af0 | PR #35 (Routine, auto-merged on green `check`) |
-| A2 — Reducer skeleton + agent-drive seam | ✅ Shipped | fa0b32af, 80489f96, 6cd7ea46, 99c35ca4, 85dc724a, 3414c6a5 | branch `feat/session-reducer-skeleton`; PR pending; see Deviations (A2.3, A2.4) |
-| A3 — Command processing / round state machine | ⬜ Not started | — | — |
+| A2 — Reducer skeleton + agent-drive seam | ✅ Merged | fa0b32af…3414c6a5 → merge 28c5759e | PR #36 (Routine, auto-merged); see Deviations (A2.3, A2.4) |
+| A3 — Command processing / round state machine | ✅ Shipped | 9d56776d, 23fd65e1, e5072d62, cf349440, e1f38df5, 3bcdb279, 73a3212c | branch `feat/session-command-envelope`; PR pending; see Deviations (A3, A3.2) + Discoveries (setup guard) |
 | A4 — Pending decisions + write-lock | ⬜ Not started | — | — |
 | A5 — Seat-claim CAS + multi-tab | ⬜ Not started | — | — |
 | A6 — Resync, handshake, events, malformed-traffic shapes | ⬜ Not started | — | — |
@@ -80,10 +80,13 @@ notes and commit messages.
 | B9 — DO/wire pitfalls documentation | ⬜ Not started | — | — |
 
 ### Deviations
+- **A3 (2026-07-02): per-plan confirmations + additive wire-catalog growth.** `endRound` deferred to A4 as the plan's A3.4 mandates (no A3 handler; routes to the default). `resyncPayload` introduced early in A3.1 with the locked 3-arg signature (per the plan's own note; A6 fills the seat-filtered pending). **Seven additive WIRE_ERROR_CODES entries** (not in the plan's reviewed catalog): `BUILD_EMPTY`, `BUILD_BOOTSTRAP_FACTORY_ONLY`, `BUILD_OVER_BUDGET`, `BUILD_ILLEGAL_FACTORY`, `BUILD_NO_BASES_IN_HAND`, `BUILD_ILLEGAL_BASE` (one per client-explainable apply-time build failure — the plan said "catch and map to a structured error" without naming codes) + `SETUP_PLACEMENT_REQUIRED` (the setup-guard fix, see Discoveries). Additive only; no existing code renamed/removed; `formatVersion`/`SessionRecord`/`LogEntry` untouched.
+- **A3.2 (2026-07-02): unknown-throw policy decided (plan gap) — unrecognized throws inside command handlers RETHROW; they never map to a wire error.** The plan enumerates the known engine validation messages per handler but is silent on unrecognized throws. Decision: known validation messages → structured codes (the teaching surface); anything else is a reducer/engine bug and propagates loudly to the host (the DO discard-and-restart model handles it). `MALFORMED` stays reserved for transport-layer malformed traffic per the WIRE_ERROR_CODES catalog grouping. Applies to all A3/A4 handlers. **Flagged for Sam's veto in the Phase A3 PR.**
 - **A2.4 (2026-07-02): two deviations from the plan's `agent-drive.ts` code block.** (1) The unused `encodeState` import was removed (pre-authorized by the plan's own note; only `encodeEntry` is used). (2) The plan's `if (terminal)` guard is `if (terminal !== null && terminal.kind === "victory")` in code — the plan's snippet would not typecheck because `applyEntry.terminal` carries the full `Status | null` union while `.players`/`.reason` are victory-only. Runtime-identical (round.ts only ever assigns a victory status to `terminal`); the plan snippet was wrong, the code is right.
 - **A2.3 (2026-07-02): `src/session/record.ts` DRY-refactored** to import `agentForSeat` from the new `src/session/agent-binding.ts`, deleting its inline copy (the plan's optional Step 4, taken per the duplication rule). Semantics preserved (verified against `git show 80489f96:src/session/record.ts`; the human-seat throw message is now `agentForSeat: a human seat has no agent`, still matching record.test.ts's `/human seat/i`). record.ts net −10/+2; no other restructuring.
 
 ### Discoveries
+- **Setup-phase envelope gap (plan gap, found by A3.3 spec review 2026-07-02): nothing rejected play-phase commands during setup, and a well-formed `pass` could CRASH the reducer.** Repro: 3+ player game, ≥2 seats placed (≥2 live coalitions), the current unplaced placer sends `pass` → `legalActions()` returns the stuck-fallback pass-only set → `validatePass` treats it as forced → applyEntry eliminates the passer (noBases) → status ongoing → `advanceRound` throws "cannot advance during the setup phase" uncaught. 2-player tests masked it (setup elimination collapses to victory first). Fix: envelope guard — during `phase.turn === 0` every mutating command except `placeFirstBase` is rejected with the new `SETUP_PLACEMENT_REQUIRED` code (additive catalog entry). The A3.1/A4 guard chain is otherwise unchanged.
 - **Generated boards contain `-0` cube coordinates** (found 2026-07-02 while strengthening the A1.2 codec test with a real-JSON round-trip). `JSON.stringify` canonicalizes `-0` → `0`, so a state that crosses the wire differs from the server's in-memory state under `Object.is`-style comparison. Verified **inert** for engine semantics: hex identity is `key()`'s template-literal string (`src/geometry/cube.ts:15`, GEO-4) and `String(-0) === "0"`; numeric comparisons use `===` (`-0 === 0`); `stateHash` canonicalizes through `key()` + template literals. Wire fidelity is therefore asserted via `stateHash` equality (the protocol's own divergence detector), not deep equality. **SPA-plan relevance:** client code must never compare server-decoded state to locally-generated state with `Object.is`-style deep equality (e.g. vitest `toEqual`) — use `stateHash` or key-canonical comparisons.
 
 ---
@@ -927,7 +930,7 @@ export { PENDING_TOMBSTONE } from "./session-types";
 
 ## Phase A3 — Command processing: non-attack round state machine + envelope
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED 2026-07-02 — commits 9d56776d + 23fd65e1 (A3.1 envelope + carve-out marker), e5072d62 + cf349440 (A3.2 placeFirstBase + rethrow policy), e1f38df5 + 3bcdb279 (A3.3 build/pass + SETUP_PLACEMENT_REQUIRED crash fix), 73a3212c (A3.5 exports). Two-stage reviewed per task; the A3.3 spec review found a real setup-phase crash (see Discoveries) fixed with failing-first TDD and re-reviewed to green (re-review independently verified the repro dead against a pre-fix worktree). Phase review perspectives: envelope correctness (every mutating path index-guarded, verified in review), engine-throw mapping (pairwise collision audit clean), A4 dependencies flagged (carve-out markers on BOTH guards; endRound deferred per plan).
 
 `applyCommand` for the **non-attack** human commands — `build`, `pass`, `placeFirstBase` — plus the command envelope: `expectedLogIndex` optimistic concurrency, the **out-of-turn / forged-`player` guard** (plan-1 deferred this to here), and the deferred plan-1 **check-2** (`ATTACK_NOT_SINGLE_DECL` lives in the attack path, A4 — named here for traceability). The `attack`, `endRound`, `resolveDecision`, and `extendDecision` commands all land in A4 (`endRound` because its legality depends on `chainAttacker`, which the attack machinery sets).
 
@@ -945,7 +948,7 @@ export { PENDING_TOMBSTONE } from "./session-types";
 
 `actingSeat` is the authenticated seat the host passes (from `serializeAttachment`); the reducer never trusts a `player` field in the command payload — it derives the actor from the turn + the authenticated seat.
 
-- [ ] **Step 1: Write the failing tests** — one per rejection path, asserting the exact `code` and that no `persist` happened.
+- [x] **Step 1: Write the failing tests** — one per rejection path, asserting the exact `code` and that no `persist` happened.
 
 ```ts
 // ABOUTME: applyCommand envelope tests — STALE_INDEX, NOT_YOUR_TURN, DECISION_PENDING, GAME_OVER.
@@ -969,8 +972,8 @@ test("stale expectedLogIndex is rejected with STALE_INDEX and no persist", () =>
 // + NOT_YOUR_TURN (acting seat != current actor), DECISION_PENDING (manually set s.pending), GAME_OVER.
 ```
 
-- [ ] **Step 2: Run** → FAIL.
-- [ ] **Step 3: Implement the envelope guard** in `applyCommand` (dispatch on `command.type` after the guards; the per-kind handlers come in Steps that follow). Reuse `currentActor` (export it from `agent-drive.ts` or lift it into `session-types`-adjacent helper — pick one and be consistent; recommended: export `currentActor` from `agent-drive.ts` and import it here).
+- [x] **Step 2: Run** → FAIL.
+- [x] **Step 3: Implement the envelope guard** in `applyCommand` (dispatch on `command.type` after the guards; the per-kind handlers come in Steps that follow). Reuse `currentActor` (export it from `agent-drive.ts` or lift it into `session-types`-adjacent helper — pick one and be consistent; recommended: export `currentActor` from `agent-drive.ts` and import it here).
 
 Define these small helpers (in `src/session/session.ts`) — they are referenced by every command handler, so a subagent MUST have them spelled out:
 
@@ -1013,9 +1016,9 @@ export function applyCommand(s: SessionState, c: ClientCommand, ctx: CommandCtx)
 > **`resyncPayload` — A3 introduces it with the FINAL signature; A6 fills the body.** A3 defines `export function resyncPayload(s: SessionState, requestingSeat: number, reason: string | null): ServerMessage` in `session.ts` with the **locked 3-arg signature** (never a 2-arg variant) and a minimal body (snapshot + logLength + roster + versions + reason; `pending: null` — A3 creates no pending). A6.1 fills in the seat-filtered pending. There is exactly ONE `resyncPayload`, defined once in A3, extended in A6 — never two copies. Record in the A3 Deviation note that it was introduced early.
 > **`ctx` is `CommandCtx` throughout** (defined in `session-types.ts`, A2.1 — `{ actingSeat, nowEpochMs, decisionId }`). A3 reads only `ctx.actingSeat`; A4 also reads `nowEpochMs`/`decisionId`. The host populates all fields every call; tests build it via `mkCtx`. No `tokenDigest` (auth is at the WS upgrade, not a command).
 
-- [ ] **Step 4: Run** → PASS. Full suite green.
-- [ ] **Step 5: Commit** — `git commit -m "feat(session): applyCommand envelope — STALE_INDEX/NOT_YOUR_TURN/DECISION_PENDING/GAME_OVER guards"`
-- [ ] **Step 6: Apply the Execution Discipline block.** This task touches optimistic-concurrency logic → the **assertion-rigor** rule applies (assert the *mechanism*: `next === s` and `persist === null` on every rejection, not just "no throw").
+- [x] **Step 4: Run** → PASS. Full suite green.
+- [x] **Step 5: Commit** — `git commit -m "feat(session): applyCommand envelope — STALE_INDEX/NOT_YOUR_TURN/DECISION_PENDING/GAME_OVER guards"`
+- [x] **Step 6: Apply the Execution Discipline block.** This task touches optimistic-concurrency logic → the **assertion-rigor** rule applies (assert the *mechanism*: `next === s` and `persist === null` on every rejection, not just "no throw").
 
 ### Task A3.2: `placeFirstBase` command
 
@@ -1025,10 +1028,10 @@ export function applyCommand(s: SessionState, c: ClientCommand, ctx: CommandCtx)
 
 **Behavior:** in setup (turn 0), a human seat places via `{ type: "placeFirstBase", expectedLogIndex, hex }`. Validate via the engine `placeFirstBase` (it throws on non-outermost/occupied/wrong-placer — catch and map to a structured error reply rather than letting it throw). On success, build the `placeFirstBase` log entry (`rngBeforeApply = game.rngState`), apply via `applyEntry`, persist `{log:N}` (no snapshot — setup never closes a round), broadcast `applied`.
 
-- [ ] **Step 1: Write the failing test** — a human places a legal outer-ring hex → one `log:000000`, `applied` broadcast, `logLength` 1, still turn 0 (until the last placer). An illegal hex → structured error reply, no persist. Use `legalFirstBaseHexes` (engine barrel) in the test to pick a legal hex.
+- [x] **Step 1: Write the failing test** — a human places a legal outer-ring hex → one `log:000000`, `applied` broadcast, `logLength` 1, still turn 0 (until the last placer). An illegal hex → structured error reply, no persist. Use `legalFirstBaseHexes` (engine barrel) in the test to pick a legal hex.
 
-- [ ] **Step 2-5:** implement; the handler wraps the engine `placeFirstBase` in try/catch, mapping each distinct thrown message to a specific code (the teaching surface maps codes→explanations, so do NOT collapse them): "not in setup phase" → `NOT_IN_SETUP`; **"not this player's setup turn" → `NOT_YOUR_TURN`** (it's an out-of-turn error, not malformed input); "hex is not on the board" → `HEX_OFF_BOARD`; "hex must be an outermost-ring hex" → `HEX_NOT_OUTER`; "hex is already occupied" → `HEX_OCCUPIED`. Prefer matching the engine's thrown `message` text (read `src/engine/turn.ts` `placeFirstBase` for the exact strings) over re-deriving the checks. Commit `feat(session): placeFirstBase command`.
-- [ ] **Apply the Execution Discipline block.**
+- [x] **Step 2-5:** implement; the handler wraps the engine `placeFirstBase` in try/catch, mapping each distinct thrown message to a specific code (the teaching surface maps codes→explanations, so do NOT collapse them): "not in setup phase" → `NOT_IN_SETUP`; **"not this player's setup turn" → `NOT_YOUR_TURN`** (it's an out-of-turn error, not malformed input); "hex is not on the board" → `HEX_OFF_BOARD`; "hex must be an outermost-ring hex" → `HEX_NOT_OUTER`; "hex is already occupied" → `HEX_OCCUPIED`. Prefer matching the engine's thrown `message` text (read `src/engine/turn.ts` `placeFirstBase` for the exact strings) over re-deriving the checks. Commit `feat(session): placeFirstBase command`.
+- [x] **Apply the Execution Discipline block.**
 
 ### Task A3.3: `build` and `pass` commands
 
@@ -1038,9 +1041,9 @@ export function applyCommand(s: SessionState, c: ClientCommand, ctx: CommandCtx)
 
 **Behavior:** `build` validates pieces via `validateBuildPieces` (plan-1: MIXED_PIECE_TYPES / DUP_PIECES) → builds a `build` entry → `applyEntry` (self-closes the round → snapshot + turnRollover). `pass` validates via `validatePass` (plan-1: PASS_NOT_FORCED unless `allowPass` or forced) → `pass` entry → `applyEntry` (self-closes). Budget is the engine's job at apply time (a budget overrun throws in `applyEntry`'s `applyAction` — catch and map to a structured error; do NOT pre-check budget in the reducer, per plan-1 validation note "budget checked by the engine at entry").
 
-- [ ] **Step 1: Write the failing tests** — legal build → snapshot + turnRollover broadcast; mixed-type build → `MIXED_PIECE_TYPES`, no persist; non-forced pass with `allowPass:false` → `PASS_NOT_FORCED`; forced pass (no legal action) → accepted. Cite GEO-7 in a comment near any bootstrap-adjacent assertion (a founding single-base player's legal builds are factory-only — but that's the engine's concern; the reducer just forwards).
-- [ ] **Step 2-5:** implement; reuse `commitEntries` (exported from `agent-drive.ts`, A2.4) — the single shared `applyEntry`→`{persist,broadcast,snapshot}` builder. Do NOT write a second copy. Commit `feat(session): build + pass commands`.
-- [ ] **Apply the Execution Discipline block.**
+- [x] **Step 1: Write the failing tests** — legal build → snapshot + turnRollover broadcast; mixed-type build → `MIXED_PIECE_TYPES`, no persist; non-forced pass with `allowPass:false` → `PASS_NOT_FORCED`; forced pass (no legal action) → accepted. Cite GEO-7 in a comment near any bootstrap-adjacent assertion (a founding single-base player's legal builds are factory-only — but that's the engine's concern; the reducer just forwards).
+- [x] **Step 2-5:** implement; reuse `commitEntries` (exported from `agent-drive.ts`, A2.4) — the single shared `applyEntry`→`{persist,broadcast,snapshot}` builder. Do NOT write a second copy. Commit `feat(session): build + pass commands`.
+- [x] **Apply the Execution Discipline block.**
 
 ### Task A3.4: `endRound` command (chain close)
 
@@ -1050,7 +1053,7 @@ export function applyCommand(s: SessionState, c: ClientCommand, ctx: CommandCtx)
 
 **⚠️ `endRound` is DEFERRED to A4 — do NOT implement or export it in A3.** Its validity depends on `chainAttacker` (the attacker mid-chain), which is only set by the `attack` machinery in A4. If A3 shipped a happy-path `endRound`, a human could send `endRound` at round start to illegally skip their turn (voluntary pass is illegal, DER #5). So A3's `applyCommand` `switch` routes `endRound` to the default (`UNKNOWN_TYPE`/no-op) until A4 adds the real handler with the guard `chainAttacker === ctx.actingSeat`. A3 wires only `build`/`pass`/`placeFirstBase`. This task is a placeholder noting the deferral.
 
-- [ ] **No A3 work** — endRound lands in A4 (Task A4.3a below). Record in the A3 Deviation note that endRound was deferred to A4.
+- [x] **No A3 work** — endRound lands in A4 (Task A4.3a below). Record in the A3 Deviation note that endRound was deferred to A4.
 
 ### Task A3.5: Export the A3 surface
 
@@ -1835,6 +1838,7 @@ Add these entries (full Flaw/Why/Fix/Lesson each, per the maintenance framework)
 - **DO-AUTH-1** — store token **digests**, never raw tokens (public repo; spec §6); seat-token/socket-auth code is always **Review-class**.
 - **DO-ALARM-1** — alarm handlers must be **idempotent** (at-least-once, exponential backoff, ≤6 retries); the atomic append+clear-pending makes a retry-after-failure safe; one alarm per DO → multiplex via a stored `alarmQueue` (the documented Phase-2 hook).
 - **DO-HIBER-1** — no `setTimeout`/`setInterval` (prevent hibernation + die on eviction — use the alarm); **lazy-rehydrate on every wake path** (`webSocketMessage`/`alarm`/`fetch`); per-socket state that must survive hibernation (e.g. the malformed counter) lives in `serializeAttachment` (≤16 KiB), not memory.
+- **WIRE-MAP-1** — engine throw MESSAGES are load-bearing for the session-layer wire mappers (`placeFirstBaseErrorCode`, `buildEngineErrorCode` in `src/session/session.ts` match `src/engine/apply.ts`/`turn.ts` message substrings; unrecognized → rethrow). Rewording an engine throw silently unmaps its wire code (fails loud via rethrow, but loses the teachable client error). Grep the session mappers before rewording engine throws. (Found in A3.3 quality review 2026-07-02.)
 - **DO-TEST-1** — `@cloudflare/vitest-pool-workers` current API: the `cloudflareTest()` plugin (not `defineWorkersConfig`), `cloudflare:test` helpers (`runInDurableObject`/`runDurableObjectAlarm`/`evictDurableObject`), per-file storage isolation; **Windows + SQLite-DO is broken (workerd#6110) — Linux CI only**.
 
 - [ ] **Step 1:** add the entries + complete the maintenance-framework checklist (IDs, review checklist §, TOC, Appendix B table, cross-refs).

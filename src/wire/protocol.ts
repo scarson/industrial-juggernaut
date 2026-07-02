@@ -78,9 +78,15 @@ export const WIRE_ERROR_CODES = [
   "VERSION_MISMATCH", "ROOM_NOT_INITIALIZED", "GAME_OVER", "FROZEN",
   // setup placement (distinct codes feed the teaching surface — do NOT collapse to MALFORMED)
   "NOT_IN_SETUP", "HEX_OFF_BOARD", "HEX_NOT_OUTER", "HEX_OCCUPIED", "INVALID_ATTACKERS",
+  "SETUP_PLACEMENT_REQUIRED",
   // session validation (re-exported so the client maps codes → rule explanations)
   "PASS_NOT_FORCED", "ATTACK_NOT_SINGLE_DECL", "DUP_ATTACKERS",
   "DEFENDER_IS_TARGET", "DEFENDER_INELIGIBLE", "NO_ELIGIBLE_DEFENDER",
   "MIXED_PIECE_TYPES", "DUP_PIECES",
+  // build-rule violations enforced by the engine at apply time (budget/placement are
+  // the engine's job, not pre-checked in the reducer) — one code per distinct,
+  // client-explainable rule failure reachable from a well-formed build command.
+  "BUILD_EMPTY", "BUILD_BOOTSTRAP_FACTORY_ONLY", "BUILD_OVER_BUDGET",
+  "BUILD_ILLEGAL_FACTORY", "BUILD_NO_BASES_IN_HAND", "BUILD_ILLEGAL_BASE",
 ] as const;
 export type WireErrorCode = (typeof WIRE_ERROR_CODES)[number];

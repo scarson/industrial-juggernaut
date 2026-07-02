@@ -18,10 +18,15 @@ test("WIRE_ERROR_CODES contains the session-layer codes used by validation + env
     "STALE_INDEX", "DECISION_PENDING", "ALREADY_RESOLVED", "NOT_YOUR_TURN",
     "SEAT_TAKEN", "BAD_SEAT_TOKEN", "MALFORMED", "UNKNOWN_TYPE", "OVERSIZED",
     "VERSION_MISMATCH",
+    // setup-phase envelope guard (only placeFirstBase is legal during turn 0):
+    "SETUP_PLACEMENT_REQUIRED",
     // session validation codes (re-exported for the client's rule-explanation map):
     "PASS_NOT_FORCED", "ATTACK_NOT_SINGLE_DECL", "DUP_ATTACKERS",
     "DEFENDER_IS_TARGET", "DEFENDER_INELIGIBLE", "NO_ELIGIBLE_DEFENDER",
     "MIXED_PIECE_TYPES", "DUP_PIECES",
+    // build-rule violations enforced by the engine at apply time (A3.3):
+    "BUILD_EMPTY", "BUILD_BOOTSTRAP_FACTORY_ONLY", "BUILD_OVER_BUDGET",
+    "BUILD_ILLEGAL_FACTORY", "BUILD_NO_BASES_IN_HAND", "BUILD_ILLEGAL_BASE",
   ]) {
     expect(WIRE_ERROR_CODES).toContain(c);
   }
