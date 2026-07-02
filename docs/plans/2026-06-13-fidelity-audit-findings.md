@@ -332,3 +332,29 @@ Sam reviewed the audit and signed off:
   A follow-up was spun off for a future balance pass. `control()` stays pure for now.
 
 **Phase 7 is COMPLETE:** audit done + Sam sign-off obtained. 0 engine bugs → no fix-tasks/PRs.
+
+---
+
+## Addendum (2026-07-02) — Base-economy lever: defeated bases are not returned to hand
+
+Surfaced after the 2026-06-13 audit, while root-causing a reported "40 bases on board + 19 in hand at turn 10" state. That state is expected behavior — `baseLimit` (12) is only the starting hand; kill bounty inflates `basesInHand` above 12 by design (rules-v10 line 251, "+12 when you eliminate a player"), and there is no on-board cap. The false alarm was an artifact of an artificially raised `victoryThreshold=40` (> `ironCount`, so iron victory is impossible — the elimination-only regime the sweep prunes) used to lengthen test games. Recorded here as a new UNCERTAIN item of the same "model this printed rule or intentionally drop it?" kind as Part 4, now with Sam's decision attached.
+
+**The mechanic.** When a base is defeated *short of eliminating its owner* — captured (`baseReplaced`, `apply.ts:223-232`), destroyed by a maxed-out attacker (`baseDestroyed`, `apply.ts:233-241`), or removed as encircled-stranded (`stranded.ts:98-141`) — the base leaves the board but the owner's `basesInHand` is **not** credited back. So every non-eliminating loss permanently shrinks the loser's total army. Verified invariant (holds for every non-eliminated player, ironCount 10–16):
+
+`onBoard + inHand == 12 + 12·bountyKills − capturedFromMe − destroyedOfMine`
+
+— the loss terms are never returned. (Elimination is separate and now consistent: an eliminated player's on-board bases are removed AND its in-hand bases are zeroed — see `applyEliminations` in `status.ts`.)
+
+**Rules reading.** rules-v10 never states what happens to a defeated (non-eliminating) base's token. The *natural physical reading* conserves 12 colored tokens per player (a removed colored token can't be used by anyone else, so it returns to its owner to redeploy) — under which the engine is too punitive. But per this doc's §Framing (code is the source of truth, not the rules doc) this may be an intentional attrition model. It is a design lever, **not** a confirmed bug.
+
+**Measured gameplay implications** (30 seeds per config, heuristic agent, board 300):
+
+| Config | Avg length | Outcomes | Active rounds at hand==0 | Perm. losses / survivor |
+|--------|-----------|----------|--------------------------|-------------------------|
+| `victoryThreshold=10` (realistic) | 4.9 turns | 30 iron | 15.5% | 0.74 |
+| `victoryThreshold=12` (big300 near-miss) | 7.4 turns | 28 iron, 2 cap-hit | 46.6% | 0.70 |
+| `victoryThreshold=40` (degenerate, elim-only) | 43.9 turns | 10 last-standing, 20 cap-hit | 70.6% | 9.72 |
+
+Read: players are hand-constrained *often* (15–47% of rounds at healthy configs), but healthy games resolve by iron in ~5–7 turns before permanent loss compounds, so per-survivor loss stays ~0.7 and outcomes barely move (28–30/30 iron). The effect scales hard with game length / combat intensity (9.7 losses/survivor in 44-turn games). **Caveat:** measured under the weak heuristic agent (short, iron-decided games); the elimination-dominance this could aggravate — where strong play resolves big300 by elimination rather than iron victory, `ironVictoryFraction` 0.32 vs the 0.50 gate — appears under MCTS (longer, combat-heavier games; see `docs/sweeps/mcts-big300/2026-06-30-big300-mcts-rerun.md` §Findings). So these numbers are a lower bound for the regime that matters. Directionally, permanent base loss is snowbally / anti-comeback and is *aligned with* — but not shown to be the primary driver of — the iron-victory/elimination imbalance on big300.
+
+**Sam's decision (2026-07-02):** log as a **design-lever candidate for the balance redesign**; do not fix or investigate further now. If pursued, the decisive test is an A/B (credit defeated tokens back to hand vs. current) on the same seeds, ideally under MCTS — gated on MCTS perf (full-strength big-board MCTS is infeasible at sweep scale). The `apply.ts` / `stranded.ts` base economy stays as-is for now. This follows the same handling as the earlier fidelity finding about overlapping iron near perimeter boundaries (Part 4 item 4, signed off in Part 6 on 2026-06-13): document it and flag it for a future balance pass, but don't investigate or change the engine now.
