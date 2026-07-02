@@ -12,8 +12,9 @@ import {
 import { openSession } from "../../src/session/session";
 import { logKey } from "../../src/session/keys";
 import { PENDING_KEY } from "../../src/session/keys";
-import { PENDING_TOMBSTONE } from "../../src/session/session-types";
+import { NO_EFFECTS, PENDING_TOMBSTONE } from "../../src/session/session-types";
 import type { CommandCtx, SessionState, Pending } from "../../src/session/session-types";
+import { validateAttackDecl } from "../../src/session/validation";
 import { DEFAULT_ROOM_OPTIONS } from "../../src/wire/protocol";
 import type { RoomOptions } from "../../src/wire/protocol";
 import { defaultConfig } from "../../src/engine/config";
@@ -232,6 +233,35 @@ describe("drift guard: eligibleDefenders vs representativeDefender", () => {
     });
   }
 
+  // Third drift surface: eligibleDefenders vs validateAttackDecl (the RESOLUTION-side check).
+  // A divergence here would let the client render a defender that then errors on resolveDefender.
+  // The attacker set is held fixed and duplicate-free (ATTACKERS) — validateAttackDecl's attacker-side
+  // check is duplicates only, so the leg isolates the DEFENDER-side agreement.
+  for (const sc of scenarios) {
+    test(`resolution agreement: ${sc.name}`, () => {
+      const game = synthGame(sc.bases);
+      const elig = eligibleDefenders(game, sc.target, sc.owner);
+      // Every client-rendered eligible defender passes the resolution-side validation.
+      for (const d of elig) {
+        expect(validateAttackDecl(game, sc.owner, { target: sc.target, attackers: ATTACKERS, defender: d })).toBeNull();
+      }
+      // The target itself is NEVER a valid defender — DEFENDER_IS_TARGET.
+      const targetErr = validateAttackDecl(game, sc.owner, { target: sc.target, attackers: ATTACKERS, defender: sc.target });
+      expect(targetErr).not.toBeNull();
+      expect(targetErr!.code).toBe("DEFENDER_IS_TARGET");
+      // Every defender-owned base OUTSIDE the eligible set (fatigued / out-of-range) fails DEFENDER_INELIGIBLE.
+      const eligKeys = new Set(elig.map(key));
+      for (const b of sc.bases) {
+        if (b.owner !== sc.owner) continue;
+        if (key(b.hex) === key(sc.target)) continue; // the target case is asserted above
+        if (eligKeys.has(key(b.hex))) continue;
+        const err = validateAttackDecl(game, sc.owner, { target: sc.target, attackers: ATTACKERS, defender: b.hex });
+        expect(err).not.toBeNull();
+        expect(err!.code).toBe("DEFENDER_INELIGIBLE");
+      }
+    });
+  }
+
   // Also cross-check on REAL states reached via openSession (setup phase — no
   // attackers/defenders exist yet, so every target is null/empty; the guard must
   // still hold vacuously and identically on non-synthetic states).
@@ -248,6 +278,14 @@ describe("drift guard: eligibleDefenders vs representativeDefender", () => {
           const elig = eligibleDefenders(s.game, target, owner);
           expect(rep === null).toBe(elig.length === 0);
           if (rep !== null) expect(elig.map(key)).toContain(key(rep));
+          // Third drift surface on real states: every eligible hex passes the resolution-side check,
+          // and the target-as-defender probe fails it (non-vacuous even when the eligible set is empty).
+          for (const d of elig) {
+            expect(validateAttackDecl(s.game, owner, { target, attackers: ATTACKERS, defender: d })).toBeNull();
+          }
+          const targetErr = validateAttackDecl(s.game, owner, { target, attackers: ATTACKERS, defender: target });
+          expect(targetErr).not.toBeNull();
+          expect(targetErr!.code).toBe("DEFENDER_IS_TARGET");
         }
       }
     }
@@ -479,6 +517,21 @@ describe("resolveDefender", () => {
 // ---------------------------------------------------------------------------
 
 describe("extendDefender", () => {
+  test("timeout OFF → pure no-op: next === s (identity), effects equal NO_EFFECTS (no persist, no alarm)", () => {
+    // In a timeout-OFF room there is nothing to extend — arming an alarm or stamping a non-null
+    // deadline onto a pending opened with deadlineEpochMs null would be a spurious liveness clock.
+    const s = mkAttackSession(); // DEFAULT_ROOM_OPTIONS: defenderTimeout.enabled === false
+    const pending = mkPending(s.game.rngState); // deadlineEpochMs null, as openDefenderDecision built it
+    const withPending: SessionState = { ...s, pending };
+
+    const { next, effects } = extendDefender(withPending, pending, mkCtx(1, { nowEpochMs: 9_000_000 }));
+
+    expect(next).toBe(withPending); // identity — the pending stays exactly as-is
+    expect(effects).toEqual(NO_EFFECTS);
+    expect(effects.persist).toBeNull();
+    expect(effects.alarm).toBeNull();
+  });
+
   test("pushes deadlineEpochMs to now+seconds*1000 and re-arms the alarm", () => {
     const roomOptions: RoomOptions = { defenderTimeout: { enabled: true, seconds: 90 } };
     const s = mkAttackSession({ roomOptions });
