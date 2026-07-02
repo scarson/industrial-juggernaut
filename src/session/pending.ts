@@ -1,6 +1,7 @@
 // ABOUTME: Pending defender decisions (spec §3) — eligibleDefenders / validateAttackers / open / resolve / extend.
 // ABOUTME: Pure; opens the durable write-lock pending, resolves it atomically (append + tombstone in ONE put), re-arms the deadline.
 import { distance, key } from "../geometry/cube";
+import { legalActions } from "../engine/legal";
 import { commitEntries } from "./agent-drive";
 import { validateAttackDecl } from "./validation";
 import { PENDING_KEY } from "./keys";
@@ -188,4 +189,12 @@ export function extendDefender(s: SessionState, pending: Pending, ctx: CommandCt
   };
   const next: SessionState = { ...s, pending: updated };
   return { next, effects };
+}
+
+/** Returns the auto-close endRound entry when the actor has no legal attack remaining, else null
+ *  (round stays open for a human to continue their chain). Sanctioned existence check (spec §3):
+ *  existence over legalActions, never membership-testing a specific action. */
+export function autoCloseIfNoAttack(game: GameState, actor: PlayerId): LogEntry | null {
+  const hasAttack = legalActions(game).some((a) => a.kind === "attack");
+  return hasAttack ? null : { player: actor, kind: "endRound", rngBeforeApply: game.rngState };
 }
