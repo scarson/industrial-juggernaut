@@ -1,7 +1,6 @@
 // ABOUTME: The host Worker fetch handler — room creation (POST /api/games) + WS-upgrade routing to the GameRoom DO.
-// ABOUTME: Untrusted-body validation lives in room-create.ts; GameRoom is a B2 stub the DO phase (B3) fills in.
+// ABOUTME: Untrusted-body validation lives in room-create.ts; the GameRoom DO (game-room.ts) owns storage + the critical section.
 
-import { DurableObject } from "cloudflare:workers";
 import { newRoomId, newSeatToken, tokenDigest } from "./ids";
 import { REPLAY_VERSION } from "./version";
 import { CreateBodyError, validateCreateBody } from "./room-create";
@@ -103,9 +102,7 @@ async function handleCreate(request: Request, env: Env): Promise<Response> {
   });
   // Init must succeed before tokens go out: an uninitialized room rejects joins, so a
   // 200-with-tokens for a failed init would strand the creator with dead capabilities.
-  // Sole exception: the B2 GameRoom stub answers 501 to everything — B3's real /init
-  // returns 2xx and makes the 501 tolerance dead code (remove it there).
-  if (!initRes.ok && initRes.status !== 501) {
+  if (!initRes.ok) {
     return jsonResponse({ error: "room init failed" }, 500);
   }
 
@@ -157,13 +154,6 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
-/**
- * B2 stub. B3 fills this in with the real storage layout, critical section, hibernation,
- * and per-seat auth. For now it exists so the Worker compiles and `wrangler deploy
- * --dry-run` passes its entry check; every request returns 501.
- */
-export class GameRoom extends DurableObject {
-  override fetch(_request: Request): Response {
-    return new Response("GameRoom not implemented until B3", { status: 501 });
-  }
-}
+// The GameRoom Durable Object (storage layout + critical section) lives in game-room.ts; the
+// wrangler binding resolves the class by this named export from the Worker entry module.
+export { GameRoom } from "./game-room";
