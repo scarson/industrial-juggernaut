@@ -4,6 +4,6 @@
     "types": ["@cloudflare/workers-types", "@cloudflare/vitest-pool-workers/types"]
   },
   "files": [],
-  "include": ["src/host", "test/host"],
+  "include": ["src/host", "test/host", "worker-configuration.d.ts"],
   "exclude": []
 }

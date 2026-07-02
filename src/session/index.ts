@@ -18,5 +18,5 @@ export { agentForSeat } from "./agent-binding";
 export { claimSeat, seatRoster } from "./seats";
 export { malformedError, unknownTypeError, oversizedError } from "./errors";
 export * from "./keys";
-export type { SessionState, Pending, SeatRuntime, Effects, PersistOp, AlarmIntent, CommandCtx } from "./session-types";
+export type { SessionState, Pending, SeatRuntime, Effects, PersistOp, AlarmIntent, CommandCtx, Snapshot } from "./session-types";
 export { PENDING_TOMBSTONE } from "./session-types";

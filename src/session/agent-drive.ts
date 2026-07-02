@@ -14,7 +14,7 @@ import type { LogEntry, SeatConfig } from "./types";
 import type { ServerMessage } from "../wire/protocol";
 import { key } from "../geometry/cube";
 import { logKey, SNAPSHOT_KEY } from "./keys";
-import { NO_EFFECTS, type CommandCtx, type Effects, type SessionState } from "./session-types";
+import { NO_EFFECTS, type CommandCtx, type Effects, type SessionState, type Snapshot } from "./session-types";
 
 /** The seat whose turn/placement it currently is (setup: the placer; play: the current player). Exported — A3 imports it. */
 export function currentActor(s: SessionState): PlayerId {
@@ -137,7 +137,8 @@ export function commitEntries(s: SessionState, entries: LogEntry[]): DriveResult
   if (advanced) {
     // Snapshot holds post-composition state (post-advanceRound for a normal close; the victory state for a
     // terminal close, where applyEntry deliberately skips advanceRound — round.ts).
-    put[SNAPSHOT_KEY] = { state: game, logIndex: logLength - 1, stateHash: stateHash(game), replayVersion: s.header.replayVersion };
+    const snapshot: Snapshot = { state: game, logIndex: logLength - 1, stateHash: stateHash(game), replayVersion: s.header.replayVersion };
+    put[SNAPSHOT_KEY] = snapshot;
     if (terminal !== null && terminal.kind === "victory") {
       // Game over: there is NO next turn — do NOT broadcast turnRollover (game.phase.order is the final round's order).
       // status() victory shape (src/engine/status.ts): { kind:"victory"; players: PlayerId[]; reason:"iron"|"last-standing" }.
