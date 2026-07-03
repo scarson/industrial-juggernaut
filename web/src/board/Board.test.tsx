@@ -181,4 +181,30 @@ describe("Board", () => {
     expect(typeof arg.y).toBe("number");
     expect(typeof arg.z).toBe("number");
   });
+
+  test("hovering a hex polygon fires onHexHover with the parsed {x,y,z}, and leaving fires onHexHover(null)", () => {
+    const state = postSetupState();
+    const onHexHover = vi.fn();
+    const { container } = render(<Board state={state} onHexHover={onHexHover} />);
+    const hex: Hex = state.board.hexes[5]!;
+    const cell = container.querySelector(`polygon[data-hex="${hexKey(hex)}"]`) as SVGPolygonElement;
+
+    // jsdom (25.x, this project's version) does not implement the Pointer Events API — no global
+    // `PointerEvent` constructor — so pointer interactions are synthesized as plain `Event`s.
+    // React 18 does not attach native `pointerenter`/`pointerleave` listeners at all: it listens
+    // for the bubbling `pointerover`/`pointerout` events at the root and synthesizes
+    // onPointerEnter/onPointerLeave from those (same polyfill pattern as mouseenter/mouseleave),
+    // so the dispatched events must be `pointerover`/`pointerout` with `bubbles: true`.
+    cell.dispatchEvent(new Event("pointerover", { bubbles: true }));
+    expect(onHexHover).toHaveBeenCalledTimes(1);
+    const enterArg = onHexHover.mock.calls[0]![0];
+    expect(enterArg).toEqual({ x: hex.x, y: hex.y, z: hex.z });
+    expect(typeof enterArg.x).toBe("number");
+    expect(typeof enterArg.y).toBe("number");
+    expect(typeof enterArg.z).toBe("number");
+
+    cell.dispatchEvent(new Event("pointerout", { bubbles: true }));
+    expect(onHexHover).toHaveBeenCalledTimes(2);
+    expect(onHexHover.mock.calls[1]![0]).toBeNull();
+  });
 });
