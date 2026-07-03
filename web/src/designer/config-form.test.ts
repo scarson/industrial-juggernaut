@@ -1,7 +1,7 @@
 // ABOUTME: Pins configGroups/validateConfig/provenance against the real RuleConfig shape —
 // ABOUTME: the exhaustiveness check guards against a future engine knob landing ungrouped.
 import { describe, expect, test } from "vitest";
-import { configGroups, validateConfig, provenance } from "./config-form";
+import { configGroups, knobDescriptor, validateConfig, provenance } from "./config-form";
 import { defaultConfig } from "../engine-client/barrel";
 import type { RuleConfig } from "../engine-client/barrel";
 
@@ -24,6 +24,92 @@ describe("configGroups", () => {
     for (const [name, keys] of Object.entries(groups)) {
       expect(keys.length, `group ${name} should not be empty`).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("knobDescriptor", () => {
+  test("every RuleConfig key has a descriptor with a non-empty human label", () => {
+    for (const key of Object.keys(defaultConfig()) as (keyof RuleConfig)[]) {
+      const d = knobDescriptor(key);
+      expect(d, `descriptor for ${key}`).toBeDefined();
+      expect(d.label.length, `label for ${key}`).toBeGreaterThan(0);
+      expect(d.label, `label for ${key} should be a human string, not the knob key`).not.toBe(
+        key,
+      );
+    }
+  });
+
+  test("boardSize: min/max are exactly the values where validateConfig flips", () => {
+    const d = knobDescriptor("boardSize");
+    expect(d.type).toBe("int");
+    if (d.type !== "int") return;
+    expect(d.max).toBeDefined();
+    const rejects = (v: number) =>
+      validateConfig({ ...defaultConfig(), boardSize: v }).some((e) => e.knob === "boardSize");
+    expect(rejects(d.min), "boardSize at descriptor min should validate").toBe(false);
+    expect(rejects(d.min - 1), "boardSize below descriptor min should fail").toBe(true);
+    expect(rejects(d.max!), "boardSize at descriptor max should validate").toBe(false);
+    expect(rejects(d.max! + 1), "boardSize above descriptor max should fail").toBe(true);
+  });
+
+  test("every int knob's min (and max where present) is exactly where validateConfig flips", () => {
+    for (const key of Object.keys(defaultConfig()) as (keyof RuleConfig)[]) {
+      const d = knobDescriptor(key);
+      if (d.type !== "int") continue;
+      const rejects = (v: number) =>
+        validateConfig({ ...defaultConfig(), [key]: v } as RuleConfig).some(
+          (e) => e.knob === key,
+        );
+      expect(rejects(d.min), `${key} at descriptor min ${d.min} should validate`).toBe(false);
+      expect(rejects(d.min - 1), `${key} below descriptor min should fail`).toBe(true);
+      if (d.max !== undefined) {
+        expect(rejects(d.max), `${key} at descriptor max ${d.max} should validate`).toBe(false);
+        expect(rejects(d.max + 1), `${key} above descriptor max should fail`).toBe(true);
+      }
+    }
+  });
+
+  test("killBounty: enum descriptor whose options are exactly what validateConfig accepts", () => {
+    const d = knobDescriptor("killBounty");
+    expect(d.type).toBe("enum");
+    if (d.type !== "enum") return;
+    expect(d.options).toEqual(["full", "half", "none"]);
+    for (const opt of d.options) {
+      const cfg = { ...defaultConfig(), killBounty: opt } as RuleConfig;
+      expect(
+        validateConfig(cfg).some((e) => e.knob === "killBounty"),
+        `option ${opt} should validate`,
+      ).toBe(false);
+    }
+    const bad = { ...defaultConfig(), killBounty: "double" } as unknown as RuleConfig;
+    expect(validateConfig(bad).some((e) => e.knob === "killBounty")).toBe(true);
+  });
+
+  test("combatTable: table descriptor whose rows are exactly the keys validateConfig requires", () => {
+    const d = knobDescriptor("combatTable");
+    expect(d.type).toBe("table");
+    if (d.type !== "table") return;
+    expect(d.rows).toEqual([3, 4, 5, 6]);
+    for (const row of d.rows) {
+      const table = { ...defaultConfig().combatTable } as Partial<Record<number, number>>;
+      delete table[row];
+      const cfg = { ...defaultConfig(), combatTable: table } as RuleConfig;
+      expect(
+        validateConfig(cfg).some((e) => e.knob === "combatTable"),
+        `table missing descriptor row ${row} should fail validation`,
+      ).toBe(true);
+    }
+  });
+
+  test("boolean knobs get bool descriptors", () => {
+    expect(knobDescriptor("autoWinAt6").type).toBe("bool");
+    expect(knobDescriptor("allowPass").type).toBe("bool");
+  });
+
+  test("labels named in the design brief are pinned", () => {
+    expect(knobDescriptor("boardSize").label).toBe("Board size");
+    expect(knobDescriptor("ironCount").label).toBe("Iron deposits");
+    expect(knobDescriptor("combatTable").label).toBe("Combat odds table");
   });
 });
 
