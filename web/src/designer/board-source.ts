@@ -1,6 +1,6 @@
 // ABOUTME: Validates a designer-supplied BoardSource before it ever reaches loadBoard() —
 // ABOUTME: friendly errors for generate-kind numeric ranges and fixed-kind untrusted JSON paste.
-import { BOARD_SIZE_RANGE, IRON_COUNT_MIN } from "./config-form";
+import { BOARD_SIZE_RANGE, IRON_COUNT_MIN, isInteger } from "./config-form";
 import { hexKey } from "../board/projection";
 import type { BoardSource, Hex } from "../engine-client/barrel";
 
@@ -17,9 +17,24 @@ export type BoardSourceInput =
   | { kind: "generate"; size: number; ironCount: number }
   | { kind: "fixed"; raw: string };
 
-export type ParseBoardSourceResult =
+/** One `generate`-kind validation failure, keyed to the form field it belongs to. */
+export interface GenerateFieldError {
+  field: "size" | "ironCount";
+  message: string;
+}
+
+/**
+ * Result of `parseBoardSource`. The two failure arms are deliberately
+ * asymmetric: `generate` errors are field-keyed because each maps to exactly
+ * one form field (`size` / `ironCount`), so the NewGame form can attach a
+ * message inline next to the offending input. `fixed` errors stay flat
+ * strings: hex-level failures (cube invariant, duplicates, iron membership)
+ * have no single form field — the whole pasted textarea is the "field".
+ */
+export type BoardSourceValidation =
   | { ok: true; source: BoardSource }
-  | { ok: false; errors: string[] };
+  | { ok: false; kind: "generate"; errors: GenerateFieldError[] }
+  | { ok: false; kind: "fixed"; errors: string[] };
 
 // Spec §4 renders 96-300 hexes comfortably (see config-form.ts's BOARD_SIZE_RANGE); a fixed
 // paste is capped an order of magnitude above that ceiling — generous for hand-authored or
@@ -35,33 +50,33 @@ function formatHex(h: { x: unknown; y: unknown; z: unknown }): string {
   return `(${h.x}, ${h.y}, ${h.z})`;
 }
 
-function isInteger(n: number): boolean {
-  return Number.isInteger(n);
-}
-
 function parseGenerateSource(input: {
   kind: "generate";
   size: number;
   ironCount: number;
-}): ParseBoardSourceResult {
-  const errors: string[] = [];
+}): BoardSourceValidation {
+  const errors: GenerateFieldError[] = [];
 
   if (!isInteger(input.size)) {
-    errors.push("size must be an integer.");
+    errors.push({ field: "size", message: "size must be an integer." });
   } else if (input.size < BOARD_SIZE_RANGE.min || input.size > BOARD_SIZE_RANGE.max) {
-    errors.push(
-      `size must be between ${BOARD_SIZE_RANGE.min} and ${BOARD_SIZE_RANGE.max} (DER #16 oval-fit range).`,
-    );
+    errors.push({
+      field: "size",
+      message: `size must be between ${BOARD_SIZE_RANGE.min} and ${BOARD_SIZE_RANGE.max} (DER #16 oval-fit range).`,
+    });
   }
 
   if (!isInteger(input.ironCount)) {
-    errors.push("ironCount must be an integer.");
+    errors.push({ field: "ironCount", message: "ironCount must be an integer." });
   } else if (input.ironCount < IRON_COUNT_MIN) {
-    errors.push(`ironCount must be at least ${IRON_COUNT_MIN}.`);
+    errors.push({
+      field: "ironCount",
+      message: `ironCount must be at least ${IRON_COUNT_MIN}.`,
+    });
   }
 
   if (errors.length > 0) {
-    return { ok: false, errors };
+    return { ok: false, kind: "generate", errors };
   }
   return {
     ok: true,
@@ -88,17 +103,22 @@ function validateHexShape(value: unknown, label: string, errors: string[]): Hex 
   return { x: value.x as number, y: value.y as number, z: value.z as number };
 }
 
-function parseFixedSource(raw: string): ParseBoardSourceResult {
+function parseFixedSource(raw: string): BoardSourceValidation {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return { ok: false, errors: ["Couldn't parse JSON — check for a stray comma or bracket."] };
+    return {
+      ok: false,
+      kind: "fixed",
+      errors: ["Couldn't parse JSON — check for a stray comma or bracket."],
+    };
   }
 
   if (!isPlainObject(parsed)) {
     return {
       ok: false,
+      kind: "fixed",
       errors: ["The pasted board must be a JSON object with hexes and iron fields."],
     };
   }
@@ -108,6 +128,7 @@ function parseFixedSource(raw: string): ParseBoardSourceResult {
   if (unknownKeys.length > 0) {
     return {
       ok: false,
+      kind: "fixed",
       errors: [`Unknown field(s) in pasted board: ${unknownKeys.join(", ")}.`],
     };
   }
@@ -116,11 +137,11 @@ function parseFixedSource(raw: string): ParseBoardSourceResult {
 
   if (!Array.isArray(parsed.hexes)) {
     errors.push("hexes must be an array.");
-    return { ok: false, errors };
+    return { ok: false, kind: "fixed", errors };
   }
   if (!Array.isArray(parsed.iron)) {
     errors.push("iron must be an array.");
-    return { ok: false, errors };
+    return { ok: false, kind: "fixed", errors };
   }
 
   if (parsed.hexes.length === 0) {
@@ -130,12 +151,13 @@ function parseFixedSource(raw: string): ParseBoardSourceResult {
     errors.push("iron must not be empty.");
   }
   if (errors.length > 0) {
-    return { ok: false, errors };
+    return { ok: false, kind: "fixed", errors };
   }
 
   if (parsed.hexes.length > MAX_FIXED_HEXES) {
     return {
       ok: false,
+      kind: "fixed",
       errors: [`Too many hexes: ${parsed.hexes.length} exceeds the ${MAX_FIXED_HEXES}-hex cap.`],
     };
   }
@@ -159,7 +181,7 @@ function parseFixedSource(raw: string): ParseBoardSourceResult {
   }
 
   if (errors.length > 0) {
-    return { ok: false, errors };
+    return { ok: false, kind: "fixed", errors };
   }
 
   const iron: Hex[] = [];
@@ -181,7 +203,7 @@ function parseFixedSource(raw: string): ParseBoardSourceResult {
   }
 
   if (errors.length > 0) {
-    return { ok: false, errors };
+    return { ok: false, kind: "fixed", errors };
   }
 
   return { ok: true, source: { kind: "fixed", def: { hexes, iron } } };
@@ -200,8 +222,12 @@ function parseFixedSource(raw: string): ParseBoardSourceResult {
  * and the pasted hex count is capped (`MAX_FIXED_HEXES`) before the
  * per-hex validation loop, so a pathological paste fails fast instead of
  * hanging.
+ *
+ * Failure shapes differ by input kind — field-keyed for `generate`, flat
+ * strings for `fixed` — see the `BoardSourceValidation` docblock for the
+ * rationale.
  */
-export function parseBoardSource(input: BoardSourceInput): ParseBoardSourceResult {
+export function parseBoardSource(input: BoardSourceInput): BoardSourceValidation {
   if (input.kind === "generate") {
     return parseGenerateSource(input);
   }

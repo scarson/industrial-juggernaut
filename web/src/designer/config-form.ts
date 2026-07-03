@@ -43,7 +43,11 @@ export const BOARD_SIZE_RANGE = { min: 96, max: 300 } as const;
  */
 export const IRON_COUNT_MIN = 1;
 
-function isInteger(n: number): boolean {
+/**
+ * Integer check shared by the designer's validators (`validateConfig` here,
+ * `board-source.ts`'s generate-kind field validation).
+ */
+export function isInteger(n: number): boolean {
   return Number.isInteger(n);
 }
 
