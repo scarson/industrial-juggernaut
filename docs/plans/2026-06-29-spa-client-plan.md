@@ -511,7 +511,7 @@ Layout per UI brief §5: board-hero left-weighted; slim top bar (≤44px: wordma
 
 # PHASE P1 — SVG hex board renderer
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** 🚧 IN PROGRESS — claimed 2026-07-03T07:48:24Z on branch `feat/web-p1-board` (stacked on the P0 PR #56 branch; retarget to `dev` after #56 merges, per the stacked-PR unwind)
 
 A pure-presentation SVG board over `GameState`: projection, the landmass, iron/factory/base glyphs, fresh/fatigued + stranded marks, **both territory regimes** + overlap zones, and legal-target highlighting from engine hints. No interaction logic (P3 wires `onHexClick`/`onHexHover` via the driver); no DO/reducer. **Test split (per Plan altitude + G3):** the math (`projection`, `territory`, `highlight`, `selectors`) is pure-function TDD; the SVG components are structure/ARIA-tested in jsdom; visual correctness is verified in the browser against a **real recorded game state** (generate one with `recordGame` in a test fixture or a dev page).
 
