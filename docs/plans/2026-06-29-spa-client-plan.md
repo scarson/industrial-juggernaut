@@ -59,13 +59,13 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** In progress. 2/5 phases shipped — P0 MERGED to dev (PR #56, plus PR #57 wiring the real SPA into the staging deploy: the staging Worker now serves the actual client, guard artifacts verified excluded); P1 on an open PR (#58). Sam granted overnight merge authority for this track's PRs conditional on converged multi-round blind adversarial review (see the `spa-client-merge-authorization` user memory); #56/#57 merged under it. The DO-host track (Deliverable 1) is COMPLETE, so the P3.10 (Part A) and P4 (Part B) gates are already OPEN; phases still execute in order.
+**Overall:** In progress. 2/5 phases MERGED to dev — P0 (PR #56, plus PR #57 wiring the real SPA into the staging deploy: the staging Worker serves the actual client, guard artifacts verified excluded) and P1 (PR #58). Sam granted overnight merge authority for this track's PRs conditional on converged multi-round blind adversarial review (see the `spa-client-merge-authorization` user memory); #56/#57/#58 merged under it. P2 in progress on `feat/web-p2-screens`. The DO-host track (Deliverable 1) is COMPLETE, so the P3.10 (Part A) and P4 (Part B) gates are already OPEN; phases still execute in order.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
 | P0 — Foundation + visual system | ✅ Merged | 20 commits → merge `08df3617` ([PR #56](https://github.com/scarson/industrial-juggernaut/pull/56)); deploy wiring merge `b40c60d7` ([PR #57](https://github.com/scarson/industrial-juggernaut/pull/57)) | Review-class, merged under Sam's overnight authorization after 2 converged blind adversarial rounds (round 1 added the hex↔oklch consistency test); #57 makes staging serve the real SPA (verified live) with `.assetsignore` exclusions |
-| P1 — SVG hex board renderer | ✅ Shipped, [PR #58](https://github.com/scarson/industrial-juggernaut/pull/58) OPEN | 17 commits `4cc25742`…`fd1e37a5`, branch `feat/web-p1-board` | Routine (pre-scoped barrel additions flagged); 133 client + 2170 root green; both regimes browser-verified; 3-lens phase review clean after 2 minor fixes |
-| P2 — Designer instrument + all-agent viewer + rules-reference | ⬜ Not started | — | shipped-code-only |
+| P1 — SVG hex board renderer | ✅ Merged | 18 commits → merge `db7fc466` ([PR #58](https://github.com/scarson/industrial-juggernaut/pull/58)) | Routine (pre-scoped barrel additions flagged); merged after a zero-finding blind adversarial round; 150 client + 2170 root green post-rebase; both regimes browser-verified |
+| P2 — Designer instrument + all-agent viewer + rules-reference | 🚧 In progress | — | claimed 2026-07-03T09:38:27Z, branch `feat/web-p2-screens` |
 | P3 — Interactive play UI + LocalReducerDriver | ⬜ Not started | — | components now (fake driver); real driver gated on DO-host **Part A** |
 | P4 — SocketDriver / live play | ⬜ Not started | — | gated on DO-host **Part B** + `src/wire` |
 
@@ -594,7 +594,7 @@ Renders one `<svg viewBox={boardViewBox(...)}>` containing: the landmass (`Hex` 
 
 # PHASE P2 — Designer instrument + all-agent viewer + rules-reference
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** 🚧 IN PROGRESS — claimed 2026-07-03T09:38:27Z on branch `feat/web-p2-screens` (off `dev` at the P1 merge `db7fc466`)
 
 The three shipped-code-only screens that complete the front-loaded client: the **new-game designer instrument** (full `RuleConfig` knob set + board source + seats + seed + fork), the **all-agent watch viewer** (generate via `recordGame` in a Web Worker, step on the pure engine; agent-free `replayLog` of imported records), and the **rules-reference** (v10 + DER callouts + the error-code→rule-explanation map). No DO/reducer. **Bundle discipline is load-bearing here:** the viewer is the first place agents enter the client — they MUST live in the Web Worker bundle (P2.6), proven by P0.2's `check:bundle`.
 
