@@ -1,0 +1,93 @@
+/* ABOUTME: OKLCH design tokens + the four Named Rule utility classes (Table / Parchment / */
+/* ABOUTME: Brass Budget / Cartouche). tokens.ts is authoritative for values; this mirrors them. */
+
+/*
+ * Every color is OKLCH; the trailing comment on each is the source hex from the
+ * game-client UI brief §3 (or a derived neutral). tokens.ts carries the same hex
+ * as the machine-readable source of truth that the accessibility gate asserts on;
+ * keep the two consistent — change tokens.ts first, then this file.
+ */
+
+:root {
+  /* --- Chrome: "the Table" (dark walnut / iron) --------------------------- */
+  --color-walnut-900: oklch(22.44% 0.0241 60.42); /* #241910 — app body / deepest surface */
+  --color-walnut-800: oklch(26.10% 0.0311 63.66); /* #2f2114 — panels / toolbars (one step up) */
+  --color-walnut-700: oklch(30.04% 0.0377 65.55); /* #3b2a19 — hairlines / raised chrome edges */
+
+  /* --- Parchment: the board's material ONLY ------------------------------- */
+  --color-parchment-300: oklch(82.50% 0.0572 82.87); /* #d8c39c — aged map base */
+  --color-parchment-100: oklch(88.53% 0.0452 87.19); /* #e6d8b8 — lit map highlight */
+
+  /* --- Brass: the single scarce metallic accent -------------------------- */
+  --color-brass-500: oklch(66.80% 0.1103 81.17); /* #b78d3c — selection / primary action */
+  --color-brass-400: oklch(73.13% 0.1122 84.37); /* #c9a24e — hover glint (AA on dark chrome) */
+
+  /* --- Ink: warm-black cartographic text / linework ---------------------- */
+  --color-ink-900: oklch(19.63% 0.0165 70.94); /* #1a140d — body ink on parchment */
+  --color-ink-700: oklch(36.89% 0.0328 73.96); /* #4a3d2c — muted secondary linework */
+
+  /* --- Player identity set (6). Never used alone — always shape + color. -- */
+  --color-oxide: oklch(56.25% 0.1584 33.91); /* #c0492f — committed: oxide-red */
+  --color-cobalt: oklch(52.27% 0.1000 244.20); /* #2f6f9f — committed: cobalt */
+  --color-violet: oklch(47.54% 0.1022 311.42); /* #6f4a86 — committed: violet */
+  --color-gold: oklch(78.52% 0.1383 89.48); /* #dcb43f — extension: warm atlas gold */
+  --color-steel: oklch(71.90% 0.0337 227.44); /* #8fa9b5 — extension: weathered steel-slate */
+  --color-forest: oklch(45.08% 0.0588 151.61); /* #3c5f45 — extension: deep bottle-green */
+
+  /* --- Semantic aliases: the roles code reads for, not raw swatches ------- */
+  --surface-app: var(--color-walnut-900); /* the Table body */
+  --surface-panel: var(--color-walnut-800); /* instruments laid on the table */
+  --surface-board: var(--color-parchment-300); /* the map — the only parchment on screen */
+  --text-on-chrome: var(--color-parchment-100); /* body text on the dark app */
+  --text-on-board: var(--color-ink-900); /* ink on the map */
+  --accent: var(--color-brass-500); /* scarce brass */
+  --hairline: var(--color-walnut-700);
+}
+
+/* ==========================================================================
+ * Named Rules (DESIGN.md). Each is a usage discipline first and a class second.
+ * ========================================================================== */
+
+/* The Table Rule — chrome is the app's body: dark walnut/iron. Panels, nav, and
+ * tooling sit ON the table, in the table's palette. Apply to the app shell. */
+.table-surface {
+  background-color: var(--surface-app);
+  color: var(--text-on-chrome);
+}
+
+/* The Table Rule, one layer up — a slightly distinct neutral gives elevation via
+ * material layering (DESIGN.md: no floating SaaS shadows). Apply to panels/rails. */
+.table-panel {
+  background-color: var(--surface-panel);
+  color: var(--text-on-chrome);
+  border: 1px solid var(--hairline);
+}
+
+/* The Parchment-Belongs-to-the-Board Rule — parchment is the map's material,
+ * NEVER an app-chrome tint. Use this class ONLY on board surfaces. If a panel
+ * looks like parchment, it had better be a map. */
+.board-surface {
+  background-color: var(--surface-board);
+  color: var(--text-on-board);
+}
+
+/* The Brass Budget Rule — brass appears on at most ~10% of any screen; its
+ * scarcity is what makes selection and primary actions read instantly. Reach for
+ * this class sparingly and deliberately — it is a budget, not a default accent. */
+.brass-accent {
+  color: var(--accent);
+}
+.brass-accent-bg {
+  background-color: var(--accent);
+  color: var(--color-ink-900);
+}
+
+/* The Cartouche Rule — the display serif is reserved for game moments (title
+ * plate, combat/elimination/victory, map cartouches). It NEVER dresses UI labels,
+ * buttons, form controls, or data. Applying this class outside a game moment is a
+ * rule violation, not a style choice. */
+.cartouche {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
