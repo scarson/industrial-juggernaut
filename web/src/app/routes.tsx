@@ -1,7 +1,7 @@
 // ABOUTME: A minimal path-based router (history.pushState + popstate) for the 4 static P0
 // ABOUTME: routes. No react-router: 4 fixed paths don't warrant the dependency (see P0.7 plan).
 import { lazy, Suspense, useEffect, useState } from "react";
-import { NewGame } from "../designer/NewGame";
+import { GameScreen } from "./GameScreen";
 import { AgentViewer } from "../viewer/AgentViewer";
 import { RulesReference } from "../rules/RulesReference";
 
@@ -72,20 +72,6 @@ function HomeScreen() {
       <h1>Home</h1>
       <p>Start or resume a game of Industrial Juggernaut.</p>
     </section>
-  );
-}
-
-function GameScreen() {
-  // P2.4 smoke mount: the game board + action composers land in P3; until then the /game route
-  // hosts the new-game designer instrument so it can be exercised in-app. onStart logs the
-  // assembled header (P2.7's viewer / P3's game screen are the real consumers).
-  return (
-    <NewGame
-      onStart={(header) => {
-        // eslint-disable-next-line no-console
-        console.log("[NewGame] onStart", { ...header, seed: header.seed.toString() });
-      }}
-    />
   );
 }
 
