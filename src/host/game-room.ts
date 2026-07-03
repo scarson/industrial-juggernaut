@@ -145,6 +145,9 @@ export class GameRoom extends DurableObject<Env> {
       return new Response("invalid seat", { status: 400 });
     }
 
+    // SECURITY: NOT YET AUTHENTICATED — the tokenDigest check + agent-seat bind-refusal are B6.2 and MUST land
+    // before any deploy surface (B8's deploy-staging.yml). This upgrade currently binds any valid-shaped ?seat=N
+    // without a token; do not wire a deploy workflow until B6 is merged.
     // Mint the hibernatable socket. `acceptWebSocket(server, tags)` (NOT ws.accept()) is what lets the DO hibernate
     // while the socket stays connected; the `seat:<n>` tag is the multi-tab discovery key. The attachment survives
     // hibernation (16 KiB cap — a small object is trivially under). Never store the raw token (DO-AUTH-1).
