@@ -54,7 +54,7 @@ function radiatingFixtureState(): GameState {
 //     src/geometry/cube.ts's DIRECTIONS), lands on (3,-1,-2) — strictly
 //     interior to the hull (off every edge's supporting line, confirmed via
 //     the hull's own cross-product sidedness test in exploration).
-//   - Distances from (3,-1,-2) to each base: N=6, S=8, E=6, W=9 (cube
+//   - Distances from (3,-1,-2) to each base: N=6, S=7, E=6, W=10 (cube
 //     distance, src/geometry/cube.ts's `distance`) — every one exceeds
 //     config.radius=5, so no base's radiating disk reaches it. It is
 //     controlled ONLY because the perimeter regime is active (4 non-colinear
@@ -123,6 +123,26 @@ function overlapFixtureState(): GameState {
   };
 }
 
+describe("fixture validity", () => {
+  // The negative assertions below (has(...) === false) would pass vacuously if a
+  // fixture hex were accidentally off-board — control() intersects with the board's
+  // hex list, so an off-board hex is never controlled for the wrong reason. Pinning
+  // on-board membership here keeps those negative assertions meaningful.
+  test("every fixture hex used in assertions is on its board", () => {
+    const perimeter = perimeterFixtureState();
+    const perimeterKeys = new Set(perimeter.board.hexes.map((h) => hexKey(h)));
+    for (const h of [N, S, E, W, HULL_INTERIOR_HEX]) {
+      expect(perimeterKeys.has(hexKey(h))).toBe(true);
+    }
+
+    const overlap = overlapFixtureState();
+    const overlapKeys = new Set(overlap.board.hexes.map((h) => hexKey(h)));
+    for (const h of [P0_BASE, P1_BASE, SHARED_HEX, { x: 5, y: -5, z: 0 }, { x: 6, y: -6, z: 0 }]) {
+      expect(overlapKeys.has(hexKey(h))).toBe(true);
+    }
+  });
+});
+
 describe("territoryFills", () => {
   test("radiating regime (<4 bases): fills the radius disk around the single base", () => {
     const state = radiatingFixtureState();
@@ -155,7 +175,7 @@ describe("territoryFills", () => {
     const fourBaseState = perimeterFixtureState();
 
     // With only 3 bases (radiating fallback, R3's PERIMETER_BASE_COUNT=4 not met),
-    // the regime-boundary hex is unreachable: distances to N/S/E are 6/8/6, all
+    // the regime-boundary hex is unreachable: distances to N/S/E are 6/7/6, all
     // beyond config.radius=5.
     const threeBaseFills = territoryFills(threeBaseState);
     expect(threeBaseFills.has(hexKey(HULL_INTERIOR_HEX))).toBe(false);
