@@ -80,9 +80,12 @@ const PANEL_STYLE: CSSProperties = {
   margin: "0 auto",
 };
 const TITLE_STYLE: CSSProperties = { margin: 0, fontSize: "1.75rem" };
+// Muted-on-chrome via reduced-opacity text-on-chrome (the top bar's readout precedent).
+// ink-700 is parchment-side linework and falls far below AA on the walnut surface.
 const SUBTITLE_STYLE: CSSProperties = {
   margin: "0.35rem 0 0",
-  color: "var(--color-ink-700)",
+  color: "var(--text-on-chrome)",
+  opacity: 0.75,
   fontSize: "0.95rem",
 };
 const SECTION_STYLE: CSSProperties = {
