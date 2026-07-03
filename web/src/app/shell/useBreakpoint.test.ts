@@ -1,40 +1,66 @@
 // ABOUTME: Tests for useBreakpoint — matchMedia-driven tier selection (wide/narrow/compact),
-// ABOUTME: change subscription, and listener cleanup on unmount.
+// ABOUTME: live tier updates on change events, change subscription, and cleanup on unmount.
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { renderHook } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { useBreakpoint } from "./useBreakpoint";
+
+interface StubList {
+  addEventListener: ReturnType<typeof vi.fn>;
+  removeEventListener: ReturnType<typeof vi.fn>;
+}
 
 /**
  * Installs a matchMedia stub that reports `matches` for whichever query's threshold the
- * given viewport width satisfies. Mirrors the house pattern in design/motion.test.ts's
- * stubReducedMotion, extended to track listeners per MediaQueryList so cleanup can be
- * asserted.
+ * current viewport width satisfies. Mirrors the house pattern in design/motion.test.ts's
+ * stubReducedMotion, extended two ways: listeners are tracked per MediaQueryList so cleanup
+ * can be asserted, and `matches` is a live getter over a mutable width so `setWidth` can
+ * simulate the viewport crossing a breakpoint (updating `matches` AND firing the registered
+ * change handlers, as a real MediaQueryList does).
  */
-function stubMatchMediaForWidth(width: number): {
-  addEventListener: ReturnType<typeof vi.fn>;
-  removeEventListener: ReturnType<typeof vi.fn>;
-}[] {
-  const lists: {
-    addEventListener: ReturnType<typeof vi.fn>;
-    removeEventListener: ReturnType<typeof vi.fn>;
-  }[] = [];
+function stubMatchMediaForWidth(initialWidth: number): {
+  lists: StubList[];
+  setWidth: (next: number) => void;
+} {
+  let width = initialWidth;
+  const lists: StubList[] = [];
+  const registrations: { listeners: Set<(ev: { matches: boolean }) => void>; threshold: number }[] =
+    [];
 
   vi.stubGlobal("matchMedia", (query: string) => {
     const minWidthMatch = query.match(/min-width:\s*(\d+)px/);
-    const matches = minWidthMatch !== null && width >= Number(minWidthMatch[1]);
-    const addEventListener = vi.fn();
-    const removeEventListener = vi.fn();
-    const list = { addEventListener, removeEventListener };
-    lists.push(list);
+    const threshold = minWidthMatch === null ? Number.POSITIVE_INFINITY : Number(minWidthMatch[1]);
+    const listeners = new Set<(ev: { matches: boolean }) => void>();
+    const addEventListener = vi.fn((type: string, handler: (ev: { matches: boolean }) => void) => {
+      if (type === "change") listeners.add(handler);
+    });
+    const removeEventListener = vi.fn(
+      (type: string, handler: (ev: { matches: boolean }) => void) => {
+        if (type === "change") listeners.delete(handler);
+      },
+    );
+    lists.push({ addEventListener, removeEventListener });
+    registrations.push({ listeners, threshold });
     return {
-      matches,
+      get matches() {
+        return width >= threshold;
+      },
       media: query,
       addEventListener,
       removeEventListener,
     };
   });
 
-  return lists;
+  return {
+    lists,
+    setWidth(next: number) {
+      width = next;
+      for (const { listeners, threshold } of registrations) {
+        for (const handler of listeners) {
+          handler({ matches: width >= threshold });
+        }
+      }
+    },
+  };
 }
 
 afterEach(() => {
@@ -60,8 +86,23 @@ describe("useBreakpoint", () => {
     expect(result.current).toBe("wide");
   });
 
+  test("updates the tier live when the viewport crosses a breakpoint", () => {
+    const { setWidth } = stubMatchMediaForWidth(1200);
+    const { result } = renderHook(() => useBreakpoint());
+    expect(result.current).toBe("wide");
+
+    act(() => setWidth(900));
+    expect(result.current).toBe("narrow");
+
+    act(() => setWidth(500));
+    expect(result.current).toBe("compact");
+
+    act(() => setWidth(1200));
+    expect(result.current).toBe("wide");
+  });
+
   test("subscribes a change listener on mount", () => {
-    const lists = stubMatchMediaForWidth(1100);
+    const { lists } = stubMatchMediaForWidth(1100);
     renderHook(() => useBreakpoint());
     const subscribed = lists.filter((list) => list.addEventListener.mock.calls.length > 0);
     expect(subscribed.length).toBeGreaterThan(0);
@@ -71,7 +112,7 @@ describe("useBreakpoint", () => {
   });
 
   test("removes every subscribed change listener on unmount (no leak)", () => {
-    const lists = stubMatchMediaForWidth(1100);
+    const { lists } = stubMatchMediaForWidth(1100);
     const { unmount } = renderHook(() => useBreakpoint());
     const subscribed = lists.filter((list) => list.addEventListener.mock.calls.length > 0);
     expect(subscribed.length).toBeGreaterThan(0);

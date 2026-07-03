@@ -29,7 +29,7 @@ export function RightRail({ breakpoint, children }: RightRailProps) {
   }
 
   return (
-    <aside className="table-panel">
+    <aside className="table-panel" aria-label="Rail">
       <button
         type="button"
         aria-expanded={expanded}
@@ -38,7 +38,10 @@ export function RightRail({ breakpoint, children }: RightRailProps) {
       >
         Rail
       </button>
-      {expanded && <div id={panelId}>{children}</div>}
+      {/* Always mounted so the toggle's aria-controls reference resolves while collapsed. */}
+      <div id={panelId} hidden={!expanded}>
+        {children}
+      </div>
     </aside>
   );
 }
