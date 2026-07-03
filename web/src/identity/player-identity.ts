@@ -5,14 +5,25 @@
 import type { PlayerId } from "../../../src/index";
 import { color, playerColors } from "../design/tokens";
 
-/** The 6-set of shapes assigned to players, positionally stable with `playerColors`. */
+/**
+ * The 6-set of shapes assigned to players, positionally stable with `playerColors`
+ * (index 0 = oxide, 1 = cobalt, 2 = violet, 3 = gold, 4 = steel, 5 = forest — see
+ * design/tokens.ts). id 0 (oxide) = circle is pinned by the plan.
+ *
+ * ids 1 (cobalt) and 2 (violet) are the CVD floor pair: cobalt × violet collapses to
+ * ΔE76 ≈ 9.4 under deuteranopia — barely above the 9.0 separability gate (see
+ * cvd-check.test.ts). For that pair, shape CARRIES the identity distinction rather than
+ * merely reinforcing it, so cobalt and violet hold hard-edged, orientation-distinct
+ * shapes (square vs triangle) instead of two round-ish shapes (circle/pentagon/six-point)
+ * that blur together at hex-token size.
+ */
 export const PLAYER_SHAPES = [
-  "circle",
-  "square",
-  "triangle",
-  "diamond",
-  "pentagon",
-  "six-point",
+  "circle", // 0 oxide
+  "square", // 1 cobalt — CVD floor pair, hard-edged
+  "triangle", // 2 violet — CVD floor pair, hard-edged
+  "diamond", // 3 gold
+  "pentagon", // 4 steel
+  "six-point", // 5 forest
 ] as const;
 
 export type PlayerShape = (typeof PLAYER_SHAPES)[number];
@@ -27,35 +38,6 @@ export interface PlayerIdentity {
   readonly shape: PlayerShape;
   readonly pattern: PlayerPattern;
 }
-
-// Shape assignment is positionally stable with playerColors (index 0 = oxide, 1 = cobalt,
-// 2 = violet, 3 = gold, 4 = steel, 5 = forest — see design/tokens.ts).
-//
-// id 0 (oxide) = circle is pinned by the plan.
-//
-// id 1 (cobalt) and id 2 (violet) are the CVD floor pair: cobalt x violet collapses to
-// ΔE76 ~ 9.4 under deuteranopia — barely above the 9.0 separability gate (see
-// cvd-check.test.ts). For that pair, shape carries the identity distinction rather than
-// merely reinforcing it, so cobalt and violet are assigned hard-edged, orientation-distinct
-// shapes (square vs triangle) instead of two round-ish shapes (circle/pentagon/six-point)
-// that blur together at hex-token size.
-const SHAPES_BY_ID: readonly PlayerShape[] = [
-  "circle", // 0 oxide
-  "square", // 1 cobalt — CVD floor pair, hard-edged
-  "triangle", // 2 violet — CVD floor pair, hard-edged
-  "diamond", // 3 gold
-  "pentagon", // 4 steel
-  "six-point", // 5 forest
-];
-
-const PATTERNS_BY_ID: readonly PlayerPattern[] = [
-  "solid", // 0 oxide
-  "ring", // 1 cobalt
-  "dots", // 2 violet
-  "hatch", // 3 gold
-  "cross", // 4 steel
-  "checker", // 5 forest
-];
 
 const PLAYER_COLOR_NAMES = ["oxide", "cobalt", "violet", "gold", "steel", "forest"] as const;
 
@@ -76,17 +58,18 @@ export function playerIdentity(id: PlayerId): PlayerIdentity {
 
   return {
     colorVar: color(PLAYER_COLOR_NAMES[id]!),
-    shape: SHAPES_BY_ID[id]!,
-    pattern: PATTERNS_BY_ID[id]!,
+    shape: PLAYER_SHAPES[id]!,
+    pattern: PLAYER_PATTERNS[id]!,
   };
 }
 
-// Sanity checks the two lookup tables agree in length with the id-space and with each
-// other at module load — guards against a future edit that adds a shape/pattern without
-// updating the other array.
+// Sanity-checks the lookup tables agree in length with the id-space at module load —
+// guards against a future edit that grows one table without the others. The shape and
+// pattern assignments read the exported PLAYER_SHAPES/PLAYER_PATTERNS directly, so
+// assignment-vs-export desync is impossible by construction.
 if (
-  playerColors.length !== SHAPES_BY_ID.length ||
-  playerColors.length !== PATTERNS_BY_ID.length ||
+  playerColors.length !== PLAYER_SHAPES.length ||
+  playerColors.length !== PLAYER_PATTERNS.length ||
   playerColors.length !== PLAYER_COLOR_NAMES.length
 ) {
   throw new Error("player-identity: color/shape/pattern/name tables must be the same length");
