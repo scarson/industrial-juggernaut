@@ -75,7 +75,7 @@ notes and commit messages.
 | B4 — Hibernation | ✅ Shipped | 01ba6709 (+ SECURITY-marker) | branch `feat/host-hibernation`; PR pending (Routine, agent-merge on green) |
 | B5 — Defender-timeout alarm (opt-in) | ✅ Shipped | 3d2dff32 (+liveness comment) | branch `feat/host-alarm` off dev; Routine; idempotent `alarm()` (tombstone no-op + recency re-arm + representative-defender resolve + null-defender freeze); arm/clear/extend already realized by `handleCommand` (not duplicated); alarmQueue Phase-2 hook documented; +5 host tests |
 | B6 — Socket attribution + malformed-traffic enforcement | ✅ Shipped | 127b2ebc, 960f2da8, fc5ee54b (+polish) | branch `feat/host-socket-auth`; **PR pending — Review-class, Sam merges**; adversarial gate caught a DoS (shape-malformed crash), fixed |
-| B7 — vitest-pool-workers DO test suite | ⬜ Not started | — | — |
+| B7 — vitest-pool-workers DO test suite | ✅ Shipped | 55378eee | branch `feat/host-integration`; PR pending (Routine, agent-merge on green) |
 | B8 — deploy-staging.yml + version guards + CI pool job | ⬜ Not started | — | — |
 | B9 — DO/wire pitfalls documentation | ⬜ Not started | — | — |
 
@@ -1737,7 +1737,7 @@ Multi-tab routing (a seat token admits many sockets), per-message authentication
 
 ## Phase B7 — vitest-pool-workers DO test suite (integration matrix)
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED 2026-07-03 on branch `feat/host-integration` (stacked on PR #50) — commit 55378eee. 8-scenario matrix (10 tests) + test/host/helpers.ts through the REAL Worker+DO+WS stack: hibernation wake-replay, alarm fire-after-answer idempotency, serializeAttachment seat round-trip, seat-auth+multi-tab (agent-token 403 = layer-2 proof), double-submit STALE_INDEX, reconnect-during-pending (storage-backed pending + privacy), snapshot+tail recovery vs independent replayLog, put-before-send ordering. Green-first — no integration bug surfaced (B1-B6 individually reviewed). Helpers fail-loud (collect rejects on timeout; no sleeps). Host suite 140; full suite 2170. Review: readyToMerge yes, every scenario a real mechanism assertion (verified vs source).
 
 Earlier phases unit-test each piece in the pool. B7 ensures the **full spec §7 + this plan's "Definition of done" integration matrix** is covered as cohesive scenarios and adds shared test helpers. **API per CF research (2026-06-29) — VERIFY the exact import paths against the installed package version (B1.2 Step 1.3); they have changed across releases:** `env` (from `cloudflare:test` in older releases, `cloudflare:workers` in newer); `runInDurableObject`/`runDurableObjectAlarm`/`listDurableObjectIds` from `cloudflare:test`; `evictDurableObject(stub, {webSockets})` for hibernation; per-test-file storage isolation (automatic). **Windows + SQLite-backed DOs is broken (workerd#6110) — our CI is Linux (fine); skip on win32 locally with a reason.**
 
@@ -1758,9 +1758,9 @@ Earlier phases unit-test each piece in the pool. B7 ensures the **full spec §7 
 7. **Snapshot + tail recovery** — evict mid-game, rehydrate, assert state equals a fresh `replayLog`.
 8. **Broadcast never precedes the awaited `storage.put`** — the canonical ordering assertion (also in B3.2; here at the integration level).
 
-- [ ] **Step 1: Write the helpers + the 8 scenario tests.** Use a fake/scripted `agentForSeat` where determinism helps (the injection seam pays off again for a **scripted** seat — relevant to the staging e2e smoke later). **Every concurrency/timing assertion is a mechanism assertion; the assertion-rigor rule governs the whole file — if any scenario flakes, fix with deterministic synchronization (await fences, explicit `runDurableObjectAlarm`), never by weakening.**
-- [ ] **Step 2-5:** ensure green under the workers pool; commit `test(host): DO integration matrix — hibernation/alarm/seat-race/recovery/ordering`.
-- [ ] **Apply the Execution Discipline block.**
+- [x] **Step 1: Write the helpers + the 8 scenario tests.** Use a fake/scripted `agentForSeat` where determinism helps (the injection seam pays off again for a **scripted** seat — relevant to the staging e2e smoke later). **Every concurrency/timing assertion is a mechanism assertion; the assertion-rigor rule governs the whole file — if any scenario flakes, fix with deterministic synchronization (await fences, explicit `runDurableObjectAlarm`), never by weakening.**
+- [x] **Step 2-5:** ensure green under the workers pool; commit `test(host): DO integration matrix — hibernation/alarm/seat-race/recovery/ordering`.
+- [x] **Apply the Execution Discipline block.**
 
 **After Phase B7:** review from 3+ perspectives (matrix completeness vs spec §7 + this plan's "Definition of done"; no flaky symptom-only assertions; Windows-skip reasoned). Update Execution Status.
 
