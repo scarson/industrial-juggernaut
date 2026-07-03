@@ -32,6 +32,7 @@ import type {
   LogEntry,
 } from "../session";
 import type { GameState } from "../engine/types";
+import { malformedError } from "../session";
 import type { ClientCommand, RoomOptions, ServerMessage } from "../wire/protocol";
 
 /**
@@ -80,13 +81,24 @@ export class GameRoom extends DurableObject<Env> {
   private session: SessionState | null = null;
   /** True once recovery detected replay divergence (B3.3). A frozen room drives nothing and rejects mutations. */
   private frozen = false;
-  /** The effect send channels. B6.1 swaps NOOP_SINK for real socket fan-out; tests spy by replacing it. */
+  /** The effect send channels. Default no-op seam (tests spy by replacing it); `webSocketMessage` binds a
+   *  real per-socket send sink for the duration of a command. B6.1 formalizes send-routing (multi-tab toSeat
+   *  fan-out, trySend failure handling). */
   private sink: SendSink = NOOP_SINK;
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    // The client sends an app-level "ping" (~25 s) that the runtime answers "pong" WITHOUT waking the DO
+    // (no `webSocketMessage` invocation, no billable duration) — the client cannot emit protocol pings.
+    // Registered in the constructor so it is installed on every wake (the constructor runs on re-init after
+    // hibernation), never a `setTimeout`/`setInterval` (those prevent hibernation and die on eviction).
+    this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
+  }
 
   /**
    * Internal routes (the Worker forwards to these; never public):
    * - POST /init : one-time room initialization (header bundle + digests → openSession → writeHeader → drive).
-   * - GET  /ws   : the WebSocket upgrade — still 501 in B3 (B4 owns the WebSocketPair + token auth).
+   * - GET  /ws   : the WebSocket upgrade — WebSocketPair + accept + seat-tag + serializeAttachment (B4).
    */
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -96,10 +108,50 @@ export class GameRoom extends DurableObject<Env> {
       return this.handleInit(request);
     }
     if (url.pathname === "/ws" || url.pathname.endsWith("/ws")) {
-      // B4 owns the WebSocketPair + per-seat token auth; until then a WS upgrade is not implemented.
-      return new Response("GameRoom WebSocket upgrade not implemented until B4", { status: 501 });
+      return this.handleUpgrade(request, url);
     }
     return new Response("not found", { status: 404 });
+  }
+
+  /**
+   * The WebSocket upgrade (a wake path — lazy-rehydrate first). Validates the request SHAPE (not auth): it must be
+   * an `Upgrade: websocket` request to an initialized room, with an in-range integer `?seat=N`. On success it mints
+   * a hibernatable socket tagged `seat:<n>` (so `getWebSockets("seat:"+n)` finds a seat's tabs — multi-tab, B6) and
+   * stashes the per-socket attachment (`seat` = the identity `webSocketMessage` reads back after hibernation;
+   * `malformedCount` = the abuse counter B6.2 increments). The seat parse is SHAPE validation — a clear rejection,
+   * not authentication.
+   *
+   * B6.2 inserts the tokenDigest check + agent-seat bind-refusal HERE, BEFORE acceptWebSocket: it will compute
+   * `tokenDigest(?token=...)`, compare to `this.session.seats[seat].authorizedDigest`, and refuse a socket bound to
+   * an agent seat regardless of token validity. B4 accepts a valid-shaped upgrade WITHOUT validating a token.
+   */
+  private async handleUpgrade(request: Request, url: URL): Promise<Response> {
+    if ((request.headers.get("Upgrade") ?? "").toLowerCase() !== "websocket") {
+      return new Response("expected a websocket upgrade", { status: 426 });
+    }
+
+    // Lazy-rehydrate: the room must be initialized before a socket can bind to a seat. An uninitialized room
+    // (never /init'd) leaves `this.session` null → reject; the Worker already rejects joins to unknown rooms.
+    if (this.session === null) await this.rehydrate();
+    if (this.session === null) {
+      return new Response("room not initialized", { status: 404 });
+    }
+
+    // Parse the seat from the query (integer, in range). Missing / empty / non-integer / out-of-range → 400
+    // (shape, not auth). `Number("")` is 0, so an empty `?seat=` must be rejected explicitly before Number().
+    const seatParam = url.searchParams.get("seat");
+    const seat = seatParam === null || seatParam.trim() === "" ? NaN : Number(seatParam);
+    if (!Number.isInteger(seat) || seat < 0 || seat >= this.session.seats.length) {
+      return new Response("invalid seat", { status: 400 });
+    }
+
+    // Mint the hibernatable socket. `acceptWebSocket(server, tags)` (NOT ws.accept()) is what lets the DO hibernate
+    // while the socket stays connected; the `seat:<n>` tag is the multi-tab discovery key. The attachment survives
+    // hibernation (16 KiB cap — a small object is trivially under). Never store the raw token (DO-AUTH-1).
+    const pair = new WebSocketPair();
+    this.ctx.acceptWebSocket(pair[1], ["seat:" + seat]);
+    pair[1].serializeAttachment({ seat, malformedCount: 0 });
+    return new Response(null, { status: 101, webSocket: pair[0] });
   }
 
   /**
@@ -136,6 +188,79 @@ export class GameRoom extends DurableObject<Env> {
     await this.driveAgents();
 
     return new Response(null, { status: 200 });
+  }
+
+  /**
+   * A wake path (lazy-rehydrate). The thin wrapper over the critical section: read the authenticated seat from the
+   * surviving socket attachment (set at accept, survives hibernation), parse the message JSON into a ClientCommand,
+   * build the per-command ctx, and call `handleCommand`. The JSON.parse / crypto.randomUUID happen HERE (before
+   * handleCommand) so the critical section keeps its no-non-storage-await invariant (plan B3.2).
+   *
+   * B4 wires a MINIMAL real-send sink for the duration of the command so a command round-trips end to end (reply →
+   * the originating socket; broadcast/toSeat → the tagged socket sets). B6.1 formalizes send-routing: `trySend`
+   * failure handling (marking a dead socket gone) and the full multi-tab fan-out semantics. B4 does the minimal
+   * `ws.send` those tests need and no more.
+   *
+   * Malformed input: B4 wraps JSON.parse in try/catch and replies a structured MALFORMED error to THAT socket. The
+   * full malformed-traffic enforcement — the OVERSIZED / UNKNOWN_TYPE codes and the per-socket count-limit-before-
+   * close (the count lives in the attachment so it survives hibernation) — is B6.2.
+   */
+  override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    if (this.session === null) await this.rehydrate();
+
+    const att = ws.deserializeAttachment() as { seat: number; malformedCount: number } | null;
+    // A socket accepted by this DO always carries an attachment (set at accept). Absent → treat as unattributable.
+    if (att === null) return;
+    const seat = att.seat;
+
+    // Bind a per-socket real-send sink for this command: reply → the originating socket; broadcast → every socket;
+    // toSeat → a seat's tagged sockets. Restored to the default seam in `finally` so a subsequent
+    // `runInDurableObject` spy (or another socket's message) sees the clean default. B6.1 replaces this with the
+    // formalized `trySend`-based routing.
+    const originating = ws;
+    this.sink = {
+      reply: (msgs) => {
+        for (const m of msgs) originating.send(JSON.stringify(m));
+      },
+      toSeat: (toSeat, msg) => {
+        for (const s of this.ctx.getWebSockets("seat:" + toSeat)) s.send(JSON.stringify(msg));
+      },
+      broadcast: (msgs) => {
+        for (const s of this.ctx.getWebSockets()) for (const m of msgs) s.send(JSON.stringify(m));
+      },
+    };
+
+    try {
+      const text = typeof message === "string" ? message : new TextDecoder().decode(message);
+      let command: ClientCommand;
+      try {
+        command = JSON.parse(text) as ClientCommand;
+      } catch {
+        // B6.2 adds the count-limit-before-close here (increment att.malformedCount, re-serializeAttachment,
+        // close at the threshold). B4 replies the structured MALFORMED error to the originating socket.
+        this.sink.reply([malformedError("invalid JSON")]);
+        return;
+      }
+
+      const ctx: CommandCtx = { actingSeat: seat, nowEpochMs: Date.now(), decisionId: crypto.randomUUID() };
+      await this.handleCommand(command, ctx);
+    } finally {
+      this.sink = NOOP_SINK;
+    }
+  }
+
+  /**
+   * A socket closed / errored. Presence is advisory UI state (spec §3) — B6 formalizes presence tracking and
+   * `trySend`-failure marking. B4 leaves these as clean seams: the hibernation attachment and the seat tag are the
+   * durable identity, so no host bookkeeping is lost when a socket drops. (No `ws.close()` needed — the
+   * web_socket_auto_reply_to_close compat behavior completes the close handshake.)
+   */
+  override async webSocketClose(_ws: WebSocket, _code: number, _reason: string, _wasClean: boolean): Promise<void> {
+    // B6 seam: mark the socket's seat presence gone for the roster. No durable state to unwind here.
+  }
+
+  override async webSocketError(_ws: WebSocket, _error: unknown): Promise<void> {
+    // B6 seam: same advisory-presence handling as webSocketClose.
   }
 
   /**

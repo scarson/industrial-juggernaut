@@ -157,11 +157,12 @@ describe("GameRoom /init routing", () => {
     });
   });
 
-  test("GET /ws still 501 in B3 (B4 owns the WebSocketPair)", async () => {
+  test("GET /ws with a valid seat → 101 upgrade (B4 owns the WebSocketPair); full hibernation coverage in hibernation.test.ts", async () => {
     const stub = freshStub();
     await initRoom(stub, makeHeader([{ kind: "human" }, { kind: "human" }]), ROOM_OPTIONS_OFF, [null, null]);
-    const res = await stub.fetch("https://do.internal/ws", { headers: { Upgrade: "websocket" } });
-    expect(res.status).toBe(501);
+    const res = await stub.fetch("https://do.internal/ws?seat=0", { headers: { Upgrade: "websocket" } });
+    expect(res.status).toBe(101);
+    expect(res.webSocket).toBeTruthy();
   });
 });
 
