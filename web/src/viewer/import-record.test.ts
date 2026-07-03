@@ -116,6 +116,17 @@ describe("parseSessionRecord — missing / wrong-typed top-level fields", () => 
     if (result.ok) return;
     expect(result.errors.join(" ")).toMatch(/log/i);
   });
+
+  test("seats outside the 2-6 player range are rejected (not built as a giant state)", () => {
+    for (const count of [0, 1, 7, 200_000]) {
+      const seat = { kind: "agent", agent: "greedy", archetype: "aggressive" } as const;
+      const rec = { ...recordFixture(), seats: Array.from({ length: count }, () => seat) };
+      const result = parseSessionRecord(JSON.stringify(rec));
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.errors.join(" ")).toMatch(/seats/i);
+    }
+  });
 });
 
 describe("parseSessionRecord — formatVersion gate", () => {

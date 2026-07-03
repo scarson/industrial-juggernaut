@@ -1,7 +1,7 @@
 // ABOUTME: parseSessionRecord — validates a PASTED SessionRecord as untrusted input (testing-pitfalls §4)
 // ABOUTME: and decodes it to the { header, log } buildFrames consumes, or returns friendly errors.
 import { decodeRecord } from "../engine-client/barrel";
-import { HEADER_FORMAT_VERSION } from "../designer/new-game-form";
+import { HEADER_FORMAT_VERSION, MAX_SEATS, MIN_SEATS } from "../designer/new-game-form";
 import { validateBoardSource } from "../designer/board-source";
 import { configGroups, validateConfig } from "../designer/config-form";
 import type { LogEntry, RuleConfig, SessionHeader, SessionRecord } from "../engine-client/barrel";
@@ -111,7 +111,15 @@ export function parseSessionRecord(text: string): ParseResult {
   }
 
   // 6) seats + log must be arrays; the log size cap is a pre-decode guard.
-  if (!Array.isArray(parsed.seats)) errors.push(`Field "seats" must be an array.`);
+  if (!Array.isArray(parsed.seats)) {
+    errors.push(`Field "seats" must be an array.`);
+  } else if (parsed.seats.length < MIN_SEATS || parsed.seats.length > MAX_SEATS) {
+    // The game is defined for 2-6 players; a record outside that range is invalid rather than
+    // a giant-but-legal state (`setupPhaseState` would happily build an N-player board).
+    errors.push(
+      `Field "seats" must hold ${MIN_SEATS}-${MAX_SEATS} seats (got ${parsed.seats.length}).`,
+    );
+  }
   if (!Array.isArray(parsed.log)) {
     errors.push(`Field "log" must be an array.`);
   } else if (parsed.log.length > MAX_IMPORT_LOG_ENTRIES) {
