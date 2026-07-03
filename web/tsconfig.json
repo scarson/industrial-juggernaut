@@ -3,8 +3,8 @@
   "compilerOptions": {
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "jsx": "react-jsx",
-    "types": ["vite/client", "@testing-library/jest-dom"],
+    "types": ["vite/client", "@testing-library/jest-dom", "bun"],
     "noEmit": true
   },
-  "include": ["src", "vitest.setup.ts", "scripts"]
+  "include": ["src", "vitest.setup.ts", "scripts", "vite-plugin-bundle-guard.ts"]
 }
