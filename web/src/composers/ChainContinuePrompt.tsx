@@ -1,6 +1,7 @@
 // ABOUTME: The chain-continue prompt — shown after a landed attack while the acting player may
 // ABOUTME: still attack again this round. "Done attacking" submits endRound; "attack again" hands
 // ABOUTME: control back to the caller (AttackComposer) without submitting anything itself.
+import { ComposerPanel } from "./shell";
 import type { GameDriver } from "../game/driver";
 
 export interface ChainContinuePromptProps {
@@ -26,7 +27,7 @@ export function ChainContinuePrompt({ driver, canAttackAgain, onAttackAgain }: C
   }
 
   return (
-    <section className="table-panel" aria-label="Continue attacking" style={PANEL_STYLE}>
+    <ComposerPanel ariaLabel="Continue attacking">
       <div style={BUTTON_ROW_STYLE}>
         {canAttackAgain && (
           <button type="button" className="chrome-button mono" onClick={onAttackAgain}>
@@ -37,14 +38,8 @@ export function ChainContinuePrompt({ driver, canAttackAgain, onAttackAgain }: C
           Done attacking
         </button>
       </div>
-    </section>
+    </ComposerPanel>
   );
 }
 
-const PANEL_STYLE: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "0.75rem",
-  padding: "0.75rem",
-};
 const BUTTON_ROW_STYLE: React.CSSProperties = { display: "flex", gap: "0.5rem" };

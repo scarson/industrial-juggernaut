@@ -6,6 +6,8 @@ import { budgetOf } from "../engine-client/selectors";
 import { highlightSets } from "../board/highlight";
 import { keyToHex } from "../board/projection";
 import { previewCommand } from "./preview";
+import { ComposerPanel, RuleLine, HexButtonList } from "./shell";
+import type { HexButtonItem } from "./shell";
 import type { GameState, PlayerId, Piece, PieceKind, Hex } from "../engine-client/barrel";
 import type { GameDriver } from "../game/driver";
 import type { GameStore } from "../game/store";
@@ -53,8 +55,14 @@ export function BuildComposer({ state, player, driver, store }: BuildComposerPro
     store.getState().clearPreview();
   }
 
+  const hexItems: HexButtonItem[] = [...legalHexes].map((key) => ({
+    key,
+    hex: keyToHex(key),
+    disabled: remaining <= 0,
+  }));
+
   return (
-    <section className="table-panel" aria-label="Build" style={PANEL_STYLE}>
+    <ComposerPanel ariaLabel="Build">
       <div style={HEAD_ROW_STYLE}>
         <span className="mono" data-testid="build-budget">
           Remaining: {remaining}
@@ -85,29 +93,14 @@ export function BuildComposer({ state, player, driver, store }: BuildComposerPro
         </label>
       </fieldset>
 
-      {bootstrap && (
-        <p className="mono" role="note" style={NOTE_STYLE}>
-          First build must be a factory.
-        </p>
-      )}
+      {bootstrap && <RuleLine>First build must be a factory.</RuleLine>}
 
-      <div role="group" aria-label="Legal build hexes" style={HEX_LIST_STYLE}>
-        {[...legalHexes].map((key) => {
-          const hex = keyToHex(key);
-          return (
-            <button
-              key={key}
-              type="button"
-              className="chrome-button mono"
-              data-testid={`build-hex-${key}`}
-              disabled={remaining <= 0}
-              onClick={() => stagePiece(hex)}
-            >
-              {key}
-            </button>
-          );
-        })}
-      </div>
+      <HexButtonList
+        ariaLabel="Legal build hexes"
+        testIdPrefix="build-hex"
+        items={hexItems}
+        onSelect={stagePiece}
+      />
 
       <div>
         <button
@@ -119,16 +112,10 @@ export function BuildComposer({ state, player, driver, store }: BuildComposerPro
           Commit
         </button>
       </div>
-    </section>
+    </ComposerPanel>
   );
 }
 
-const PANEL_STYLE: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "0.75rem",
-  padding: "0.75rem",
-};
 const HEAD_ROW_STYLE: React.CSSProperties = { display: "flex", alignItems: "center", gap: "0.5rem" };
 const FIELDSET_STYLE: React.CSSProperties = {
   border: "1px solid var(--hairline)",
@@ -138,11 +125,3 @@ const FIELDSET_STYLE: React.CSSProperties = {
   margin: 0,
 };
 const RADIO_LABEL_STYLE: React.CSSProperties = { display: "flex", alignItems: "center", gap: "0.4rem" };
-const NOTE_STYLE: React.CSSProperties = {
-  margin: 0,
-  fontSize: "0.8rem",
-  color: "var(--color-parchment-300)",
-  borderLeft: "2px solid var(--accent)",
-  paddingLeft: "0.6rem",
-};
-const HEX_LIST_STYLE: React.CSSProperties = { display: "flex", flexWrap: "wrap", gap: "0.35rem" };

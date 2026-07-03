@@ -3,6 +3,7 @@
 import { prefersReducedMotion } from "../design/motion";
 import { playerIdentity } from "../identity/player-identity";
 import { PlayerShapeIcon } from "../identity/shapes";
+import { ComposerPanel, RuleLine } from "./shell";
 import type { TurnRollover } from "../game/store";
 
 export interface TurnOrderCeremonyProps {
@@ -39,7 +40,7 @@ export function TurnOrderCeremony({ rollover }: TurnOrderCeremonyProps) {
   const listClassName = reduced ? "mono" : "mono turn-order-animated";
 
   return (
-    <section className="table-panel" aria-label="Turn order draw" style={PANEL_STYLE}>
+    <ComposerPanel ariaLabel="Turn order draw">
       <ol role="list" aria-label="Turn order" className={listClassName} style={ORDER_LIST_STYLE}>
         {order.map((seat) => (
           <li key={seat} role="listitem" data-testid={`turn-order-seat-${seat}`} style={ORDER_ENTRY_STYLE}>
@@ -61,20 +62,12 @@ export function TurnOrderCeremony({ rollover }: TurnOrderCeremonyProps) {
       )}
 
       {ironWeights !== null && (
-        <p className="mono" role="note" style={NOTE_STYLE}>
-          2-player turn order is an iron-proportional first-player draw (Ruling #12).
-        </p>
+        <RuleLine>2-player turn order is an iron-proportional first-player draw (Ruling #12).</RuleLine>
       )}
-    </section>
+    </ComposerPanel>
   );
 }
 
-const PANEL_STYLE: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "0.75rem",
-  padding: "0.75rem",
-};
 const ORDER_LIST_STYLE: React.CSSProperties = {
   display: "flex",
   gap: "0.75rem",
@@ -89,10 +82,3 @@ const ORDER_ENTRY_STYLE: React.CSSProperties = {
 };
 const WEIGHT_STYLE: React.CSSProperties = { color: "var(--color-parchment-300)" };
 const SUMMARY_STYLE: React.CSSProperties = { margin: 0 };
-const NOTE_STYLE: React.CSSProperties = {
-  margin: 0,
-  fontSize: "0.8rem",
-  color: "var(--color-parchment-300)",
-  borderLeft: "2px solid var(--accent)",
-  paddingLeft: "0.6rem",
-};

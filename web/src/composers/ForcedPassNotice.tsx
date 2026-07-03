@@ -3,6 +3,7 @@
 // ABOUTME: voluntary-pass-is-illegal rule line. A notice only: it never submits pass itself.
 import { legalActions } from "../engine-client/barrel";
 import { explainError } from "../rules/error-explanations";
+import { ComposerPanel, RuleLine } from "./shell";
 import type { GameState } from "../engine-client/barrel";
 import type { GameDriver } from "../game/driver";
 
@@ -28,26 +29,12 @@ export function ForcedPassNotice({ state }: ForcedPassNoticeProps) {
   if (!forced) return null;
 
   return (
-    <section className="table-panel" aria-label="Forced pass" style={PANEL_STYLE}>
-      <p className="mono" role="note" style={NOTE_STYLE}>
+    <ComposerPanel ariaLabel="Forced pass">
+      <RuleLine>
         No legal build or attack is available — this round passes automatically.
         {" "}
         {explainError("PASS_NOT_FORCED")}
-      </p>
-    </section>
+      </RuleLine>
+    </ComposerPanel>
   );
 }
-
-const PANEL_STYLE: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "0.75rem",
-  padding: "0.75rem",
-};
-const NOTE_STYLE: React.CSSProperties = {
-  margin: 0,
-  fontSize: "0.8rem",
-  color: "var(--color-parchment-300)",
-  borderLeft: "2px solid var(--accent)",
-  paddingLeft: "0.6rem",
-};
