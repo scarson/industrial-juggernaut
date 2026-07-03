@@ -63,7 +63,7 @@ notes and commit messages.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
-| P0 — Foundation + visual system | ✅ Shipped, PR OPEN | 19 commits `8d14f51d`…`85682d84`, branch `feat/web-p0-foundation` | **Review — shared build/CI config — SAM MERGES.** 82 client tests + 2170 root green; bundle guard live; CVD/AA gate passed; DESIGN.md seed replaced with extracted tokens; 3-lens phase review clean after 1 Critical fix (brass cascade) |
+| P0 — Foundation + visual system | ✅ Shipped, [PR #56](https://github.com/scarson/industrial-juggernaut/pull/56) OPEN | 19 commits `8d14f51d`…`85682d84`, branch `feat/web-p0-foundation` | **Review — shared build/CI config — SAM MERGES.** 82 client tests + 2170 root green; bundle guard live; CVD/AA gate passed; DESIGN.md seed replaced with extracted tokens; 3-lens phase review clean after 1 Critical fix (brass cascade) |
 | P1 — SVG hex board renderer | ⬜ Not started | — | shipped-code-only |
 | P2 — Designer instrument + all-agent viewer + rules-reference | ⬜ Not started | — | shipped-code-only |
 | P3 — Interactive play UI + LocalReducerDriver | ⬜ Not started | — | components now (fake driver); real driver gated on DO-host **Part A** |
