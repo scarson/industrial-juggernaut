@@ -154,11 +154,18 @@ function PlayView({ header, createDriver, injectedStore }: PlayViewProps) {
   const terminal = useGameStore(store, (s) => s.authoritative.terminal);
   const selection = useGameStore(store, (s) => s.ui.selection);
 
-  // ── Driver lifecycle: create (possibly async) → connect → dispose. ──────────────────────────────
+  // ── Driver lifecycle: create (possibly async) → subscribe → dispose. Both subscriptions (the
+  //    store's `connectDriver` and the event-log/choreography handler below) are established in the
+  //    SAME callback that makes the driver available, not a dependent `[driver]` effect a tick later.
+  //    `Promise.resolve(x).then(cb)` always defers `cb` to a microtask, so a separate effect keyed on
+  //    `driver` state would only subscribe after a further passive-effect flush — a real gap in which
+  //    a pushed event arrives before any subscriber exists and is silently dropped. Subscribing here,
+  //    synchronously within the resolution callback, closes that gap. ──────────────────────────────
   useEffect(() => {
     let disposed = false;
     let live: GameDriver | null = null;
-    let unsubscribe: (() => void) | null = null;
+    let unsubscribeStore: (() => void) | null = null;
+    let unsubscribeEventLog: (() => void) | null = null;
 
     Promise.resolve(createDriver(header)).then((created) => {
       if (disposed) {
@@ -166,46 +173,41 @@ function PlayView({ header, createDriver, injectedStore }: PlayViewProps) {
         return;
       }
       live = created;
-      unsubscribe = store.getState().connectDriver(created);
+      unsubscribeStore = store.getState().connectDriver(created);
+      // Reads the same authoritative stream as the store's `connectDriver`, for the cumulative
+      // narration and set-piece triggers — `applied.events` never lands in a store slice, since the
+      // store discards the batch after folding it into state.
+      unsubscribeEventLog = created.subscribe((event: DriverEvent) => {
+        if (event.type === "sync") {
+          dispatchEventLog({ type: "sync" });
+          setChoreography(null);
+          setInChainContinue(false);
+          return;
+        }
+        if (event.type === "applied") {
+          dispatchEventLog({ type: "append", events: event.events });
+          const staged = stageableFrom(event.events);
+          if (staged !== null) setChoreography(staged);
+          // A landed attack that belongs to a still-acting controllable player opens the chain-continue
+          // beat; any other applied (a build, a setup placement, an agent move) clears it.
+          setInChainContinue(isChainContinueAfter(event.events));
+          return;
+        }
+        if (event.type === "prompt" || event.type === "gameOver") {
+          // A defender prompt or the game ending supersedes any lingering chain-continue offer.
+          setInChainContinue(false);
+        }
+      });
       setDriver(created);
     });
 
     return () => {
       disposed = true;
-      unsubscribe?.();
+      unsubscribeStore?.();
+      unsubscribeEventLog?.();
       live?.dispose();
     };
   }, [header, createDriver, store]);
-
-  // ── Event accumulation + choreography trigger: watch the raw stream. The store folds STATE; this
-  //    subscription reads the same events for the cumulative narration and the set-piece triggers.
-  //    Separate from the store subscription above because `applied.events` never lands in a store
-  //    slice — the store discards the batch after folding it into state. ──────────────────────────
-  useEffect(() => {
-    if (driver === null) return;
-    const unsubscribe = driver.subscribe((event: DriverEvent) => {
-      if (event.type === "sync") {
-        dispatchEventLog({ type: "sync" });
-        setChoreography(null);
-        setInChainContinue(false);
-        return;
-      }
-      if (event.type === "applied") {
-        dispatchEventLog({ type: "append", events: event.events });
-        const staged = stageableFrom(event.events);
-        if (staged !== null) setChoreography(staged);
-        // A landed attack that belongs to a still-acting controllable player opens the chain-continue
-        // beat; any other applied (a build, a setup placement, an agent move) clears it.
-        setInChainContinue(isChainContinueAfter(event.events));
-        return;
-      }
-      if (event.type === "prompt" || event.type === "gameOver") {
-        // A defender prompt or the game ending supersedes any lingering chain-continue offer.
-        setInChainContinue(false);
-      }
-    });
-    return unsubscribe;
-  }, [driver]);
 
   if (driver === null || state === null) {
     return (
