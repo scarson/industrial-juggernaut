@@ -58,7 +58,11 @@ const TOKEN_STYLE: React.CSSProperties = {
   alignItems: "center",
   gap: "0.25rem",
   padding: "0.15rem 0.35rem",
-  border: "1px solid var(--hairline)",
+  // Longhand (not the `border` shorthand) so the current-seat override can replace only
+  // `borderColor` without a shorthand/longhand reconciliation conflict on a turn advance.
+  borderWidth: "1px",
+  borderStyle: "solid",
+  borderColor: "var(--hairline)",
 };
 const CURRENT_TOKEN_STYLE: React.CSSProperties = {
   borderColor: color("brass500"),

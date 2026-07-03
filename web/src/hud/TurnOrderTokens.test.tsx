@@ -1,6 +1,6 @@
 // ABOUTME: Structure tests for TurnOrderTokens — state.phase.order rendered as shape-tagged
 // ABOUTME: tokens, with the current seat (from currentSeat/phase.indexInOrder) emphasized.
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { TurnOrderTokens } from "./TurnOrderTokens";
 import { defaultConfig, initGame } from "../engine-client/barrel";
@@ -16,6 +16,8 @@ function setupState(): GameState {
 }
 
 describe("TurnOrderTokens — phase.order as shape-tagged tokens", () => {
+  afterEach(() => vi.restoreAllMocks());
+
   test("renders one token per seat in phase.order", () => {
     const state = setupState();
     const orderedState: GameState = { ...state, phase: { turn: 1, order: [2, 0, 1], indexInOrder: 0 } };
@@ -35,6 +37,23 @@ describe("TurnOrderTokens — phase.order as shape-tagged tokens", () => {
       const token = screen.getByTestId(`turn-order-token-${seat}`);
       expect(token.querySelector("svg")).not.toBeNull();
     }
+  });
+
+  test("advancing the current seat re-renders without a React style-conflict warning", () => {
+    // The current token spends its brass on the border color (Brass Budget). If the base token
+    // uses the `border` shorthand while the current override sets `borderColor`, React warns on
+    // the re-render that moves the emphasis to a different token (shorthand/longhand conflict).
+    // The emphasis must be expressible as pure longhand so a turn advance stays console-clean.
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const state = setupState();
+    const order = [0, 1, 2];
+    const { rerender } = render(<TurnOrderTokens state={{ ...state, phase: { turn: 1, order, indexInOrder: 0 } }} />);
+    rerender(<TurnOrderTokens state={{ ...state, phase: { turn: 1, order, indexInOrder: 1 } }} />);
+
+    const styleWarnings = consoleError.mock.calls.filter((call) =>
+      String(call[0]).includes("shorthand"),
+    );
+    expect(styleWarnings).toEqual([]);
   });
 
   test("the current seat's token is emphasized; the others are not", () => {
