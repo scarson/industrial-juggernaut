@@ -24,7 +24,7 @@ This document serves three audiences. Start here, then go directly to the sectio
 
 | § | Section | You're working on... | Entries | Checklist |
 |---|---------|---------------------|---------|-----------|
-| 1 | [Geometry & Engine](#section-1-geometry--engine) | Hex math, coordinate projection, PRNG threading, derived state | GEO-1 – GEO-7 | §1.C |
+| 1 | [Geometry & Engine](#section-1-geometry--engine) | Hex math, coordinate projection, PRNG threading, derived state | GEO-1 – GEO-8 | §1.C |
 | 2 | [Durable Object Host](#section-2-durable-object-host) | The `GameRoom` DO — storage, ordering, identity, auth, alarms, hibernation, tests | DO-PURITY-1 – DO-TEST-1 | §2.C |
 | 3 | [Wire Protocol](#section-3-wire-protocol) | The `ClientCommand`/`ServerMessage` boundary and the session-layer error mappers | WIRE-MAP-1 – WIRE-SHAPE-1 | §3.C |
 | — | [Orchestration](#orchestration) | Parallel subagent dispatch and output persistence | ORCH-1 | §Orchestration.C |
@@ -87,6 +87,8 @@ const [roll, next] = drawD6(prng);
 ```
 
 **The Lesson:** Determinism is a data-flow property: randomness state must be threaded explicitly, like an accumulator, never read from ambient context. A reused state is a silent collision.
+
+**See also:** DO-ID-1 (§2) — room/seat identity uses `crypto.getRandomValues`, deliberately NOT this PCG32 stream; identity randomness must never consume or depend on the game RNG.
 
 ---
 
