@@ -44,9 +44,12 @@ const SPEEDS = [0.5, 1, 2, 4] as const;
  * - Mini-form, not the full NewGame: a compact seat-count / seed / preset trio assembles the
  *   header (board source = a generated board at the config's size). The `header` prop, when given,
  *   seeds those fields — enough to watch a game without re-deriving the whole designer instrument.
- * - Play tick: one frame per `duration.slow` (250ms) at 1x, divided by the speed multiplier. Under
- *   `prefersReducedMotion()` playback STILL WORKS (the timer advances frames) — it only drops the
- *   board's CSS transition flourishes; watching the game is the product, so it never stops.
+ * - Play tick: one frame per `duration.slow` (250ms) at 1x, divided by the speed multiplier.
+ *   Playback is independent of `prefersReducedMotion()` — frame advancement is content, not
+ *   decoration, so watching the game never stops; the preference is surfaced as a readout so
+ *   the choreographed set pieces (combat/elimination/victory, a later phase) know to gate
+ *   their animations when they exist. The board today renders each frame as a plain SVG swap
+ *   with no transitions to suppress.
  */
 export function AgentViewer({ header, generateGame = defaultGenerateGame }: AgentViewerProps) {
   const [frames, setFrames] = useState<Frame[] | null>(null);
