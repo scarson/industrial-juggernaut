@@ -97,7 +97,11 @@ const NOTE_STYLE: React.CSSProperties = {
   margin: 0,
   fontSize: "0.8rem",
   color: "var(--color-parchment-300)",
-  borderLeft: "2px solid var(--accent)",
-  paddingLeft: "0.6rem",
+  // A hairline frame + recessed inset sets the rule apart without the colored side-stripe that
+  // DESIGN.md's anti-references reject (cf. the DER callout's hairline frame in RulesReference —
+  // the accent belongs on scarce elements, not a callout's left edge).
+  border: "1px solid var(--hairline)",
+  backgroundColor: "var(--surface-app)",
+  padding: "0.3rem 0.55rem",
 };
 const HEX_LIST_STYLE: React.CSSProperties = { display: "flex", flexWrap: "wrap", gap: "0.35rem" };
