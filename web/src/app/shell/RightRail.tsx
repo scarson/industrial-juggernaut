@@ -32,6 +32,7 @@ export function RightRail({ breakpoint, children }: RightRailProps) {
     <aside className="table-panel" aria-label="Rail">
       <button
         type="button"
+        className="chrome-button"
         aria-expanded={expanded}
         aria-controls={panelId}
         onClick={() => setExpanded((current) => !current)}

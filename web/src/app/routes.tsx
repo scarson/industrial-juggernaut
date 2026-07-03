@@ -48,7 +48,7 @@ export function Router() {
 
 function HomeScreen() {
   return (
-    <section className="board-surface">
+    <section className="table-panel">
       <h1>Home</h1>
       <p>Start or resume a game of Industrial Juggernaut.</p>
     </section>
@@ -57,7 +57,7 @@ function HomeScreen() {
 
 function GameScreen() {
   return (
-    <section className="board-surface">
+    <section className="table-panel">
       <h1>Game</h1>
       <p>The board and action composers render here once the engine is wired in.</p>
     </section>
@@ -66,7 +66,7 @@ function GameScreen() {
 
 function ViewerScreen() {
   return (
-    <section className="board-surface">
+    <section className="table-panel">
       <h1>Viewer</h1>
       <p>Watch a recorded or all-agent game, client-side (play / pause / step).</p>
     </section>
@@ -75,7 +75,7 @@ function ViewerScreen() {
 
 function RulesScreen() {
   return (
-    <section className="board-surface">
+    <section className="table-panel">
       <h1>Rules</h1>
       <p>The rules reference, with Digital Edition Ruling callouts merged inline.</p>
     </section>
@@ -84,7 +84,7 @@ function RulesScreen() {
 
 function NotFoundScreen() {
   return (
-    <section className="board-surface">
+    <section className="table-panel">
       <h1>Not found</h1>
       <p>There's no screen at this address.</p>
     </section>

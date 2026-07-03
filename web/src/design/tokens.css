@@ -51,6 +51,13 @@
   --layout-topbar-height: 44px; /* UI brief §5: a slim top bar, ≤44px */
 }
 
+/* Removes the UA default body margin and pins the app surface as the page background so
+ * overscroll (rubber-banding, resize) reveals the table's walnut, not a flash of white. */
+body {
+  margin: 0;
+  background-color: var(--surface-app);
+}
+
 /* ==========================================================================
  * Named Rules (DESIGN.md). Each is a usage discipline first and a class second.
  * ========================================================================== */
@@ -103,4 +110,22 @@
  * asserted here so components read the token instead of hard-coding a pixel value. */
 .shell-topbar {
   height: var(--layout-topbar-height);
+}
+
+/* The chrome affordance treatment — resets UA button chrome to a quiet instrument on
+ * the table, per DESIGN.md ("quiet and warm", no candy-gloss). Apply to chrome-side
+ * buttons (the Instruments button, the rail toggle); it carries no color of its own,
+ * so it composes with .brass-accent for the one button that earns the brass budget. */
+.chrome-button {
+  background-color: var(--surface-panel);
+  color: inherit;
+  border: 1px solid var(--hairline);
+  font-family: inherit;
+  font-size: inherit;
+  padding: 0.25em 0.75em;
+  cursor: pointer;
+}
+.chrome-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }

@@ -25,7 +25,7 @@ export function TopBar({ turnLabel, seedLabel, onInstrumentsClick }: TopBarProps
       <span className="mono" data-testid="topbar-seed">
         {seedLabel ?? "—"}
       </span>
-      <button type="button" className="brass-accent" onClick={onInstrumentsClick}>
+      <button type="button" className="chrome-button brass-accent" onClick={onInstrumentsClick}>
         Instruments
       </button>
     </header>
