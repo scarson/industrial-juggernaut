@@ -1,7 +1,7 @@
 // ABOUTME: Structure + behavior tests for AgentViewer — inject a fake generateGame returning a fixed
 // ABOUTME: RecordResult; step/scrub/play-pause (fake timers) + agent-free import of a pasted record.
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AgentViewer, type GenerateGame } from "./AgentViewer";
 import { buildFrames } from "./stepper";
