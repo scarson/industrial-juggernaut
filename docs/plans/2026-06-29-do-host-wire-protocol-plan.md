@@ -71,7 +71,7 @@ notes and commit messages.
 | A6 — Resync, handshake, events, malformed-traffic shapes | ✅ Merged | incl. the mid-setup gameOver fix 519c1cb3 → merge 61f7132a | PR #42 (Routine, auto-merged post-rebase) |
 | B1 — Shared-config scaffolding | ✅ Shipped | 9dd81593, 01f5e252, e4126b6e, f5ac197c, c95ad8cb | branch `feat/host-config`; **PR pending — Review-class, Sam merges**; vitest 4.1.9 across 1970 tests (2 migration points); safe-before-B8 verified |
 | B2 — Worker shell + room addressing | ✅ Shipped | c1f2de5f, 7ac0e334, a1de3906 | branch `feat/host-worker` stacked on PR #44; **PR pending — Review-class, Sam merges**; first deployable Worker (dry-run passes); adversarial hardening round (5 exploit classes killed) |
-| B3 — GameRoom DO: storage + critical section + recovery | ⬜ Not started | — | — |
+| B3 — GameRoom DO: storage + critical section + recovery | ✅ Shipped | ccd9d54c, 73d9e09f, 299b3eed, cf12da9f | branch `feat/host-gameroom` stacked on PR #45; **PR pending — Review-class, Sam merges**; flagship op-order test + crash-consistency gate (freeze-path throw variants fixed) |
 | B4 — Hibernation | ⬜ Not started | — | — |
 | B5 — Defender-timeout alarm (opt-in) | ⬜ Not started | — | — |
 | B6 — Socket attribution + malformed-traffic enforcement | ⬜ Not started | — | — |
@@ -1546,7 +1546,7 @@ The Worker `fetch` entry: assets are served by the assets binding; `/api/*` is r
 
 ## Phase B3 — `GameRoom` DO: storage layout + critical section + recovery
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED 2026-07-02 on branch `feat/host-gameroom` — commits ccd9d54c (B3.1 storage: atomic persistEvent, snapshot/tail, bigints-native proven; `Snapshot` type hoisted to session-types as the single shared shape; FROZEN_KEY added to keys.ts), 73d9e09f (B3.2 critical section: persist→alarm→send order proven by recorded-op-order tests — put strictly before its send, put(PENDING)
 
 **⚠️ Review-class (Sam merges): atomic storage + the persist-first critical section + recovery is the data-integrity core of the host. Classify `Review — DO storage atomicity + critical-section + recovery (data-integrity)`.**
 
@@ -1563,9 +1563,9 @@ The heart of Part B. The DO holds the in-memory `SessionState` (a cache, rebuilt
 - `persistEvent(ctx, op: PersistOp): Promise<void>` → **`await ctx.storage.put(op.put)`** — ONE atomic multi-key put (CF research: a single `put({...})` of ≤128 keys is all-or-nothing; our events write at most ~4 keys: `log:N`, optional `log:N+1`, `snapshot`, `pending`). The pending **clear** is already encoded as `[PENDING_KEY]: PENDING_TOMBSTONE` inside `op.put` (B3 keystone — see PersistOp), so there is **no separate `delete`** and nothing to make non-atomic. The 2 MB SQLite-backed per-row cap (NOT 128 KiB — that's the legacy KV backend; DO-STORAGE-1) is far above any row (a snapshot is ~3–9 KB).
 - `loadSnapshotAndTail(ctx): { snapshot, tail: LogEntry[] }` — `get(SNAPSHOT_KEY)` + `list({prefix:"log:", start: logKey(snapshot.logIndex+1)})` for the tail (lexical key order == numeric order via zero-padding).
 
-- [ ] **Step 1: Write failing tests** (workers pool, `runInDurableObject` to reach a real `ctx.storage`) — round-trip a header (bigint seed survives raw via structured clone, no codec); `persistEvent` of an op whose `put` contains both `log:N` and `[PENDING_KEY]: PENDING_TOMBSTONE` lands BOTH (and `readPending` then returns `null`); `loadSnapshotAndTail` returns the post-snapshot entries in order. **Assertion-rigor:** assert atomicity by the *mechanism* — after the `persistEvent`, `readPending(ctx) === null` AND `get(logKey(N))` is present (both from the one put), not "no error."
-- [ ] **Step 2-5:** implement; commit `feat(host): DO storage layer — atomic persistEvent + snapshot/tail load`.
-- [ ] **Apply the Execution Discipline block.** Concurrency/atomicity → assertion-rigor rule.
+- [x] **Step 1: Write failing tests** (workers pool, `runInDurableObject` to reach a real `ctx.storage`) — round-trip a header (bigint seed survives raw via structured clone, no codec); `persistEvent` of an op whose `put` contains both `log:N` and `[PENDING_KEY]: PENDING_TOMBSTONE` lands BOTH (and `readPending` then returns `null`); `loadSnapshotAndTail` returns the post-snapshot entries in order. **Assertion-rigor:** assert atomicity by the *mechanism* — after the `persistEvent`, `readPending(ctx) === null` AND `get(logKey(N))` is present (both from the one put), not "no error."
+- [x] **Step 2-5:** implement; commit `feat(host): DO storage layer — atomic persistEvent + snapshot/tail load`.
+- [x] **Apply the Execution Discipline block.** Concurrency/atomicity → assertion-rigor rule.
 
 ### Task B3.2: The DO + critical section
 
@@ -1592,9 +1592,9 @@ The handler (`handleCommand`), exactly:
 
 > **Testable seam (resolves the B3-needs-B4 ordering):** the critical-section logic lives in a method `async handleCommand(command: ClientCommand, ctx: CommandCtx): Promise<void>` on the DO (the authenticated seat is `ctx.actingSeat` — no separate param) — it does NOT read a WebSocket. B4's `webSocketMessage(ws, msg)` is the thin wrapper that reads the authenticated seat (`ws.deserializeAttachment().seat`; auth happened at the upgrade), parses, builds `ctx: CommandCtx` (`{ actingSeat: seat, nowEpochMs: Date.now(), decisionId: <crypto id> }`), and calls `handleCommand`. This lets B3.2 test the whole critical section via `runInDurableObject(stub, (inst) => inst.handleCommand(cmd, mkCtx(0)))` — no WebSocket needed until B4. The send helpers (`broadcast`/`toSeat`/`reply`) are also methods (B6.1) the DO calls; B3.2 can spy on them.
 
-- [ ] **Step 1: Write the failing test** — the load-bearing **"broadcast never precedes the awaited storage write"** check, asserted by **recorded operation order** (NOT timestamps — a clock comparison would race). Via `runInDurableObject`, wrap `ctx.storage.put` and the socket `send` so each appends a tagged marker to one shared ordered array (e.g. `ops.push({op:"put", keys})` / `ops.push({op:"send", type})`); drive a mutating command; then assert the array shows the `put` containing `log:N` at an index **strictly before** the `send` of the `applied` message for that `logIndex`. **Mechanism assertion (observed ordering), never a symptom assertion ("no error").** If it races, fix with deterministic synchronization (await fences), NEVER by weakening.
-- [ ] **Step 2-5:** implement the DO + critical section; commit `feat(host): GameRoom critical section — validate/apply/await-put/broadcast`.
-- [ ] **Apply the Execution Discipline block.** Concurrency → assertion-rigor rule (this is THE task it most protects).
+- [x] **Step 1: Write the failing test** — the load-bearing **"broadcast never precedes the awaited storage write"** check, asserted by **recorded operation order** (NOT timestamps — a clock comparison would race). Via `runInDurableObject`, wrap `ctx.storage.put` and the socket `send` so each appends a tagged marker to one shared ordered array (e.g. `ops.push({op:"put", keys})` / `ops.push({op:"send", type})`); drive a mutating command; then assert the array shows the `put` containing `log:N` at an index **strictly before** the `send` of the `applied` message for that `logIndex`. **Mechanism assertion (observed ordering), never a symptom assertion ("no error").** If it races, fix with deterministic synchronization (await fences), NEVER by weakening.
+- [x] **Step 2-5:** implement the DO + critical section; commit `feat(host): GameRoom critical section — validate/apply/await-put/broadcast`.
+- [x] **Apply the Execution Discipline block.** Concurrency → assertion-rigor rule (this is THE task it most protects).
 
 ### Task B3.3: Recovery — snapshot + tail + replayVersion mismatch
 
@@ -1615,9 +1615,9 @@ The handler (`handleCommand`), exactly:
 
 > **Determinism (GEO-3):** recovery re-runs `applyEntry`, which installs each entry's `rngBeforeApply` before applying — reproducing combat/turn draws exactly without re-executing agent policies. This is the locked replay model (do NOT "use the preceding entry's post-state"). Agent re-drive after recovery is deterministic (the agent draws from the restored `game.rngState`), so re-driving produces the same entries — making the post-crash agent-drive idempotent.
 
-- [ ] **Step 1: Write failing tests** (workers pool + `evictDurableObject`) — (a) write some rounds, force eviction, send a new message → the DO rehydrates and continues correctly (state matches a fresh `replayLog` over the stored log); (b) **agent-drive self-heal:** a vs-agents room evicted while it is an agent's turn → on the next wake (e.g. a reconnect `fetch`) the DO drives the agent rounds forward without a human message; (c) a stored snapshot whose `replayVersion` matches → cheap path (no full re-replay); (d) a stored snapshot with a mismatched `replayVersion` whose snapshot-boundary re-replay hashes-equal → continues; (e) a snapshot whose re-replay **diverges** → room freezes (mutating command → `FROZEN`). **Assertion-rigor:** assert the freeze *mechanism* (a mutating command after divergence returns `FROZEN`) and the self-heal *mechanism* (agent log entries appear after a no-command wake), not just "no crash."
-- [ ] **Step 2-5:** implement; commit `feat(host): recovery — snapshot+tail, replayVersion-mismatch freeze-on-divergence`.
-- [ ] **Apply the Execution Discipline block.**
+- [x] **Step 1: Write failing tests** (workers pool + `evictDurableObject`) — (a) write some rounds, force eviction, send a new message → the DO rehydrates and continues correctly (state matches a fresh `replayLog` over the stored log); (b) **agent-drive self-heal:** a vs-agents room evicted while it is an agent's turn → on the next wake (e.g. a reconnect `fetch`) the DO drives the agent rounds forward without a human message; (c) a stored snapshot whose `replayVersion` matches → cheap path (no full re-replay); (d) a stored snapshot with a mismatched `replayVersion` whose snapshot-boundary re-replay hashes-equal → continues; (e) a snapshot whose re-replay **diverges** → room freezes (mutating command → `FROZEN`). **Assertion-rigor:** assert the freeze *mechanism* (a mutating command after divergence returns `FROZEN`) and the self-heal *mechanism* (agent log entries appear after a no-command wake), not just "no crash."
+- [x] **Step 2-5:** implement; commit `feat(host): recovery — snapshot+tail, replayVersion-mismatch freeze-on-divergence`.
+- [x] **Apply the Execution Discipline block.**
 
 **After Phase B3:** review from 3+ perspectives (the single-await critical section; atomic persist incl. pending-clear; recovery determinism + the freeze path; persist-first rationale stated correctly). Update Execution Status.
 

@@ -5,5 +5,7 @@ export const SNAPSHOT_KEY = "snapshot";
 export const PENDING_KEY = "pending";
 export const ROOM_OPTIONS_KEY = "roomOptions";
 export const INITIALIZED_KEY = "initialized";
+/** Set (to true) when recovery detects replay divergence under a new engine — every mutating command then errors FROZEN. */
+export const FROZEN_KEY = "frozen";
 /** Zero-padded so lexical key order == numeric log order under storage.list({prefix:"log:"}). */
 export function logKey(index: number): string { return `log:${String(index).padStart(6, "0")}`; }

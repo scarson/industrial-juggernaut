@@ -50,6 +50,19 @@ export type CommandCtx = {
   decisionId: string;   // host-pre-generated (crypto.getRandomValues) id for any pending this command opens
 };
 
+/** The round-boundary snapshot stored at SNAPSHOT_KEY: the post-composition GameState plus the log index it
+ *  covers, the divergence-guard hash, and the engine version that produced it. Written by the drive/commit path
+ *  (agent-drive.ts) and read by the DO host recovery path (src/host) — this shared shape is the single source of
+ *  truth so the writer and reader cannot drift. `logIndex` is the index of the LAST entry folded into `state`
+ *  (so the post-snapshot tail starts at logIndex + 1); `state` holds the post-advanceRound state on a normal
+ *  close and the victory state on a terminal close. */
+export type Snapshot = {
+  state: GameState;
+  logIndex: number;
+  stateHash: string;
+  replayVersion: string;
+};
+
 // One atomic multi-key storage.put. Clear a pending decision by writing PENDING_KEY = PENDING_TOMBSTONE
 // in this SAME put (no separate delete) — atomic by construction, matches spec §3's "single multi-key put".
 export type PersistOp = { put: Record<string, unknown> };
