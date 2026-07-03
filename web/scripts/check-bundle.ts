@@ -8,6 +8,9 @@ import process from "node:process";
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const BUNDLE_MODULE_MAP_PATH = join(SCRIPT_DIR, "..", "..", "dist", "client", ".bundle-modules.json");
 
+// Targets this repo's src/agent/ directory. Module IDs are absolute build-machine paths, so the
+// pattern can't be anchored — a third-party package containing a src/agent/ path would
+// false-positive (acceptable: fail-closed).
 const AGENT_MODULE_PATTERN = /src\/agent\//;
 
 export interface BundleChunkInfo {
