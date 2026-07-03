@@ -7,7 +7,7 @@
  *   - Display: Fraunces — an engraved, high-contrast "old style" serif with the
  *     antique-atlas / cartouche character the brief calls for. Static 400 + 600.
  *   - Body: Source Sans 3 — a warm, legible humanist sans that does the UI work.
- *     Variable weight.
+ *     Static 400 + 600.
  *   - Mono: IBM Plex Mono — an instrument-panel monospace for numbers/telemetry;
  *     even digit widths, clean at small sizes. Static 400 + 600.
  * font-display: swap keeps text visible during load; fallback stacks below carry
@@ -30,13 +30,20 @@
   src: url("/fonts/fraunces-latin-600.woff2") format("woff2");
 }
 
-/* --- Source Sans 3 (body sans) — variable weight, one file -------------- */
+/* --- Source Sans 3 (body sans) — static 400 + 600 ---------------------- */
 @font-face {
   font-family: "Source Sans 3";
   font-style: normal;
-  font-weight: 400 600;
+  font-weight: 400;
   font-display: swap;
-  src: url("/fonts/source-sans-3-latin-var.woff2") format("woff2");
+  src: url("/fonts/source-sans-3-latin-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Source Sans 3";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/source-sans-3-latin-600.woff2") format("woff2");
 }
 
 /* --- IBM Plex Mono (mono) — static 400 + 600 --------------------------- */
