@@ -59,17 +59,16 @@ interface Env {
 }
 
 /**
- * The send sink: the three effect channels the reducer emits. B3.2 leaves these as no-op seams the
- * tests spy on; B6.1 replaces the default with real socket fan-out (broadcast / per-seat / originating
- * socket). Held as an instance property so a test can swap it and `runInDurableObject` can observe sends.
+ * The send sink: the three effect channels the reducer emits — `reply` (the originating socket only),
+ * `toSeat` (all of a seat's tabs), `broadcast` (every socket). Held as an instance property so a test can
+ * swap it wholesale and `runInDurableObject` can observe sends. The DEFAULT is real socket fan-out (built in
+ * the constructor from `getWebSockets`); `reply` routes to the per-command `replyTarget` the message handler binds.
  */
 type SendSink = {
   reply: (msgs: ServerMessage[]) => void;
   toSeat: (seat: number, msg: ServerMessage) => void;
   broadcast: (msgs: ServerMessage[]) => void;
 };
-
-const NOOP_SINK: SendSink = { reply: () => {}, toSeat: () => {}, broadcast: () => {} };
 
 /** The /init payload the Worker create flow POSTs (seed rides as a decimal string — JSON has no bigint). */
 type InitPayload = {
@@ -83,10 +82,14 @@ export class GameRoom extends DurableObject<Env> {
   private session: SessionState | null = null;
   /** True once recovery detected replay divergence (B3.3). A frozen room drives nothing and rejects mutations. */
   private frozen = false;
-  /** The effect send channels. Default no-op seam (tests spy by replacing it); `webSocketMessage` binds a
-   *  real per-socket send sink for the duration of a command. B6.1 formalizes send-routing (multi-tab toSeat
-   *  fan-out, trySend failure handling). */
-  private sink: SendSink = NOOP_SINK;
+  /** The originating socket of the command currently being handled. `webSocketMessage` sets it before dispatch and
+   *  clears it in `finally`; every non-command path (alarm / rehydrate / init drive) leaves it null, so a `reply`
+   *  emitted off those paths reaches nobody (they use broadcast / toSeat, which do not need an originating socket). */
+  private replyTarget: WebSocket | null = null;
+  /** The effect send channels — REAL socket fan-out by default (see the constructor). `broadcast`/`toSeat` route
+   *  from `getWebSockets()` on EVERY path (command, alarm, rehydrate, init); `reply` routes to `replyTarget`. Tests
+   *  spy by replacing this whole object and calling `handleCommand` directly. */
+  private sink: SendSink;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -95,6 +98,42 @@ export class GameRoom extends DurableObject<Env> {
     // Registered in the constructor so it is installed on every wake (the constructor runs on re-init after
     // hibernation), never a `setTimeout`/`setInterval` (those prevent hibernation and die on eviction).
     this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
+
+    // The permanent, real send sink. Built once here (not per-command) so alarm() / rehydrate() / init drives fan
+    // out to real sockets, not a no-op. Each message is JSON-encoded ONCE per socket set. Every send goes through
+    // `trySend` so a dead/closing socket can never throw out of `sendEffects` (the B5 liveness window — a send
+    // throw between the awaited persist and the trailing driveAgents would strand a rolled-to agent turn).
+    this.sink = {
+      reply: (msgs) => {
+        const ws = this.replyTarget;
+        if (ws === null) return; // no originating socket bound (an alarm/rehydrate path) → reaches nobody
+        for (const m of msgs) this.trySend(ws, JSON.stringify(m));
+      },
+      toSeat: (seat, msg) => {
+        const encoded = JSON.stringify(msg);
+        for (const ws of this.ctx.getWebSockets("seat:" + seat)) this.trySend(ws, encoded);
+      },
+      broadcast: (msgs) => {
+        for (const m of msgs) {
+          const encoded = JSON.stringify(m);
+          for (const ws of this.ctx.getWebSockets()) this.trySend(ws, encoded);
+        }
+      },
+    };
+  }
+
+  /**
+   * Send one already-encoded message to one socket, swallowing any throw. A send throws when the socket is
+   * closing/closed; presence is advisory UI state (spec §3), so a dead socket must NEVER propagate an error out
+   * of `sendEffects` — that would interrupt the persist→alarm→send→drive critical section (the B5 liveness window).
+   * The socket is simply dropped from this send; the seat tag + hibernation attachment remain the durable identity.
+   */
+  private trySend(ws: WebSocket, encoded: string): void {
+    try {
+      ws.send(encoded);
+    } catch {
+      // The socket is gone. Presence is advisory (spec §3); no durable state to unwind. Drop it from this send.
+    }
   }
 
   /**
@@ -201,14 +240,13 @@ export class GameRoom extends DurableObject<Env> {
    * build the per-command ctx, and call `handleCommand`. The JSON.parse / crypto.randomUUID happen HERE (before
    * handleCommand) so the critical section keeps its no-non-storage-await invariant (plan B3.2).
    *
-   * B4 wires a MINIMAL real-send sink for the duration of the command so a command round-trips end to end (reply →
-   * the originating socket; broadcast/toSeat → the tagged socket sets). B6.1 formalizes send-routing: `trySend`
-   * failure handling (marking a dead socket gone) and the full multi-tab fan-out semantics. B4 does the minimal
-   * `ws.send` those tests need and no more.
+   * Send routing (B6.1): the instance `sink` is the permanent real fan-out (broadcast/toSeat via `getWebSockets`,
+   * `reply` via `replyTarget`). This handler binds `replyTarget` to the originating socket for the duration of the
+   * command and clears it in `finally`, so a subsequent spy (or an alarm-path reply) sees the null default.
    *
-   * Malformed input: B4 wraps JSON.parse in try/catch and replies a structured MALFORMED error to THAT socket. The
-   * full malformed-traffic enforcement — the OVERSIZED / UNKNOWN_TYPE codes and the per-socket count-limit-before-
-   * close (the count lives in the attachment so it survives hibernation) — is B6.2.
+   * Malformed input: JSON.parse failure replies a structured MALFORMED error to THAT socket. The full
+   * malformed-traffic enforcement — the OVERSIZED / UNKNOWN_TYPE codes and the per-socket count-limit-before-close
+   * (the count lives in the attachment so it survives hibernation) — is B6.2.
    */
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     if (this.session === null) await this.rehydrate();
@@ -218,23 +256,8 @@ export class GameRoom extends DurableObject<Env> {
     if (att === null) return;
     const seat = att.seat;
 
-    // Bind a per-socket real-send sink for this command: reply → the originating socket; broadcast → every socket;
-    // toSeat → a seat's tagged sockets. Restored to the default seam in `finally` so a subsequent
-    // `runInDurableObject` spy (or another socket's message) sees the clean default. B6.1 replaces this with the
-    // formalized `trySend`-based routing.
-    const originating = ws;
-    this.sink = {
-      reply: (msgs) => {
-        for (const m of msgs) originating.send(JSON.stringify(m));
-      },
-      toSeat: (toSeat, msg) => {
-        for (const s of this.ctx.getWebSockets("seat:" + toSeat)) s.send(JSON.stringify(msg));
-      },
-      broadcast: (msgs) => {
-        for (const s of this.ctx.getWebSockets()) for (const m of msgs) s.send(JSON.stringify(m));
-      },
-    };
-
+    // Bind the originating socket so `reply` routes to it for this command; cleared in `finally`.
+    this.replyTarget = ws;
     try {
       const text = typeof message === "string" ? message : new TextDecoder().decode(message);
       let command: ClientCommand;
@@ -250,7 +273,7 @@ export class GameRoom extends DurableObject<Env> {
       const ctx: CommandCtx = { actingSeat: seat, nowEpochMs: Date.now(), decisionId: crypto.randomUUID() };
       await this.handleCommand(command, ctx);
     } finally {
-      this.sink = NOOP_SINK;
+      this.replyTarget = null;
     }
   }
 
