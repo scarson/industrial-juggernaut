@@ -35,6 +35,10 @@
   --color-forest: oklch(45.08% 0.0588 151.61); /* #3c5f45 — extension: deep bottle-green */
 
   /* --- Semantic aliases: the roles code reads for, not raw swatches ------- */
+  /* These are intentionally CSS-only with no typed accessor in tokens.ts: semantic
+   * roles are a cascade concern (they may be re-pointed per theme/context), whereas
+   * the raw --color-* swatches are the typed, gate-tested layer. Code that needs a
+   * fixed swatch uses color() from tokens.ts; code that wants a role reads these. */
   --surface-app: var(--color-walnut-900); /* the Table body */
   --surface-panel: var(--color-walnut-800); /* instruments laid on the table */
   --surface-board: var(--color-parchment-300); /* the map — the only parchment on screen */

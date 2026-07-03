@@ -105,6 +105,9 @@ export function color(name: TokenName): string {
 
 /** Maps a camelCase token name to its kebab-case CSS custom-property suffix. */
 function cssVarSuffix(name: TokenName): string {
-  // walnut900 -> walnut-900 ; parchment300 -> parchment-300 ; oxide -> oxide
+  // Only inserts a hyphen at the letter→digit boundary (walnut900 -> walnut-900;
+  // parchment300 -> parchment-300; single-word names like oxide pass through). It
+  // does NOT split camelCase words — token names here are word+number or a single
+  // word by construction, so that is the only boundary that occurs.
   return name.replace(/([a-z])(\d)/g, "$1-$2");
 }
