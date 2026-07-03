@@ -1,0 +1,2 @@
+# Bundle-guard chunk->module map (build-machine absolute paths); CI artifact, not a web asset.
+.bundle-modules.json

@@ -15,9 +15,9 @@ jobs:
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
-      # Generate the placeholder dist/client/index.html so wrangler's assets-directory
-      # check passes until the SPA build (deliverable 2) replaces it. No-clobber: the
-      # real build's index.html is never overwritten.
+      - run: bun run build:client
+      # No-clobber fallback: only writes dist/client/index.html if the build above
+      # somehow emitted nothing, so wrangler's assets-directory check still passes.
       - run: bun run scripts/ensure-placeholder-assets.ts
       - uses: cloudflare/wrangler-action@v3
         with:
