@@ -51,6 +51,7 @@ describe("createGameStore", () => {
     expect(state.authoritative.connection).toBe("connecting");
     expect(state.preview.state).toBeNull();
     expect(state.preview.source).toBeNull();
+    expect(state.preview.combat).toBe(false);
   });
 
   test("connectDriver's initial sync sets authoritative state + logLength + roster + pending, clears preview", () => {
@@ -60,7 +61,7 @@ describe("createGameStore", () => {
     const store = createGameStore();
 
     // A stale preview from before the sync must be cleared by it.
-    store.getState().setPreview({ type: "pass" });
+    store.getState().setPreview({ type: "pass" }, { state: fixtureState() });
     expect(store.getState().preview.source).not.toBeNull();
 
     store.getState().connectDriver(driver);
@@ -122,8 +123,11 @@ describe("createGameStore", () => {
     const driver = makeFakeDriver({ snapshot, roster: fixtureRoster(), controllableSeats: [0], logLength: 0 });
     const store = createGameStore();
     store.getState().connectDriver(driver);
-    store.getState().setPreview({ type: "pass" });
+    const previewState = fixtureState();
+    store.getState().setPreview({ type: "attack", decl: { attackers: [], target: legalFirstBaseHexes(snapshot)[0]!, defender: legalFirstBaseHexes(snapshot)[0]! } }, { state: previewState, combat: true });
     expect(store.getState().preview.source).not.toBeNull();
+    expect(store.getState().preview.state).toBe(previewState);
+    expect(store.getState().preview.combat).toBe(true);
 
     const entry: LogEntry = {
       player: 0,
@@ -135,6 +139,7 @@ describe("createGameStore", () => {
 
     expect(store.getState().preview.state).toBeNull();
     expect(store.getState().preview.source).toBeNull();
+    expect(store.getState().preview.combat).toBe(false);
   });
 
   test("log-index guard: an applied whose logIndex is behind current logLength (duplicate) does NOT fold and triggers requestSync", () => {
@@ -191,6 +196,36 @@ describe("createGameStore", () => {
     expect(requestSyncCalls).toHaveLength(1);
   });
 
+  test("applied with a continuous logIndex but an ILLEGAL entry does not crash the store — it treats the throw as stream drift and requests a resync", () => {
+    const snapshot = fixtureState();
+    const driver = makeFakeDriver({ snapshot, roster: fixtureRoster(), controllableSeats: [0], logLength: 0 });
+    const store = createGameStore();
+    store.getState().connectDriver(driver);
+
+    const requestSyncCalls: number[] = [];
+    const originalRequestSync = driver.requestSync.bind(driver);
+    driver.requestSync = () => {
+      requestSyncCalls.push(1);
+      originalRequestSync();
+    };
+
+    const stateBefore = store.getState().authoritative.state;
+    // build with empty pieces is illegal — applyAction (via applyEntry) throws synchronously.
+    const illegalEntry: LogEntry = {
+      player: 0,
+      kind: "build",
+      pieces: [],
+      rngBeforeApply: snapshot.rngState,
+    };
+
+    expect(() => {
+      driver.pushEvent({ type: "applied", entry: illegalEntry, events: [], logIndex: 0 });
+    }).not.toThrow();
+
+    expect(store.getState().authoritative.state).toBe(stateBefore); // untouched — same reference
+    expect(requestSyncCalls).toHaveLength(1);
+  });
+
   test("turnRollover stores the ceremony's order + ironWeights without treating them as the source of truth for game state", () => {
     const snapshot = fixtureState();
     const driver = makeFakeDriver({ snapshot, roster: fixtureRoster(), controllableSeats: [0] });
@@ -235,7 +270,7 @@ describe("createGameStore", () => {
     const driver = makeFakeDriver({ snapshot, roster: fixtureRoster(), controllableSeats: [0] });
     const store = createGameStore();
     store.getState().connectDriver(driver);
-    store.getState().setPreview({ type: "pass" });
+    store.getState().setPreview({ type: "pass" }, { state: fixtureState() });
     expect(store.getState().preview.source).not.toBeNull();
 
     driver.pushEvent({ type: "prompt", pending: fixturePending(1) });
@@ -302,23 +337,36 @@ describe("createGameStore", () => {
     expect(store.getState().authoritative.connection).toBe("reconnecting");
   });
 
-  test("setPreview stores the driver command as the preview source", () => {
+  test("setPreview stores the driver command as the preview source and the computed preview state", () => {
     const store = createGameStore();
     const cmd = { type: "pass" as const };
+    const previewState = fixtureState();
 
-    store.getState().setPreview(cmd);
+    store.getState().setPreview(cmd, { state: previewState });
 
     expect(store.getState().preview.source).toBe(cmd);
+    expect(store.getState().preview.state).toBe(previewState);
+    expect(store.getState().preview.combat).toBe(false);
   });
 
-  test("clearPreview resets the preview slice to null/null", () => {
+  test("setPreview stores the combat flag when the previewed command is an attack declaration", () => {
     const store = createGameStore();
-    store.getState().setPreview({ type: "pass" });
+    const previewState = fixtureState();
+
+    store.getState().setPreview({ type: "endRound" }, { state: previewState, combat: true });
+
+    expect(store.getState().preview.combat).toBe(true);
+  });
+
+  test("clearPreview resets the preview slice to null/null/false", () => {
+    const store = createGameStore();
+    store.getState().setPreview({ type: "pass" }, { state: fixtureState(), combat: true });
 
     store.getState().clearPreview();
 
     expect(store.getState().preview.state).toBeNull();
     expect(store.getState().preview.source).toBeNull();
+    expect(store.getState().preview.combat).toBe(false);
   });
 
   test("connectDriver returns the driver's unsubscribe function — calling it stops further dispatch", () => {

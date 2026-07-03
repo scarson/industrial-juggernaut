@@ -3,8 +3,9 @@
 import { createStore } from "zustand/vanilla";
 import { useStore } from "zustand/react";
 import { applyEntry } from "../engine-client/barrel";
-import type { GameState } from "../engine-client/barrel";
+import type { GameState, Hex } from "../engine-client/barrel";
 import type { ConnectionStatus, DriverCommand, DriverEvent, DriverPending, GameDriver, SeatRosterEntry } from "./driver";
+import type { BoardProps } from "../board/Board";
 
 /** The ceremony data `turnRollover` carries. It is NOT the source of truth for game state —
  *  `state.phase.order` (set by `advanceRound` inside `applyEntry`, folded on the round-closing
@@ -27,14 +28,19 @@ export type AuthoritativeSlice = {
 export type PreviewSlice = {
   state: GameState | null;
   source: DriverCommand | null;
+  combat: boolean;
 };
 
 export type UiSlice = {
   openComposer: string | null;
-  selection: unknown | null;
-  hover: unknown | null;
+  selection: BoardProps["selection"] | null;
+  hover: Hex | null;
 };
 
+// Consumers should subscribe to the narrowest nested field they need (e.g. `s.authoritative.state`,
+// not `s.authoritative`) — subscribing to a parent slice defeats the re-render bailout the fold
+// was designed for, since every dispatch replaces the parent object even when a sibling field
+// didn't change.
 export type GameStoreState = {
   authoritative: AuthoritativeSlice;
   preview: PreviewSlice;
@@ -43,9 +49,11 @@ export type GameStoreState = {
    *  store. Returns the driver's unsubscribe function — callers (GameScreen, P3.11) tear down
    *  the wiring the same way they'd tear down any other subscription. */
   connectDriver: (driver: GameDriver) => () => void;
-  /** Records the command an optimistic preview is FOR. The preview's derived `state` is P3.3's
-   *  job — this slice only stores the source command; the state stays null until P3.3 fills it. */
-  setPreview: (cmd: DriverCommand) => void;
+  /** Records an optimistic preview: `source` is the command it's FOR, `preview` is
+   *  `previewCommand(state, player, source)`'s result (composers/preview.ts, P3.3) — the
+   *  resulting `state` plus whether the command is a combat declaration (no locally-resolvable
+   *  outcome; the composer shows odds, not a result). */
+  setPreview: (source: DriverCommand, preview: { state: GameState; combat?: true }) => void;
   clearPreview: () => void;
 };
 
@@ -59,7 +67,7 @@ const initialAuthoritative: AuthoritativeSlice = {
   terminal: null,
 };
 
-const initialPreview: PreviewSlice = { state: null, source: null };
+const initialPreview: PreviewSlice = { state: null, source: null, combat: false };
 
 const initialUi: UiSlice = { openComposer: null, selection: null, hover: null };
 
@@ -81,8 +89,8 @@ export function createGameStore() {
       });
     },
 
-    setPreview(cmd: DriverCommand): void {
-      set({ preview: { state: null, source: cmd } });
+    setPreview(source: DriverCommand, preview: { state: GameState; combat?: true }): void {
+      set({ preview: { state: preview.state, source, combat: preview.combat ?? false } });
     },
 
     clearPreview(): void {
@@ -126,7 +134,17 @@ function dispatch(
         driver.requestSync();
         return;
       }
-      const result = applyEntry(authoritative.state, event.entry);
+      let result: ReturnType<typeof applyEntry>;
+      try {
+        result = applyEntry(authoritative.state, event.entry);
+      } catch {
+        // The entry doesn't apply cleanly to this client's current state — the same stream-drift
+        // signal as a log-index mismatch (a malformed/illegal entry should never reach here for a
+        // correctly-behaving driver, but LocalReducerDriver/SocketDriver are untrusted boundaries).
+        // Do NOT fold: leave authoritative.state untouched and force a fresh sync.
+        driver.requestSync();
+        return;
+      }
       set({
         authoritative: {
           ...authoritative,
