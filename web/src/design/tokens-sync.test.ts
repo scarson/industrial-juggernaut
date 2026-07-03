@@ -56,6 +56,26 @@ describe("tokens.css mirrors tokens.ts", () => {
   });
 });
 
+describe("cascade guards", () => {
+  // jsdom cannot compute the real CSS cascade, so this pins the one known cascade
+  // hazard structurally: .chrome-button's `color: inherit` reset and .brass-accent
+  // have equal single-class specificity, and .chrome-button is declared later — so
+  // without a compound override, a `chrome-button brass-accent` element (the
+  // Instruments button) loses its brass by source order. The compound selector
+  // must exist and must set the accent color.
+  test("the .chrome-button.brass-accent compound override restores the brass", () => {
+    const rule = tokensCss.match(/\.chrome-button\.brass-accent\s*\{([^}]*)\}/);
+    expect(rule).not.toBeNull();
+    expect(rule![1]).toMatch(/color:\s*var\(--accent\)/);
+  });
+
+  test("the brass hover glint uses brass-400", () => {
+    const hover = tokensCss.match(/\.chrome-button\.brass-accent:hover\s*\{([^}]*)\}/);
+    expect(hover).not.toBeNull();
+    expect(hover![1]).toMatch(/color:\s*var\(--color-brass-400\)/);
+  });
+});
+
 describe("playerColors positional stability", () => {
   // P0.5's playerIdentity(id) contract pins "id 0 = oxide-red"; this order is a
   // published contract, not an implementation detail — assert it explicitly.
