@@ -2,7 +2,8 @@
 // ABOUTME: reducer's eligibleDefenders as choices plus a rule line; a Phase-2 deadline adds a
 // ABOUTME: countdown and an "I'm still thinking" extend affordance.
 import { hexKey } from "../board/projection";
-import { explainError } from "../rules/error-explanations";
+import { ComposerPanel, RuleLine, HexButtonList } from "./shell";
+import type { HexButtonItem } from "./shell";
 import type { DriverPending, GameDriver } from "../game/driver";
 
 export interface DefenderPromptProps {
@@ -28,15 +29,20 @@ export interface DefenderPromptProps {
 export function DefenderPrompt({ pending, driver, now = Date.now }: DefenderPromptProps) {
   if (pending === null) {
     return (
-      <section className="table-panel" aria-label="Defender decision" style={PANEL_STYLE}>
+      <ComposerPanel ariaLabel="Defender decision">
         <p className="mono" style={WAITING_STYLE}>
           Waiting for the defending player…
         </p>
-      </section>
+      </ComposerPanel>
     );
   }
 
   const { decisionId, eligibleDefenders, deadlineEpochMs } = pending;
+  // Pure render of `deadlineEpochMs - now()` — no `setInterval`. That's fine today because
+  // `deadlineEpochMs` is always null in P3 (the defender timeout is a Phase-2/P4-rooms feature,
+  // see the prop doc above); once P4's SocketDriver wires a real non-null deadline, this MUST
+  // gain a `setInterval` (or equivalent) so the countdown actually ticks live instead of only
+  // reflecting whatever `now()` happened to read at mount/re-render.
   const remainingMs = deadlineEpochMs !== null ? deadlineEpochMs - now() : null;
   const remainingSeconds = remainingMs !== null ? Math.max(0, Math.ceil(remainingMs / 1000)) : null;
 
@@ -48,28 +54,18 @@ export function DefenderPrompt({ pending, driver, now = Date.now }: DefenderProm
     driver.submit({ type: "extendDecision", decisionId });
   }
 
-  return (
-    <section className="table-panel" aria-label="Defender decision" style={PANEL_STYLE}>
-      <p className="mono" role="note" style={NOTE_STYLE}>
-        {explainError("DEFENDER_INELIGIBLE")}
-      </p>
+  const defenderItems: HexButtonItem[] = eligibleDefenders.map((hex) => ({ key: hexKey(hex), hex }));
 
-      <div role="group" aria-label="Eligible defenders" style={HEX_LIST_STYLE}>
-        {eligibleDefenders.map((hex) => {
-          const key = hexKey(hex);
-          return (
-            <button
-              key={key}
-              type="button"
-              className="chrome-button mono"
-              data-testid={`defender-choice-${key}`}
-              onClick={() => choose(hex)}
-            >
-              {key}
-            </button>
-          );
-        })}
-      </div>
+  return (
+    <ComposerPanel ariaLabel="Defender decision">
+      <RuleLine>Choose which base will defend against this attack.</RuleLine>
+
+      <HexButtonList
+        ariaLabel="Eligible defenders"
+        testIdPrefix="defender-choice"
+        items={defenderItems}
+        onSelect={choose}
+      />
 
       {remainingSeconds !== null && (
         <div style={COUNTDOWN_ROW_STYLE}>
@@ -81,23 +77,9 @@ export function DefenderPrompt({ pending, driver, now = Date.now }: DefenderProm
           </button>
         </div>
       )}
-    </section>
+    </ComposerPanel>
   );
 }
 
-const PANEL_STYLE: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "0.75rem",
-  padding: "0.75rem",
-};
 const WAITING_STYLE: React.CSSProperties = { margin: 0, color: "var(--color-parchment-300)" };
-const NOTE_STYLE: React.CSSProperties = {
-  margin: 0,
-  fontSize: "0.8rem",
-  color: "var(--color-parchment-300)",
-  borderLeft: "2px solid var(--accent)",
-  paddingLeft: "0.6rem",
-};
-const HEX_LIST_STYLE: React.CSSProperties = { display: "flex", flexWrap: "wrap", gap: "0.35rem" };
 const COUNTDOWN_ROW_STYLE: React.CSSProperties = { display: "flex", alignItems: "center", gap: "0.75rem" };

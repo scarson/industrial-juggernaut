@@ -7,6 +7,8 @@ import { distance, representativeDefender } from "../engine-client/barrel";
 import { highlightSets } from "../board/highlight";
 import { hexKey, keyToHex } from "../board/projection";
 import { explainError } from "../rules/error-explanations";
+import { ComposerPanel, RuleLine, HexButtonList } from "./shell";
+import type { HexButtonItem } from "./shell";
 import type { GameState, PlayerId, Hex, Base } from "../engine-client/barrel";
 import type { GameDriver } from "../game/driver";
 import type { GameStore } from "../game/store";
@@ -19,8 +21,9 @@ export interface AttackComposerProps {
   readonly player: PlayerId;
   /** Submits the eventual `{type:"attack", decl}` command. */
   readonly driver: GameDriver;
-  /** Read/write access for the optimistic preview (`setPreview`/`clearPreview`) — attack previews
-   *  never resolve combat locally (`previewCommand` returns `{combat: true}`, state unchanged). */
+  /** Read/write access to clear any stale optimistic preview on target-select/commit — attacks
+   *  never themselves produce a preview state (combat is unresolved client-side; see the module
+   *  doc comment's G1 note), so `store` is used only for `clearPreview`, never `setPreview`. */
   readonly store: GameStore;
 }
 
@@ -84,34 +87,28 @@ export function AttackComposer({ state, player, driver, store }: AttackComposerP
     store.getState().clearPreview();
   }
 
-  return (
-    <section className="table-panel" aria-label="Attack" style={PANEL_STYLE}>
-      <div role="group" aria-label="Attack targets" style={HEX_LIST_STYLE}>
-        {candidateTargets.map((base) => {
-          const key = hexKey(base.hex);
-          const legal = attackTargets.has(key);
-          return (
-            <button
-              key={key}
-              type="button"
-              className="chrome-button mono"
-              data-testid={`attack-target-${key}`}
-              aria-pressed={key === targetKey}
-              aria-disabled={!legal}
-              style={legal ? undefined : TARGET_ILLEGAL_STYLE}
-              onClick={() => selectTarget(key)}
-            >
-              {key}
-            </button>
-          );
-        })}
-      </div>
+  const targetItems: HexButtonItem[] = candidateTargets.map((base) => {
+    const key = hexKey(base.hex);
+    const legal = attackTargets.has(key);
+    return {
+      key,
+      hex: base.hex,
+      pressed: key === targetKey,
+      ariaDisabled: !legal,
+      style: legal ? undefined : TARGET_ILLEGAL_STYLE,
+    };
+  });
 
-      {target !== null && noEligibleDefender && (
-        <p className="mono" role="note" style={NOTE_STYLE}>
-          {explainError("NO_ELIGIBLE_DEFENDER")}
-        </p>
-      )}
+  return (
+    <ComposerPanel ariaLabel="Attack">
+      <HexButtonList
+        ariaLabel="Attack targets"
+        testIdPrefix="attack-target"
+        items={targetItems}
+        onSelect={(hex) => selectTarget(hexKey(hex))}
+      />
+
+      {target !== null && noEligibleDefender && <RuleLine>{explainError("NO_ELIGIBLE_DEFENDER")}</RuleLine>}
 
       {target !== null && !noEligibleDefender && (
         <>
@@ -167,14 +164,22 @@ export function AttackComposer({ state, player, driver, store }: AttackComposerP
           Commit
         </button>
       </div>
-    </section>
+    </ComposerPanel>
   );
 }
 
 /** This player's fresh bases within `attackRange` of `target`, nearest-first (distance ascending,
  *  tie by ascending hexKey) — the same deterministic ordering `legalActions` (src/engine/legal.ts)
  *  uses to build its representative attacker subsets, so the candidate list here matches exactly
- *  what a commitment level N would select as attackers N through the engine's own logic. */
+ *  what a commitment level N would select as attackers N through the engine's own logic.
+ *
+ *  Filters by strict ownership (`b.owner === player`), which is behaviorally equal to the engine's
+ *  alliance-based `isAlly` filter ONLY because alliances are singletons in this phase
+ *  (`Player.alliance: [id]`; `allianceOp` composition is Phase-3, out of scope here — see
+ *  `docs/plans/2026-06-29-spa-client-plan.md`'s P3 Discoveries). If Phase-3 alliance work grows
+ *  alliances beyond singletons, this strict-owner filter would silently under-populate allied
+ *  attackers. Remediation when that lands: consume an engine `legalAttackers(state, target)`
+ *  export instead of re-deriving eligibility here. */
 function eligibleAttackersFor(state: GameState, player: PlayerId, target: Hex): Base[] {
   const range = state.config.attackRange;
   return state.bases
@@ -212,24 +217,11 @@ function formatOdds(prob: number | undefined): string {
   return `${Math.round(prob * 100)}%`;
 }
 
-const PANEL_STYLE: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "0.75rem",
-  padding: "0.75rem",
-};
 const HEX_LIST_STYLE: React.CSSProperties = { display: "flex", flexWrap: "wrap", gap: "0.35rem" };
 const TARGET_ILLEGAL_STYLE: React.CSSProperties = {
   color: "var(--color-ink-700)",
   borderColor: "var(--hairline)",
   opacity: 0.5,
-};
-const NOTE_STYLE: React.CSSProperties = {
-  margin: 0,
-  fontSize: "0.8rem",
-  color: "var(--color-parchment-300)",
-  borderLeft: "2px solid var(--accent)",
-  paddingLeft: "0.6rem",
 };
 const ATTACKER_STYLE: React.CSSProperties = {
   padding: "0.15rem 0.4rem",

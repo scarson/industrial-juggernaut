@@ -5,9 +5,10 @@ import { highlightSets } from "../board/highlight";
 import { keyToHex } from "../board/projection";
 import { playerIdentity } from "../identity/player-identity";
 import { PlayerShapeIcon } from "../identity/shapes";
+import { ComposerPanel, RuleLine, HexButtonList } from "./shell";
+import type { HexButtonItem } from "./shell";
 import type { GameState, PlayerId } from "../engine-client/barrel";
 import type { GameDriver } from "../game/driver";
-import type { GameStore } from "../game/store";
 
 export interface SetupPlacementProps {
   /** The authoritative state to place against — callers mount this only while `state.phase.turn
@@ -23,10 +24,6 @@ export interface SetupPlacementProps {
   readonly player: PlayerId;
   /** Submits the eventual `{type:"placeFirstBase", hex}` command. */
   readonly driver: GameDriver;
-  /** Accepted for prop-contract parity with `BuildComposer`/`AttackComposer` — first-base
-   *  placement has no optimistic preview to stage (a single click submits immediately, no
-   *  multi-piece staging step exists to preview), so this is unused today. */
-  readonly store: GameStore;
 }
 
 /**
@@ -44,8 +41,13 @@ export function SetupPlacement({ state, player, driver }: SetupPlacementProps) {
     driver.submit({ type: "placeFirstBase", hex });
   }
 
+  const placementItems: HexButtonItem[] = [...placementHexes].map((keyStr) => ({
+    key: keyStr,
+    hex: keyToHex(keyStr),
+  }));
+
   return (
-    <section className="table-panel" aria-label="Setup placement" style={PANEL_STYLE}>
+    <ComposerPanel ariaLabel="Setup placement">
       <div role="group" aria-label="Placement order" style={ORDER_ROW_STYLE}>
         {order.map((seat) => (
           <span key={seat} style={ORDER_ENTRY_STYLE}>
@@ -58,52 +60,28 @@ export function SetupPlacement({ state, player, driver }: SetupPlacementProps) {
         Player {acting} to place
       </p>
 
-      <p className="mono" role="note" style={NOTE_STYLE}>
+      <RuleLine>
         First-base placement is a free choice of any hex on the outer ring (Ruling #6) — the
         printed rule&rsquo;s seating convention does not translate to a screen.
-      </p>
+      </RuleLine>
 
       {controllableNow ? (
-        <div role="group" aria-label="Legal placement hexes" style={HEX_LIST_STYLE}>
-          {[...placementHexes].map((keyStr) => {
-            const hex = keyToHex(keyStr);
-            return (
-              <button
-                key={keyStr}
-                type="button"
-                className="chrome-button mono"
-                data-testid={`placement-hex-${keyStr}`}
-                onClick={() => place(hex)}
-              >
-                {keyStr}
-              </button>
-            );
-          })}
-        </div>
+        <HexButtonList
+          ariaLabel="Legal placement hexes"
+          testIdPrefix="placement-hex"
+          items={placementItems}
+          onSelect={place}
+        />
       ) : (
         <p className="mono" style={WAITING_STYLE}>
           Waiting for player {acting} to place their first base…
         </p>
       )}
-    </section>
+    </ComposerPanel>
   );
 }
 
-const PANEL_STYLE: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "0.75rem",
-  padding: "0.75rem",
-};
 const ORDER_ROW_STYLE: React.CSSProperties = { display: "flex", gap: "0.4rem" };
 const ORDER_ENTRY_STYLE: React.CSSProperties = { display: "inline-flex" };
 const TURN_INDICATOR_STYLE: React.CSSProperties = { margin: 0 };
-const NOTE_STYLE: React.CSSProperties = {
-  margin: 0,
-  fontSize: "0.8rem",
-  color: "var(--color-parchment-300)",
-  borderLeft: "2px solid var(--accent)",
-  paddingLeft: "0.6rem",
-};
 const WAITING_STYLE: React.CSSProperties = { margin: 0, color: "var(--color-parchment-300)" };
-const HEX_LIST_STYLE: React.CSSProperties = { display: "flex", flexWrap: "wrap", gap: "0.35rem" };
