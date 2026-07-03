@@ -3,6 +3,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { NewGame } from "../designer/NewGame";
 import { AgentViewer } from "../viewer/AgentViewer";
+import { RulesReference } from "../rules/RulesReference";
 
 const ROUTES = ["/", "/game", "/viewer", "/rules"] as const;
 type RoutePath = (typeof ROUTES)[number];
@@ -95,12 +96,9 @@ function ViewerScreen() {
 }
 
 function RulesScreen() {
-  return (
-    <section className="table-panel">
-      <h1>Rules</h1>
-      <p>The rules reference, with Digital Edition Ruling callouts merged inline.</p>
-    </section>
-  );
+  // The product route: the rules reference with Digital Edition Ruling callouts merged inline —
+  // the teaching surface (PRODUCT.md "the board teaches itself").
+  return <RulesReference />;
 }
 
 function NotFoundScreen() {
