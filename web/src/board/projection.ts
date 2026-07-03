@@ -17,6 +17,8 @@ export function hexKey(hex: Hex): string {
 // Flat-top axial mapping q=x, r=z (cube's `y` is redundant given x+y+z=0).
 // px = size * 1.5 * q
 // py = size * SQRT3 * (r + q/2)
+// py grows DOWNWARD, matching SVG's y-down coordinate space — pixel coords feed straight
+// into <polygon>/<svg> with no sign flip (a "north" neighbor has negative py).
 export function hexToPixel(hex: Hex, size: number): PixelPoint {
   const px = size * 1.5 * hex.x;
   const py = size * SQRT3 * (hex.z + hex.x / 2);
