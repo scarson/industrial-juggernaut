@@ -2,6 +2,7 @@
 // ABOUTME: routes. No react-router: 4 fixed paths don't warrant the dependency (see P0.7 plan).
 import { lazy, Suspense, useEffect, useState } from "react";
 import { NewGame } from "../designer/NewGame";
+import { AgentViewer } from "../viewer/AgentViewer";
 
 const ROUTES = ["/", "/game", "/viewer", "/rules"] as const;
 type RoutePath = (typeof ROUTES)[number];
@@ -88,12 +89,9 @@ function GameScreen() {
 }
 
 function ViewerScreen() {
-  return (
-    <section className="table-panel">
-      <h1>Viewer</h1>
-      <p>Watch a recorded or all-agent game, client-side (play / pause / step).</p>
-    </section>
-  );
+  // The product route (not a dev stub): the all-agent viewer where designers watch a game play
+  // itself. AgentViewer defaults its `generateGame` to the real off-main-thread worker.
+  return <AgentViewer />;
 }
 
 function RulesScreen() {
