@@ -46,6 +46,9 @@
   --text-on-board: var(--color-ink-900); /* ink on the map */
   --accent: var(--color-brass-500); /* scarce brass */
   --hairline: var(--color-walnut-700);
+
+  /* --- Shell layout: the app-chrome geometry, not the board's ------------- */
+  --layout-topbar-height: 44px; /* UI brief §5: a slim top bar, ≤44px */
 }
 
 /* ==========================================================================
@@ -94,4 +97,10 @@
   font-family: var(--font-display);
   font-weight: 600;
   letter-spacing: 0.01em;
+}
+
+/* Shell geometry — the top bar's height is a layout constant (UI brief §5: ≤44px),
+ * asserted here so components read the token instead of hard-coding a pixel value. */
+.shell-topbar {
+  height: var(--layout-topbar-height);
 }
