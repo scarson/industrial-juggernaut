@@ -27,6 +27,7 @@ This document serves three audiences. Start here, then go directly to the sectio
 | 1 | [Geometry & Engine](#section-1-geometry--engine) | Hex math, coordinate projection, PRNG threading, derived state | GEO-1 – GEO-8 | §1.C |
 | 2 | [Durable Object Host](#section-2-durable-object-host) | The `GameRoom` DO — storage, ordering, identity, auth, alarms, hibernation, tests | DO-PURITY-1 – DO-TEST-1 | §2.C |
 | 3 | [Wire Protocol](#section-3-wire-protocol) | The `ClientCommand`/`ServerMessage` boundary and the session-layer error mappers | WIRE-MAP-1 – WIRE-SHAPE-1 | §3.C |
+| 4 | [Web Client (CSS/design-system)](#section-4-web-client-cssdesign-system) | The `web/src/design/` token stylesheet and any component composing its utility classes | WEB-1 | §4.C |
 | — | [Orchestration](#orchestration) | Parallel subagent dispatch and output persistence | ORCH-1 | §Orchestration.C |
 | A | [Historical Changelog](#appendix-a-historical-changelog) | Provenance, validation dates, review process meta-observations | — | — |
 | B | [Unified Summary Table](#appendix-b-unified-summary-table) | All pitfalls at a glance, with severity and status | — | — |
@@ -320,6 +321,33 @@ The broken-perimeter death clock (`applyEliminations`, cause `brokenPerimeterAt1
 
 ---
 
+# Section 4: Web Client (CSS/design-system)
+
+> **Reader context:** I'm building or reviewing `web/src/design/tokens.css` or any component that composes two or more of its utility classes on a single element.
+>
+> The design system is a set of single-purpose CSS utility classes (`.brass-accent`, `.chrome-button`, etc.) meant to be composed freely on one element. That composability is an assumption the CSS cascade does not honor: when two utilities set the same property at equal specificity, source order — not intent — decides the winner. This trap family is invisible to jsdom-based structure tests, because jsdom never computes a cascade; it only surfaces in a real browser's computed styles.
+
+---
+
+### WEB-1: Equal-Specificity Utility Composition Is Decided by Source Order, Not Intent
+
+**The Flaw:** A later single-class utility (e.g. `.chrome-button`'s `color`/`background-color` resets) and an earlier single-class utility (e.g. `.brass-accent`, `.brass-accent-bg`) both set the same CSS property on the same element. Both selectors are single-class, so both have identical specificity (0,1,0) — the cascade's only remaining tiebreaker is source order in the stylesheet, and whichever rule is declared later wins outright, silently overriding the earlier one's intended styling with no warning, no error, and no visual signal in a structure-only test.
+
+**Why It Matters:** This struck twice in one day, and both times it landed on the single most identity-bearing element of the screen it was on — not a coincidence, but a direct consequence of the design system's "Brass Budget" rule, which concentrates the brass accent onto exactly ONE element per screen to make it mean something. That concentration means the bug always hits the element the design language most wants the user to notice. First occurrence: the app shell's Instruments button (P0 phase review, caught live in the browser) — `.chrome-button`'s later reset silently defeated `.brass-accent`, so the shell's one brass affordance rendered in parchment instead of brass. Second occurrence: the designer's Start button (P2.4, caught via `preview_inspect` computed-style inspection) — the same cascade collision, this time against `.brass-accent-bg`, rendered the one brass-filled primary action in walnut instead of brass. Both times the component tree was structurally correct — the classes were present on the element, in the right order, exactly as intended — so a jsdom `render()` + class-list assertion would pass cleanly on the exact broken output. jsdom does not compute a cascade; it cannot see that one rule silently defeated another. The failure is real, visual, and undetectable by the test tooling most projects reach for first.
+**The Fix:** Every utility pair that's expected to compose gets three layers, not one. (1) An explicit compound-selector override in `web/src/design/tokens.css` — `.chrome-button.brass-accent` and `.chrome-button.brass-accent-bg` — whose two-class specificity (0,2,0) beats both single-class utilities regardless of source order, so the composition's outcome is declared, not inferred. (2) A structural test pinning the compound rule's existence and content, so a future edit that deletes or weakens the override fails a fast test rather than waiting for visual QA — see `tokens-sync.test.ts`'s `describe("cascade guards")` block, which regex-matches `.chrome-button.brass-accent` / `.chrome-button.brass-accent-bg` (including `:hover`/`:disabled` variants) directly out of the stylesheet text. (3) A real-browser computed-style check (`preview_inspect` on the live element, reading actual `color`/`background-color`) whenever a new composition ships — this is the only layer that can observe the cascade actually resolving correctly, and it's mandatory precisely because layers 1 and 2 both describe intent, not paint.
+**The Lesson:** Utility-class composability is an assumption the CSS cascade does not honor — two single-class utilities that both touch the same property will silently resolve by source order the moment they land on one element, and nothing about the component code, the class names, or a jsdom structure test will reveal it. Any utility pair meant to compose needs its composition declared explicitly (a compound selector, not reliance on load order) and verified in a real browser (computed styles, not rendered DOM structure) — structure tests prove attributes were applied, never that they painted the way you intended.
+
+---
+
+### Review Checklist
+
+- [ ] **Every utility-class pair expected to compose has an explicit compound-selector override in `tokens.css`** — never rely on stylesheet source order to resolve an equal-specificity collision (WEB-1)
+- [ ] **Each compound override has a structural test pinning its existence/content** (`tokens-sync.test.ts` §cascade guards) — a deleted or weakened override fails fast, not at visual QA (WEB-1)
+- [ ] **A new composition is verified with a real-browser computed-style check (`preview_inspect`) before shipping** — jsdom cannot compute a cascade and will pass on broken output (WEB-1)
+- [ ] **Compositions landing on the design system's single "Brass Budget" element per screen get extra scrutiny** — this is where the failure mode has struck twice, because it's exactly where the design language concentrates meaning (WEB-1)
+
+---
+
 ## Orchestration
 
 Pitfalls that arise when a session dispatches parallel subagents and consolidates their output. The canonical rules live in `docs/git-strategy.md` → §Multi-agent coordination → Output persistence. This section is the discovery hook for plan writers who arrive here via the `writing-plans-enhanced` (or equivalent) mandated-read path — it does NOT restate the rules in full.
@@ -348,6 +376,10 @@ Pitfalls that arise when a session dispatches parallel subagents and consolidate
 <!-- ## YYYY-MM-DD — <event> -->
 <!-- - Added PREFIX-N (<title>) — <what and why> -->
 <!-- - Updated PREFIX-M — <what changed> -->
+
+## 2026-07-03 — Web client cascade-composition finding
+
+- Added Section 4: Web Client (CSS/design-system) (WEB-1) — equal-specificity utility-class composition (`.brass-accent`/`.brass-accent-bg` vs. `.chrome-button`) resolves by stylesheet source order, not intent, and jsdom structure tests cannot detect it. Struck twice in one day, both times on the design system's single "Brass Budget" element per screen: the app shell's Instruments button (P0, caught live in-browser) and the designer's Start button (P2.4, caught via `preview_inspect`). Fix already shipped as compound-selector overrides in `web/src/design/tokens.css` plus structural cascade-guard tests in `tokens-sync.test.ts`; this entry documents the pattern for future utility-pair compositions. Same-day `testing-pitfalls.md` also gained a `ResizeObserver` stub entry (§7, unrelated mechanism, no formal cross-reference) — both findings share the theme that jsdom cannot observe layout or cascade computation.
 
 ## 2026-07-03 — DO-Host + Wire-Protocol plan, Phase B9
 
@@ -387,6 +419,7 @@ Pitfalls that arise when a session dispatches parallel subagents and consolidate
 | DO-TEST-1 | The Current `@cloudflare/vitest-pool-workers` API Surface | MEDIUM | VALIDATED | Durable Object Host |
 | WIRE-MAP-1 | Engine Throw Messages Are Load-Bearing for the Session Error Mappers | MEDIUM | VALIDATED | Wire Protocol |
 | WIRE-SHAPE-1 | The Wire Boundary Must Validate Full Shape, Not Just `type` | CRITICAL | VALIDATED | Wire Protocol |
+| WEB-1 | Equal-Specificity Utility Composition Is Decided by Source Order, Not Intent | HIGH | VALIDATED | Web Client (CSS/design-system) |
 | ORCH-1 | Analysis Dispatches Must Persist Findings | HIGH | VALIDATED | Orchestration |
 
 Severity levels: `CRITICAL` (production data loss / security), `HIGH` (correctness bug under predictable conditions), `MEDIUM` (correctness bug under edge cases), `LOW` (cleanliness / clarity).
