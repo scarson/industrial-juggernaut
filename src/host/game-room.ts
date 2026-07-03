@@ -312,10 +312,12 @@ export class GameRoom extends DurableObject<Env> {
       const command = parseClientCommand(parsed);
       if (command === null) {
         const type = (parsed as { type?: unknown } | null)?.type;
+        // UNKNOWN_TYPE is reserved for a real string `type` that isn't a known command; a known type with a broken
+        // shape, or a non-object / no-string-type payload, is MALFORMED (never surface a literal "undefined").
         this.sink.reply([
-          isKnownCommandType(type)
-            ? malformedError(`malformed ${String(type)} command`)
-            : unknownTypeError(String(type)),
+          typeof type === "string" && !isKnownCommandType(type)
+            ? unknownTypeError(type)
+            : malformedError(typeof type === "string" ? `malformed ${type} command` : "malformed command payload"),
         ]);
         this.registerMalformed(ws, att);
         return;
