@@ -22,8 +22,18 @@ import type { GameState, PlayerId } from "../engine-client/barrel";
  * Both control regimes (radiating disk below 4 bases, perimeter hull at 4+
  * non-colinear bases) fall out of `controlOf(state, p).hexes` automatically —
  * this function never computes a hull itself.
+ *
+ * Memoized on the immutable `GameState` reference (GEO-5: a pure-function cache
+ * keyed by immutable input, same convention as `controlOf`/`strandedHexKeys`) —
+ * hover/selection re-renders reuse the map instead of re-walking every player's
+ * controlled set. Callers MUST NOT mutate the returned map.
  */
+const territoryFillsCache = new WeakMap<GameState, Map<string, PlayerId[]>>();
+
 export function territoryFills(state: GameState): Map<string, PlayerId[]> {
+  const cached = territoryFillsCache.get(state);
+  if (cached !== undefined) return cached;
+
   const fills = new Map<string, PlayerId[]>();
   for (const p of state.players) {
     if (p.eliminated) continue;
@@ -36,6 +46,7 @@ export function territoryFills(state: GameState): Map<string, PlayerId[]> {
       controllers.push(p.id);
     }
   }
+  territoryFillsCache.set(state, fills);
   return fills;
 }
 

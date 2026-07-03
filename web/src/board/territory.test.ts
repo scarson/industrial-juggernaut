@@ -186,6 +186,15 @@ describe("territoryFills", () => {
     expect(fourBaseFills.get(hexKey(HULL_INTERIOR_HEX))).toEqual([0]);
   });
 
+  test("memoizes on the state reference (GEO-5 identity cache)", () => {
+    const state = overlapFixtureState();
+    // Same state reference → the identical Map object (no re-walk, no fresh alloc).
+    expect(territoryFills(state)).toBe(territoryFills(state));
+    // A different state object → a fresh result.
+    const other = overlapFixtureState();
+    expect(territoryFills(other)).not.toBe(territoryFills(state));
+  });
+
   test("excludes eliminated players' controlled hexes", () => {
     const base = overlapFixtureState();
     const eliminatedState: GameState = {
