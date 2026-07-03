@@ -59,12 +59,12 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** In progress. 1/5 phases shipped (P0 on an open Review PR). The DO-host track (Deliverable 1) is COMPLETE — Part A reducer + Part B host + staging Worker are all on `dev` — so the P3.10 (Part A) and P4 (Part B) gates are already OPEN; phases still execute in order.
+**Overall:** In progress. 2/5 phases shipped — P0 MERGED to dev (PR #56, plus PR #57 wiring the real SPA into the staging deploy: the staging Worker now serves the actual client, guard artifacts verified excluded); P1 on an open PR (#58). Sam granted overnight merge authority for this track's PRs conditional on converged multi-round blind adversarial review (see the `spa-client-merge-authorization` user memory); #56/#57 merged under it. The DO-host track (Deliverable 1) is COMPLETE, so the P3.10 (Part A) and P4 (Part B) gates are already OPEN; phases still execute in order.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
-| P0 — Foundation + visual system | ✅ Shipped, [PR #56](https://github.com/scarson/industrial-juggernaut/pull/56) OPEN | 19 commits `8d14f51d`…`85682d84`, branch `feat/web-p0-foundation` | **Review — shared build/CI config — SAM MERGES.** 82 client tests + 2170 root green; bundle guard live; CVD/AA gate passed; DESIGN.md seed replaced with extracted tokens; 3-lens phase review clean after 1 Critical fix (brass cascade) |
-| P1 — SVG hex board renderer | ⬜ Not started | — | shipped-code-only |
+| P0 — Foundation + visual system | ✅ Merged | 20 commits → merge `08df3617` ([PR #56](https://github.com/scarson/industrial-juggernaut/pull/56)); deploy wiring merge `b40c60d7` ([PR #57](https://github.com/scarson/industrial-juggernaut/pull/57)) | Review-class, merged under Sam's overnight authorization after 2 converged blind adversarial rounds (round 1 added the hex↔oklch consistency test); #57 makes staging serve the real SPA (verified live) with `.assetsignore` exclusions |
+| P1 — SVG hex board renderer | ✅ Shipped, [PR #58](https://github.com/scarson/industrial-juggernaut/pull/58) OPEN | 17 commits `4cc25742`…`fd1e37a5`, branch `feat/web-p1-board` | Routine (pre-scoped barrel additions flagged); 133 client + 2170 root green; both regimes browser-verified; 3-lens phase review clean after 2 minor fixes |
 | P2 — Designer instrument + all-agent viewer + rules-reference | ⬜ Not started | — | shipped-code-only |
 | P3 — Interactive play UI + LocalReducerDriver | ⬜ Not started | — | components now (fake driver); real driver gated on DO-host **Part A** |
 | P4 — SocketDriver / live play | ⬜ Not started | — | gated on DO-host **Part B** + `src/wire` |
