@@ -199,4 +199,37 @@ describe("AgentViewer — agent-free import", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/json/i);
     expect(screen.queryByRole("img", { name: /game board/i })).toBeNull();
   });
+
+  test("a record that passes parseSessionRecord but makes buildFrames throw shows a friendly error, not a white screen (defense in depth, PR #59 review)", async () => {
+    // Simulates a validation-gate gap slipping a hostile-but-"ok:true" record through: even then,
+    // handleImport's own try/catch around buildFrames must not let the throw escape uncaught.
+    vi.doMock("./import-record", () => ({
+      parseSessionRecord: () => ({
+        ok: true,
+        record: {
+          // loadBoard reads def.hexes/def.iron unconditionally — a null def throws a TypeError
+          // deep inside initGame, well past any point handleImport could return a friendly error
+          // without its own try/catch.
+          header: { ...fixtureHeader(), boardSource: { kind: "fixed", def: null } },
+          log: [],
+        },
+      }),
+    }));
+    vi.resetModules();
+    const { AgentViewer: PatchedAgentViewer } = await import("./AgentViewer");
+
+    const user = userEvent.setup();
+    const { fake } = makeFakeGenerate();
+    render(<PatchedAgentViewer header={fixtureHeader()} generateGame={fake} />);
+
+    await user.click(screen.getByRole("textbox", { name: /import|paste|record/i }));
+    await user.paste("irrelevant — parseSessionRecord is mocked");
+    await user.click(screen.getByRole("button", { name: /import/i }));
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: /game board/i })).toBeNull();
+
+    vi.doUnmock("./import-record");
+    vi.resetModules();
+  });
 });

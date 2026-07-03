@@ -1,5 +1,6 @@
-// ABOUTME: Validates a designer-supplied BoardSource before it ever reaches loadBoard() —
-// ABOUTME: friendly errors for generate-kind numeric ranges and fixed-kind untrusted JSON paste.
+// ABOUTME: Validates a BoardSource before it ever reaches loadBoard() — friendly errors for
+// ABOUTME: generate-kind numeric ranges and fixed-kind untrusted input, from the designer's own
+// ABOUTME: paste (parseBoardSource) or an imported SessionRecord (validateBoardSource).
 import { BOARD_SIZE_RANGE, IRON_COUNT_MIN, isInteger } from "./config-form";
 import { hexKey } from "../board/projection";
 import type { BoardSource, Hex } from "../engine-client/barrel";
@@ -42,6 +43,11 @@ export type BoardSourceValidation =
 // validation loop runs (the 10k-hex negative-property test asserts this cap fires fast).
 const MAX_FIXED_HEXES = 1000;
 
+// Mirrors loadBoard's own MAX_BOARD_COORD (src/board/load.ts) — a fixed def whose coordinates
+// would trip loadBoard's bound check must be rejected here first with a friendly error, never
+// let the engine's own throw escape uncaught.
+const MAX_BOARD_COORD = 1024;
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -50,11 +56,11 @@ function formatHex(h: { x: unknown; y: unknown; z: unknown }): string {
   return `(${h.x}, ${h.y}, ${h.z})`;
 }
 
-function parseGenerateSource(input: {
-  kind: "generate";
+/** Field-keyed validation shared by `generate`-kind designer input AND an imported record's `boardSource`. */
+function validateGenerateFields(input: {
   size: number;
   ironCount: number;
-}): BoardSourceValidation {
+}): GenerateFieldError[] {
   const errors: GenerateFieldError[] = [];
 
   if (!isInteger(input.size)) {
@@ -75,6 +81,15 @@ function parseGenerateSource(input: {
     });
   }
 
+  return errors;
+}
+
+function parseGenerateSource(input: {
+  kind: "generate";
+  size: number;
+  ironCount: number;
+}): BoardSourceValidation {
+  const errors = validateGenerateFields(input);
   if (errors.length > 0) {
     return { ok: false, kind: "generate", errors };
   }
@@ -84,8 +99,10 @@ function parseGenerateSource(input: {
   };
 }
 
-// Validates one hex's shape (three finite-number fields) before any geometric invariant is
-// checked. `label` identifies which array + index the hex came from, for friendly messages.
+// Validates one hex's shape (three integer fields within the engine's coordinate bound) before
+// any geometric invariant is checked. `label` identifies which array + index the hex came from,
+// for friendly messages. Checks integer-ness (not just finiteness) and the coordinate bound so a
+// hex that would trip loadBoard's own checkCoords is caught here instead of throwing uncaught.
 function validateHexShape(value: unknown, label: string, errors: string[]): Hex | null {
   if (!isPlainObject(value)) {
     errors.push(`${label} must be an object with x, y, z fields.`);
@@ -94,8 +111,15 @@ function validateHexShape(value: unknown, label: string, errors: string[]): Hex 
   const coords: (keyof Hex)[] = ["x", "y", "z"];
   let shapeOk = true;
   for (const c of coords) {
-    if (typeof value[c] !== "number" || !Number.isFinite(value[c] as number)) {
+    const v = value[c];
+    if (typeof v !== "number" || !Number.isFinite(v)) {
       errors.push(`${label}.${c} must be a number.`);
+      shapeOk = false;
+    } else if (!Number.isInteger(v)) {
+      errors.push(`${label}.${c} must be an integer.`);
+      shapeOk = false;
+    } else if (Math.abs(v) > MAX_BOARD_COORD) {
+      errors.push(`${label}.${c}=${v} exceeds the ${MAX_BOARD_COORD}-coordinate bound.`);
       shapeOk = false;
     }
   }
@@ -103,45 +127,34 @@ function validateHexShape(value: unknown, label: string, errors: string[]): Hex 
   return { x: value.x as number, y: value.y as number, z: value.z as number };
 }
 
-function parseFixedSource(raw: string): BoardSourceValidation {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return {
-      ok: false,
-      kind: "fixed",
-      errors: ["Couldn't parse JSON — check for a stray comma or bracket."],
-    };
-  }
-
+/**
+ * Validates an already-parsed fixed-board definition (`{hexes, iron}`, e.g. from
+ * `JSON.parse` of a designer paste, or the `def` of an imported record's
+ * `boardSource`): hex shape, the cube invariant, duplicates, iron-subset
+ * membership, and the `MAX_FIXED_HEXES` cap — the caps `loadBoard` would
+ * otherwise enforce by throwing. Returns flat strings (see the
+ * `BoardSourceValidation` docblock for why `fixed` errors aren't field-keyed).
+ */
+function validateFixedDef(parsed: unknown): { hexes: Hex[]; iron: Hex[] } | { errors: string[] } {
   if (!isPlainObject(parsed)) {
-    return {
-      ok: false,
-      kind: "fixed",
-      errors: ["The pasted board must be a JSON object with hexes and iron fields."],
-    };
+    return { errors: ["The pasted board must be a JSON object with hexes and iron fields."] };
   }
 
   const knownKeys = new Set(["hexes", "iron"]);
   const unknownKeys = Object.keys(parsed).filter((k) => !knownKeys.has(k));
   if (unknownKeys.length > 0) {
-    return {
-      ok: false,
-      kind: "fixed",
-      errors: [`Unknown field(s) in pasted board: ${unknownKeys.join(", ")}.`],
-    };
+    return { errors: [`Unknown field(s) in pasted board: ${unknownKeys.join(", ")}.`] };
   }
 
   const errors: string[] = [];
 
   if (!Array.isArray(parsed.hexes)) {
     errors.push("hexes must be an array.");
-    return { ok: false, kind: "fixed", errors };
+    return { errors };
   }
   if (!Array.isArray(parsed.iron)) {
     errors.push("iron must be an array.");
-    return { ok: false, kind: "fixed", errors };
+    return { errors };
   }
 
   if (parsed.hexes.length === 0) {
@@ -151,15 +164,11 @@ function parseFixedSource(raw: string): BoardSourceValidation {
     errors.push("iron must not be empty.");
   }
   if (errors.length > 0) {
-    return { ok: false, kind: "fixed", errors };
+    return { errors };
   }
 
   if (parsed.hexes.length > MAX_FIXED_HEXES) {
-    return {
-      ok: false,
-      kind: "fixed",
-      errors: [`Too many hexes: ${parsed.hexes.length} exceeds the ${MAX_FIXED_HEXES}-hex cap.`],
-    };
+    return { errors: [`Too many hexes: ${parsed.hexes.length} exceeds the ${MAX_FIXED_HEXES}-hex cap.`] };
   }
 
   const hexes: Hex[] = [];
@@ -181,7 +190,7 @@ function parseFixedSource(raw: string): BoardSourceValidation {
   }
 
   if (errors.length > 0) {
-    return { ok: false, kind: "fixed", errors };
+    return { errors };
   }
 
   const iron: Hex[] = [];
@@ -203,10 +212,29 @@ function parseFixedSource(raw: string): BoardSourceValidation {
   }
 
   if (errors.length > 0) {
-    return { ok: false, kind: "fixed", errors };
+    return { errors };
   }
 
-  return { ok: true, source: { kind: "fixed", def: { hexes, iron } } };
+  return { hexes, iron };
+}
+
+function parseFixedSource(raw: string): BoardSourceValidation {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return {
+      ok: false,
+      kind: "fixed",
+      errors: ["Couldn't parse JSON — check for a stray comma or bracket."],
+    };
+  }
+
+  const result = validateFixedDef(parsed);
+  if ("errors" in result) {
+    return { ok: false, kind: "fixed", errors: result.errors };
+  }
+  return { ok: true, source: { kind: "fixed", def: result } };
 }
 
 /**
@@ -232,4 +260,46 @@ export function parseBoardSource(input: BoardSourceInput): BoardSourceValidation
     return parseGenerateSource(input);
   }
   return parseFixedSource(input.raw);
+}
+
+/**
+ * Validates an already-JSON-parsed `BoardSource` value — the shape an imported `SessionRecord`
+ * carries (unlike `parseBoardSource`'s `fixed` arm, which owns its own `JSON.parse` of a raw
+ * textarea string; this function starts one step later, at the parsed value). Reuses the exact
+ * same caps as `parseBoardSource`: `BOARD_SIZE_RANGE` / `IRON_COUNT_MIN` for `generate`, and
+ * `MAX_FIXED_HEXES` + the per-hex integer/bound/invariant/duplicate/iron-membership checks for
+ * `fixed` — so an import can't bypass any check the designer's own paste path enforces. Errors
+ * are flat strings regardless of kind: an imported record has no form field to key errors to.
+ */
+export function validateBoardSource(value: unknown): { ok: true; source: BoardSource } | { ok: false; errors: string[] } {
+  if (!isPlainObject(value)) {
+    return { ok: false, errors: ['Field "boardSource" must be an object.'] };
+  }
+
+  const kind = value.kind;
+  if (kind === "generate") {
+    const size = value.size;
+    const ironCount = value.ironCount;
+    if (typeof size !== "number" || typeof ironCount !== "number") {
+      return { ok: false, errors: ['boardSource.size and boardSource.ironCount must be numbers.'] };
+    }
+    const fieldErrors = validateGenerateFields({ size, ironCount });
+    if (fieldErrors.length > 0) {
+      return { ok: false, errors: fieldErrors.map((e) => `boardSource.${e.field}: ${e.message}`) };
+    }
+    return { ok: true, source: { kind: "generate", size, ironCount } };
+  }
+
+  if (kind === "fixed") {
+    const result = validateFixedDef(value.def);
+    if ("errors" in result) {
+      return { ok: false, errors: result.errors.map((e) => `boardSource.def.${e}`) };
+    }
+    return { ok: true, source: { kind: "fixed", def: result } };
+  }
+
+  return {
+    ok: false,
+    errors: [`boardSource.kind must be "generate" or "fixed", got ${JSON.stringify(kind)}.`],
+  };
 }

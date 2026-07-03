@@ -98,7 +98,15 @@ export function AgentViewer({ header, generateGame = defaultGenerateGame }: Agen
       setErrors(result.errors);
       return;
     }
-    loadFrames(buildFrames(result.record.header, result.record.log));
+    // Defense in depth: parseSessionRecord's own gate should already reject anything that would
+    // make buildFrames/initGame throw, but a gap there must not white-screen the viewer — same
+    // try/catch shape as handleGenerate above.
+    try {
+      loadFrames(buildFrames(result.record.header, result.record.log));
+    } catch (err) {
+      setFrames(null);
+      setErrors([err instanceof Error ? err.message : String(err)]);
+    }
   }
 
   const stepForward = useCallback(() => setCurrent((c) => Math.min(c + 1, lastIndex)), [lastIndex]);

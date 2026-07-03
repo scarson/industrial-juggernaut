@@ -254,4 +254,26 @@ describe("parseBoardSource — fixed (untrusted JSON)", () => {
     };
     expect(() => parseBoardSource({ kind: "fixed", raw: JSON.stringify(def) })).not.toThrow();
   });
+
+  test("a non-integer hex coordinate is rejected, not just non-throwing (matches loadBoard's own integer check)", () => {
+    // x=0.5/z=-0.5 satisfy Number.isFinite AND the cube invariant (0.5 + 0 + -0.5 === 0), so this
+    // hex would previously sail through this gate and only fail inside loadBoard's own
+    // Number.isInteger check — an uncaught throw at game-init time, not a friendly error here.
+    const def = {
+      hexes: [{ x: 0.5, y: 0, z: -0.5 }],
+      iron: [{ x: 0.5, y: 0, z: -0.5 }],
+    };
+    const errors = expectFixedErrors(parseBoardSource({ kind: "fixed", raw: JSON.stringify(def) }));
+    expect(errors.some((e) => /integer/i.test(e))).toBe(true);
+  });
+
+  test("a hex coordinate exceeding the engine's MAX_BOARD_COORD bound is rejected", () => {
+    // loadBoard throws for |coordinate| > 1024; this gate must catch it first with a friendly error.
+    const def = {
+      hexes: [{ x: 5000, y: -5000, z: 0 }],
+      iron: [{ x: 5000, y: -5000, z: 0 }],
+    };
+    const errors = expectFixedErrors(parseBoardSource({ kind: "fixed", raw: JSON.stringify(def) }));
+    expect(errors.some((e) => /1024|exceed|bound|coordinate/i.test(e))).toBe(true);
+  });
 });

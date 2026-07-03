@@ -184,6 +184,109 @@ describe("parseSessionRecord — undecodable bigint", () => {
   });
 });
 
+describe("parseSessionRecord — boardSource validation (confirmed defect: PR #59 review)", () => {
+  test("boardSource.def: null (fixed kind, null def) is rejected, not passed through to buildFrames", () => {
+    const rec = { ...recordFixture(), boardSource: { kind: "fixed", def: null } };
+    const result = parseSessionRecord(JSON.stringify(rec));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.join(" ")).toMatch(/board/i);
+  });
+
+  test("boardSource.def with a non-integer / invariant-violating hex is rejected", () => {
+    const rec = {
+      ...recordFixture(),
+      boardSource: { kind: "fixed", def: { hexes: [{ x: 0.5, y: 0, z: 0 }], iron: [] } },
+    };
+    const result = parseSessionRecord(JSON.stringify(rec));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.join(" ")).toMatch(/board|hex|integer|invariant/i);
+  });
+
+  test("boardSource.def with an iron hex that is not a member of hexes is rejected", () => {
+    const rec = {
+      ...recordFixture(),
+      boardSource: {
+        kind: "fixed",
+        def: {
+          hexes: [{ x: 0, y: 0, z: 0 }],
+          iron: [{ x: 5, y: -5, z: 0 }],
+        },
+      },
+    };
+    const result = parseSessionRecord(JSON.stringify(rec));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.join(" ")).toMatch(/iron/i);
+  });
+
+  test("boardSource.size over the DER #16 cap is rejected fast (fast-reject proves no ovalHexes DoS hang)", () => {
+    const rec = { ...recordFixture(), boardSource: { kind: "generate", size: 10_000, ironCount: 18 } };
+    const start = Date.now();
+    const result = parseSessionRecord(JSON.stringify(rec));
+    const elapsedMs = Date.now() - start;
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.join(" ")).toMatch(/size|board/i);
+    // A fix that rejects the size BEFORE calling ovalHexes returns near-instantly; a fix that lets
+    // it through would hang for a very long time (guard<2000 iterations, each O(size) — minutes).
+    expect(elapsedMs).toBeLessThan(1000);
+  });
+
+  test("boardSource.size at 1e9 (pathological) is rejected fast", () => {
+    const rec = { ...recordFixture(), boardSource: { kind: "generate", size: 1e9, ironCount: 18 } };
+    const start = Date.now();
+    const result = parseSessionRecord(JSON.stringify(rec));
+    const elapsedMs = Date.now() - start;
+    expect(result.ok).toBe(false);
+    expect(elapsedMs).toBeLessThan(1000);
+  });
+});
+
+describe("parseSessionRecord — config validation (confirmed defect: PR #59 review)", () => {
+  test("config: null is rejected with a friendly error, not passed through to validateConfig", () => {
+    const rec = { ...recordFixture(), config: null };
+    const result = parseSessionRecord(JSON.stringify(rec));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.join(" ")).toMatch(/config/i);
+  });
+
+  test("config: a non-object (string) is rejected", () => {
+    const rec = { ...recordFixture(), config: "not-a-config" };
+    const result = parseSessionRecord(JSON.stringify(rec));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.join(" ")).toMatch(/config/i);
+  });
+
+  test("config: an array is rejected (not a plain object)", () => {
+    const rec = { ...recordFixture(), config: [1, 2, 3] };
+    const result = parseSessionRecord(JSON.stringify(rec));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.join(" ")).toMatch(/config/i);
+  });
+
+  test("config: an object missing required knobs is rejected without throwing inside validateConfig", () => {
+    const rec = { ...recordFixture(), config: {} };
+    expect(() => parseSessionRecord(JSON.stringify(rec))).not.toThrow();
+    const result = parseSessionRecord(JSON.stringify(rec));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.join(" ")).toMatch(/config/i);
+  });
+
+  test("config: an out-of-range knob value is rejected", () => {
+    const rec = { ...recordFixture(), config: { ...defaultConfig(), boardSize: -1 } };
+    const result = parseSessionRecord(JSON.stringify(rec));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.join(" ")).toMatch(/boardSize/i);
+  });
+});
+
 describe("parseSessionRecord — oversized log cap (negative-property, testing-pitfalls §4)", () => {
   test(`a log longer than the ${MAX_IMPORT_LOG_ENTRIES}-entry cap is rejected before decoding`, () => {
     const rec = recordFixture();

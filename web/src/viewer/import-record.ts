@@ -2,7 +2,9 @@
 // ABOUTME: and decodes it to the { header, log } buildFrames consumes, or returns friendly errors.
 import { decodeRecord } from "../engine-client/barrel";
 import { HEADER_FORMAT_VERSION } from "../designer/new-game-form";
-import type { LogEntry, SessionHeader, SessionRecord } from "../engine-client/barrel";
+import { validateBoardSource } from "../designer/board-source";
+import { configGroups, validateConfig } from "../designer/config-form";
+import type { LogEntry, RuleConfig, SessionHeader, SessionRecord } from "../engine-client/barrel";
 
 /**
  * The largest log we will decode from a paste. A real recorded game is a few hundred entries
@@ -31,13 +33,40 @@ function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+/** Every `RuleConfig` key, flattened from `configGroups()` — the same list its own exhaustiveness test pins. */
+const RULE_CONFIG_KEYS: readonly string[] = Object.values(configGroups()).flat();
+
+/**
+ * Guards that an imported `config` is shaped closely enough to call `validateConfig` on without
+ * `validateConfig` itself throwing: a non-null plain object carrying every `RuleConfig` key, with
+ * `combatTable` (the one knob `validateConfig` index-accesses without a prior typeof check) a
+ * non-null object if present. Anything short of that is reported here, before `validateConfig`
+ * ever runs, rather than letting a hostile `config` (null, a string, a sparse object) throw inside it.
+ */
+function validateConfigShape(config: unknown): string[] {
+  if (!isObject(config)) {
+    return ['Field "config" must be an object.'];
+  }
+  const missing = RULE_CONFIG_KEYS.filter((key) => !(key in config));
+  if (missing.length > 0) {
+    return [`Field "config" is missing required key(s): ${missing.join(", ")}.`];
+  }
+  const combatTable = config.combatTable;
+  if (!isObject(combatTable)) {
+    return ['Field "config.combatTable" must be an object.'];
+  }
+  return [];
+}
+
 /**
  * Parses and validates a pasted `SessionRecord` JSON string, returning the decoded
  * `{ header, log }` (bigint seed, decoded LogEntry[]) ready for `buildFrames`, or a list of
  * friendly, human-readable errors. Every failure mode a paste can hit — unparseable JSON, a
  * non-object root, a missing/wrong-typed field, a wrong formatVersion, an undecodable bigint
- * (seed or per-entry rng), an unknown entry kind, an oversized log — is a returned error, never a
- * thrown exception. This is the client's untrusted-input gate; the engine re-validates on replay.
+ * (seed or per-entry rng), an unknown entry kind, an oversized log, a hostile `config` or
+ * `boardSource` (wrong shape, out-of-range knobs, a pathological `generate` size, an invariant-
+ * violating fixed board) — is a returned error, never a thrown exception. This is the client's
+ * untrusted-input gate; the engine re-validates on replay.
  */
 export function parseSessionRecord(text: string): ParseResult {
   // 1) JSON parse — friendly error instead of a thrown SyntaxError.
@@ -103,13 +132,38 @@ export function parseSessionRecord(text: string): ParseResult {
     });
   }
 
-  if (errors.length > 0) return { ok: false, errors };
+  // 7.5) config must be shaped closely enough to validate, then must pass the same knob-range
+  //      checks the designer's own NewGame form enforces (`validateConfig`) — a hostile config
+  //      (null, wrong type, missing knobs, out-of-range values) is rejected here rather than
+  //      reaching `initGame`/`buildFrames` unchecked.
+  const configShapeErrors = validateConfigShape(parsed.config);
+  if (configShapeErrors.length > 0) {
+    errors.push(...configShapeErrors);
+  } else {
+    const configErrors = validateConfig(parsed.config as RuleConfig);
+    errors.push(...configErrors.map((e) => `config.${e.knob}: ${e.message}`));
+  }
+
+  // 7.6) boardSource must pass the same caps `parseBoardSource` enforces on the designer's own
+  //      paste path (BOARD_SIZE_RANGE / IRON_COUNT_MIN for `generate`, MAX_FIXED_HEXES + per-hex
+  //      integer/bound/invariant/duplicate/iron-membership checks for `fixed`) — checked and
+  //      rejected here, BEFORE `buildFrames` ever calls `initGame`, so a pathological `generate`
+  //      size can't reach `ovalHexes`'s O(size) search loop (a synchronous-hang DoS) and an
+  //      invariant-violating `fixed` def can't reach `loadBoard`'s uncaught throw.
+  const boardSourceResult = validateBoardSource(parsed.boardSource);
+  if (!boardSourceResult.ok) {
+    errors.push(...boardSourceResult.errors);
+  }
+
+  if (errors.length > 0 || !boardSourceResult.ok) return { ok: false, errors };
 
   // 8) Structurally valid enough to attempt the real decode. `decodeRecord` runs BigInt()/decodeRng
   //    on the seed and every entry's rng — an undecodable string throws SyntaxError, which we catch
-  //    and surface as a friendly per-decode error rather than letting it escape.
+  //    and surface as a friendly per-decode error rather than letting it escape. `boardSource` is
+  //    swapped for `validateBoardSource`'s reconstructed value (built only from validated fields)
+  //    rather than decoding the original untrusted reference.
   try {
-    const decoded = decodeRecord(parsed as unknown as SessionRecord);
+    const decoded = decodeRecord({ ...parsed, boardSource: boardSourceResult.source } as unknown as SessionRecord);
     return { ok: true, record: decoded };
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
