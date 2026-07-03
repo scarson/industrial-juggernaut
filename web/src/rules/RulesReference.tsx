@@ -94,9 +94,11 @@ const SECTION_STYLE: CSSProperties = {
 };
 const SECTION_TITLE_STYLE: CSSProperties = { margin: 0, fontSize: "1.25rem" };
 const BODY_STYLE: CSSProperties = { margin: 0, lineHeight: 1.6 };
+// A uniform hairline frames each ruling; the brass numbered badge is the accent.
+// (A thicker colored left edge is the side-stripe callout pattern DESIGN.md's
+// anti-references reject — the accent belongs on the badge, not the border.)
 const DER_STYLE: CSSProperties = {
   border: "1px solid var(--hairline)",
-  borderLeft: "3px solid var(--accent)",
   padding: "0.6rem 0.85rem",
   display: "flex",
   flexDirection: "column",
