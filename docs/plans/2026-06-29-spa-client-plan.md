@@ -59,14 +59,14 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** In progress. 2/5 phases MERGED to dev — P0 (PR #56, plus PR #57 wiring the real SPA into the staging deploy: the staging Worker serves the actual client, guard artifacts verified excluded) and P1 (PR #58). Sam granted overnight merge authority for this track's PRs conditional on converged multi-round blind adversarial review (see the `spa-client-merge-authorization` user memory); #56/#57/#58 merged under it. P2 in progress on `feat/web-p2-screens`. The DO-host track (Deliverable 1) is COMPLETE, so the P3.10 (Part A) and P4 (Part B) gates are already OPEN; phases still execute in order.
+**Overall:** In progress. **3/5 phases MERGED to dev** — P0 (PR #56, plus PR #57 wiring the real SPA into the staging deploy: the staging Worker serves the actual client, guard artifacts verified excluded), P1 (PR #58), and P2 (PR #59, merge `6cb01688`). Sam granted overnight merge authority for this track's PRs conditional on converged multi-round blind adversarial review (see the `spa-client-merge-authorization` user memory); #56/#57/#58/#59 merged under it. **#59's blind adversarial round caught a CONFIRMED defect** (the untrusted `SessionRecord` import passed `config`/`boardSource` unvalidated into `buildFrames` → hostile paste could white-screen `/viewer` or hang the main thread unbounded); fixed with a shared `validateBoardSource` helper + config-shape gate + a call-site try/catch + a seats-range cap, re-verified closed by a second blind round before merge. P3 in progress on `feat/web-p3-play`. The DO-host track (Deliverable 1) is COMPLETE, so the **P3.10 (Part A) and P4 (Part B) gates are already OPEN** — P3.10's LocalReducerDriver is buildable now, not deferred; phases still execute in order.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
 | P0 — Foundation + visual system | ✅ Merged | 20 commits → merge `08df3617` ([PR #56](https://github.com/scarson/industrial-juggernaut/pull/56)); deploy wiring merge `b40c60d7` ([PR #57](https://github.com/scarson/industrial-juggernaut/pull/57)) | Review-class, merged under Sam's overnight authorization after 2 converged blind adversarial rounds (round 1 added the hex↔oklch consistency test); #57 makes staging serve the real SPA (verified live) with `.assetsignore` exclusions |
 | P1 — SVG hex board renderer | ✅ Merged | 18 commits → merge `db7fc466` ([PR #58](https://github.com/scarson/industrial-juggernaut/pull/58)) | Routine (pre-scoped barrel additions flagged); merged after a zero-finding blind adversarial round; 150 client + 2170 root green post-rebase; both regimes browser-verified |
-| P2 — Designer instrument + all-agent viewer + rules-reference | ✅ Shipped, PR pending | ~20 commits `2166a627`…, branch `feat/web-p2-screens` | Routine (no shared-config, no engine changes); 349 client + 2170 root green; all 3 screens live-verified incl. a real worker-generated agent game; 3-lens review READY TO SHIP |
-| P3 — Interactive play UI + LocalReducerDriver | ⬜ Not started | — | components now (fake driver); real driver gated on DO-host **Part A** |
+| P2 — Designer instrument + all-agent viewer + rules-reference | ✅ Merged | ~23 commits → merge `6cb01688` ([PR #59](https://github.com/scarson/industrial-juggernaut/pull/59)) | Routine; merged after 2 blind adversarial rounds — round 1 caught a CONFIRMED untrusted-import DoS/white-screen (fixed + re-verified closed); 363 client + 2170 root green; all 3 screens live-verified incl. a real worker-generated agent game |
+| P3 — Interactive play UI + LocalReducerDriver | 🚧 In progress | — | claimed 2026-07-03T12:02:04Z, branch `feat/web-p3-play`; **P3.10 UNGATED** (Part A shipped) |
 | P4 — SocketDriver / live play | ⬜ Not started | — | gated on DO-host **Part B** + `src/wire` |
 
 ### Deviations
@@ -694,7 +694,7 @@ Renders the P1 `Board` over the current frame + transport controls: generate (co
 
 # PHASE P3 — Interactive play UI + LocalReducerDriver
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** 🚧 IN PROGRESS — claimed 2026-07-03T12:02:04Z on branch `feat/web-p3-play` (off `dev` at the P2 merge `6cb01688`). **P3.10 is UNGATED** — the DO-host plan's Part A shipped (all of Deliverable 1 is merged to `dev`), so the LocalReducerDriver builds against the real reducer this phase, not deferred.
 
 The interactive game: the composers, prompts, HUD, event log, choreography, the Zustand store, and the **LocalReducerDriver** that makes hotseat + offline vs-agents playable on the pure reducer. **All components + the store build NOW against a fake `GameDriver`** (P3.1) — only the real `LocalReducerDriver` (P3.10) gates on the DO-host plan's Part A. Every component talks to the store; the store talks to a `GameDriver`; nothing talks to a transport directly.
 
@@ -784,9 +784,9 @@ Earned choreography (DESIGN.md): combat reveal (driven by the authoritative `com
 
 > **Drama is earned, never ambient (PRODUCT.md/DESIGN.md):** choreography fires only on combat/elimination/victory; 150–250ms feedback elsewhere. The real numbers stay visible during the drama (honest tension).
 
-### Task P3.10: LocalReducerDriver — ⏸ GATED ON DO-host Part A
+### Task P3.10: LocalReducerDriver — ✅ UNGATED (Part A shipped)
 
-**Execution Status:** ⏸ DEFERRED pending the DO-host plan's **Part A** (the pure `src/session` interactive reducer — `openSession`/`applyCommand`/agent-drive + `src/session/agent-binding.ts`) shipping. See `docs/plans/2026-06-29-do-host-wire-protocol-plan.md` Phase A1–A6 Execution Status banners. Follow-up dispatch verifies by reading that plan's Part A banner (✅ SHIPPED), not by grepping.
+**Execution Status:** ▶ READY — the DO-host plan's **Part A** (the pure `src/session` interactive reducer — `applyCommand`/agent-drive + `src/session/agent-binding.ts`) is MERGED to `dev` (all of Deliverable 1 shipped, verified in `docs/plans/2026-06-29-do-host-wire-protocol-plan.md`). This task executes in-phase against the real reducer. **At execution: read the SHIPPED `src/session` reducer's exact `applyCommand`/`Effects` surface first** — the R4 plan note (below) assumed `Effects.broadcast` carries `turnRollover`+`ironWeights`; confirm the actual shape rather than trusting the assumption. Classify **Review — agent-drive/reducer surface** and run an adversarial gate (this is the first client code driving the real reducer + pulling `src/agent` into a lazy chunk).
 
 **Files:** Create `web/src/game/local-reducer-driver.ts` (+ test)
 
