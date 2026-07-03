@@ -1,0 +1,5 @@
+# Bundle-guard chunk->module map (build-machine absolute paths); CI artifact, not a web asset.
+.bundle-modules.json
+
+# Vite build manifest — a build artifact, not a web asset (harmless but not intentionally public).
+.vite/
