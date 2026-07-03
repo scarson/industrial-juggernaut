@@ -72,7 +72,7 @@ notes and commit messages.
 | B1 — Shared-config scaffolding | ✅ Shipped | 9dd81593, 01f5e252, e4126b6e, f5ac197c, c95ad8cb | branch `feat/host-config`; **PR pending — Review-class, Sam merges**; vitest 4.1.9 across 1970 tests (2 migration points); safe-before-B8 verified |
 | B2 — Worker shell + room addressing | ✅ Shipped | c1f2de5f, 7ac0e334, a1de3906 | branch `feat/host-worker` stacked on PR #44; **PR pending — Review-class, Sam merges**; first deployable Worker (dry-run passes); adversarial hardening round (5 exploit classes killed) |
 | B3 — GameRoom DO: storage + critical section + recovery | ✅ Shipped | ccd9d54c, 73d9e09f, 299b3eed, cf12da9f | branch `feat/host-gameroom` stacked on PR #45; **PR pending — Review-class, Sam merges**; flagship op-order test + crash-consistency gate (freeze-path throw variants fixed) |
-| B4 — Hibernation | ⬜ Not started | — | — |
+| B4 — Hibernation | ✅ Shipped | 01ba6709 (+ SECURITY-marker) | branch `feat/host-hibernation`; PR pending (Routine, agent-merge on green) |
 | B5 — Defender-timeout alarm (opt-in) | ⬜ Not started | — | — |
 | B6 — Socket attribution + malformed-traffic enforcement | ⬜ Not started | — | — |
 | B7 — vitest-pool-workers DO test suite | ⬜ Not started | — | — |
@@ -1623,7 +1623,7 @@ The handler (`handleCommand`), exactly:
 
 ## Phase B4 — Hibernation
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** 🚧 IN PROGRESS — claimed 2026-07-03 on branch `feat/host-hibernation` off the integrated dev (B1/B2/B3 merged). Binding requirement from the agent-seat auth resolution (Discoveries): the WS upgrade must REFUSE to bind a socket to an agent seat (layer 2 of 3; layer 1 human-only minting shipped in B2, layer 3 reducer backstop shipped in A5).
 
 WebSocket Hibernation so idle rooms cost nothing and survive eviction. **Verified API:** `ctx.acceptWebSocket(server, tags?)`, class-level `webSocketMessage/Close/Error`, `ws.serializeAttachment/deserializeAttachment` (16 KiB cap), `ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping","pong"))`, `ctx.getWebSockets(tag?)`. **`setTimeout`/`setInterval` are forbidden** (they prevent hibernation AND die on eviction — use the alarm, B5).
 
@@ -1639,11 +1639,15 @@ WebSocket Hibernation so idle rooms cost nothing and survive eviction. **Verifie
 - `this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping","pong"))` in the constructor — the client's app-level `ws.send("ping")` (~25 s; the client cannot emit protocol pings) is answered **without waking the DO** (no billable duration).
 - `webSocketMessage(ws, message)`: the critical-section entry (B3.2). `webSocketClose`/`webSocketError`: mark the socket gone (presence is advisory; B6). **Lazy rehydrate** (`if (!this.session) await this.rehydrate()`) at the top of every wake path (`webSocketMessage`, `alarm`, `fetch`).
 
-- [ ] **Step 1: Write failing tests** (workers pool + `evictDurableObject(stub, { webSockets: "hibernate" })`) — open a WS, send a command, **force hibernation**, send another command on the same socket → it still round-trips (the DO rehydrated session + the socket survived); an app-level `"ping"` gets `"pong"` without invoking `webSocketMessage` (assert the auto-response, e.g. the message handler counter did not increment). Note the **Windows + SQLite-DO limitation (workerd#6110)** — these tests are skipped on win32 in the official fixture; **Linux CI is fine** (our CI is Linux). Mark the skip + reason if developing on macOS/Windows locally.
-- [ ] **Step 2-5:** implement; commit `feat(host): WebSocket hibernation — accept/handlers/auto-response/serializeAttachment`.
-- [ ] **Apply the Execution Discipline block.** Concurrency/wake → assertion-rigor rule.
+- [x] **Step 1: Write failing tests** (workers pool + `evictDurableObject(stub, { webSockets: "hibernate" })`) — open a WS, send a command, **force hibernation**, send another command on the same socket → it still round-trips (the DO rehydrated session + the socket survived); an app-level `"ping"` gets `"pong"` without invoking `webSocketMessage` (assert the auto-response, e.g. the message handler counter did not increment). Note the **Windows + SQLite-DO limitation (workerd#6110)** — these tests are skipped on win32 in the official fixture; **Linux CI is fine** (our CI is Linux). Mark the skip + reason if developing on macOS/Windows locally. (Ran clean on macOS locally — no win32 skip needed.)
+- [x] **Step 2-5:** implement; commit `feat(host): WebSocket hibernation — accept/handlers/auto-response/serializeAttachment`.
+- [x] **Apply the Execution Discipline block.** Concurrency/wake → assertion-rigor rule.
 
-**After Phase B4:** review from 3+ perspectives (no `setTimeout`/`setInterval` anywhere; lazy-rehydrate on every wake path; auto-response doesn't wake; attachment carries seat+digest only, never the raw token). Update Execution Status.
+**Task B4.1 shipped 2026-07-03** (`test/host/hibernation.test.ts`, 9 tests): the `/ws` upgrade replaces the B3 501 stub (shape-validates `?seat=N`, mints a `seat:<n>`-tagged hibernatable socket + `serializeAttachment({seat, malformedCount:0})`); the constructor registers the `ping`→`pong` auto-response; `webSocketMessage` lazy-rehydrates, reads the seat from the surviving attachment, JSON-parses (try/catch → MALFORMED reply), and calls `handleCommand` through a minimal per-socket real-send sink so a command round-trips end to end; `webSocketClose`/`webSocketError` are B6 presence seams. Token-digest auth + agent-seat bind-refusal + the malformed count-limit remain B6.2 (commented at the accept site). No `setTimeout`/`setInterval`; lazy-rehydrate on the upgrade + message wake paths. The pre-existing `/ws`→501 assertions in critical-section.test.ts and worker.test.ts were updated to the 101-upgrade contract.
+
+**After Phase B4:** review from 3+ perspectives (no `setTimeout`/`setInterval` anywhere; lazy-rehydrate on every wake path; auto-response doesn't wake; attachment carries `{seat, malformedCount}` only — the digest lives in `session.seats[N].authorizedDigest`, validated at accept, never stored per-socket; never the raw token). Update Execution Status.
+
+**Execution Status: ✅ SHIPPED 2026-07-03** on branch `feat/host-hibernation` — commit 01ba6709 (WS upgrade replacing the 501 stub, `acceptWebSocket` + `seat:<n>` tags + `serializeAttachment({seat, malformedCount})`, `ping`/`pong` auto-response that doesn't wake the DO, hibernation handlers, lazy-rehydrate on the upgrade + message wake paths, `webSocketMessage` → `handleCommand` with a per-command real-send sink restored to NOOP in `finally`) + a SECURITY-marker comment hardening. Caught+fixed inline: the `?seat=` empty-string→seat-0 bind bug. Auth (token digest + agent-seat bind-refusal) + malformed count-limit are the B6.2 seam (grep-able SECURITY marker at the accept site). Host suite 99; full suite 2074. Phase review (spec + Opus quality): the per-command sink is safe under the input gate (serialized handlers, restored in finally); no `setTimeout`/`setInterval`; unauthenticated-upgrade is acceptable on undeployed dev (B6 lands before B8's deploy surface). `readyToMerge: yes`, no critical/important.
 
 ## Phase B5 — Defender-timeout alarm (opt-in)
 

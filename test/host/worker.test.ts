@@ -396,18 +396,18 @@ describe("routing", () => {
     expect([404, 405]).toContain(res.status);
   });
 
-  test("GET /api/games/:id/ws WITH Upgrade forwards to the DO, which 501s until B4 owns the WebSocketPair", async () => {
+  test("GET /api/games/:id/ws WITH Upgrade forwards to the DO, which accepts the socket (101)", async () => {
     // Create a real room so idFromName resolves to the room's stub.
     const created = await create(validBody());
     const { roomId } = (await created.json()) as { roomId: string };
     const res = await SELF.fetch(`https://host.test/api/games/${roomId}/ws?seat=0&token=x`, {
       headers: { Upgrade: "websocket" },
     });
-    // Mechanism assertion: the request reached the DO, whose WS route returns 501 until B4.
-    // The 501 + its body passing through PROVES the Worker forwarded rather than short-circuiting
-    // (a 426/404 would mean it never reached the DO). Real upgrade acceptance (101) is B4/B6.2 once
-    // the DO does the WebSocketPair + token auth.
-    expect(res.status).toBe(501);
-    expect(await res.text()).toContain("not implemented until B4");
+    // Mechanism assertion: the request reached the DO, which owns the WebSocketPair (B4) and returns a
+    // 101 upgrade for a valid in-range seat. A 101-with-a-webSocket PROVES the Worker forwarded rather
+    // than short-circuiting (a 426/404 would mean it never reached the DO). The `token=x` is ignored in
+    // B4 (shape-only; B6.2 adds the tokenDigest check + agent-seat bind-refusal at the upgrade).
+    expect(res.status).toBe(101);
+    expect(res.webSocket).toBeTruthy();
   });
 });
