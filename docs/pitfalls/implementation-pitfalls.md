@@ -27,7 +27,7 @@ This document serves three audiences. Start here, then go directly to the sectio
 | 1 | [Geometry & Engine](#section-1-geometry--engine) | Hex math, coordinate projection, PRNG threading, derived state | GEO-1 – GEO-8 | §1.C |
 | 2 | [Durable Object Host](#section-2-durable-object-host) | The `GameRoom` DO — storage, ordering, identity, auth, alarms, hibernation, tests | DO-PURITY-1 – DO-TEST-1 | §2.C |
 | 3 | [Wire Protocol](#section-3-wire-protocol) | The `ClientCommand`/`ServerMessage` boundary and the session-layer error mappers | WIRE-MAP-1 – WIRE-SHAPE-1 | §3.C |
-| 4 | [Web Client (CSS/design-system)](#section-4-web-client-cssdesign-system) | The `web/src/design/` token stylesheet and any component composing its utility classes | WEB-1 | §4.C |
+| 4 | [Web Client (CSS/design-system)](#section-4-web-client-cssdesign-system) | The `web/src/design/` token stylesheet and any component composing its utility classes, or a composer re-deriving engine eligibility client-side | WEB-1 – WEB-2 | §4.C |
 | — | [Orchestration](#orchestration) | Parallel subagent dispatch and output persistence | ORCH-1 | §Orchestration.C |
 | A | [Historical Changelog](#appendix-a-historical-changelog) | Provenance, validation dates, review process meta-observations | — | — |
 | B | [Unified Summary Table](#appendix-b-unified-summary-table) | All pitfalls at a glance, with severity and status | — | — |
@@ -339,12 +339,25 @@ The broken-perimeter death clock (`applyEliminations`, cause `brokenPerimeterAt1
 
 ---
 
+### WEB-2: Client-Side Re-Derivation of Engine Eligibility Is Safe Only Under the Singleton-Alliance Invariant
+
+**The Flaw:** `AttackComposer`'s `eligibleAttackersFor(state, player, target)` (`web/src/composers/AttackComposer.tsx`) re-derives the candidate-attacker list with a strict-ownership filter — `b.owner === player` — rather than consuming an engine-provided eligibility check. The engine's own attacker-eligibility semantics are alliance-based (`isAlly`, not strict ownership): a base belongs to the attacking side if it's owned by any member of the acting player's alliance, not just the acting player themselves. In P3, these two filters produce identical results only because every `Player.alliance` is a singleton (`alliance: [id]`) — alliance composition (`allianceOp`, multi-member alliances) is explicitly Phase-3, out of scope for the client this pitfall was found in.
+
+**Why It Matters:** The equivalence is a scope-boundary coincidence, not a structural guarantee — nothing in `eligibleAttackersFor`'s signature or the surrounding code enforces "alliances stay singletons." If Phase-3 alliance work later grows an alliance to multiple players (its stated purpose), this composer would silently exclude allied attackers' bases from the eligible-attacker candidate list: the UI would under-report how much force is available to commit, with no error, no test failure (the existing tests all use singleton alliances), and no visual signal — the same "structurally correct, semantically wrong" shape as WEB-1's cascade trap, but in application logic rather than CSS. The bug would first surface as a confusing gameplay report ("my ally's base near the target isn't offered as an attacker") long after the client code that caused it had shipped and been forgotten.
+
+**The Fix:** Two layers. (1) **Today (P3, alliances are singletons):** the assumption is made explicit, not implicit — a doc comment on `eligibleAttackersFor` states the singleton-alliance dependency and names the exact remediation. (2) **When Phase-3 alliance composition lands:** replace the client-side re-derivation with a consumed engine export — `legalAttackers(state, target)` or equivalent — so eligibility is computed once, canonically, in the engine, and the client never re-implements alliance semantics. Do NOT patch this by widening the client-side filter to check alliance membership by hand; that re-derives engine logic a second time in a different codebase location, which is exactly the pattern this entry warns against.
+
+**The Lesson:** A client-side re-derivation of an engine rule is only as safe as the invariant that makes the re-derivation equivalent to the engine's real logic — and that invariant is frequently a *current scope boundary* ("alliances are Phase 3"), not a permanent one. Re-derivations that are correct today because a feature hasn't shipped yet are latent bugs, not correct code; they need either (a) a comment naming the exact condition under which they'd diverge and the exact remediation, so the future feature's author is warned at the right moment, or (b) an engine export from the start if the derivation is nontrivial enough to be worth centralizing. Silence is the failure mode: an unflagged re-derivation looks identical to a permanently-correct one until the day the invariant breaks.
+
+---
+
 ### Review Checklist
 
 - [ ] **Every utility-class pair expected to compose has an explicit compound-selector override in `tokens.css`** — never rely on stylesheet source order to resolve an equal-specificity collision (WEB-1)
 - [ ] **Each compound override has a structural test pinning its existence/content** (`tokens-sync.test.ts` §cascade guards) — a deleted or weakened override fails fast, not at visual QA (WEB-1)
 - [ ] **A new composition is verified with a real-browser computed-style check (`preview_inspect`) before shipping** — jsdom cannot compute a cascade and will pass on broken output (WEB-1)
 - [ ] **Compositions landing on the design system's single "Brass Budget" element per screen get extra scrutiny** — this is where the failure mode has struck twice, because it's exactly where the design language concentrates meaning (WEB-1)
+- [ ] **Any client-side re-derivation of an engine rule (eligibility, legality, scoring) names the exact invariant that makes it equivalent to the engine's real logic, and the exact remediation if that invariant breaks** — an unflagged re-derivation that's merely coincidentally correct today is a latent bug, not correct code (WEB-2)
 
 ---
 
@@ -380,6 +393,10 @@ Pitfalls that arise when a session dispatches parallel subagents and consolidate
 ## 2026-07-03 — Web client cascade-composition finding
 
 - Added Section 4: Web Client (CSS/design-system) (WEB-1) — equal-specificity utility-class composition (`.brass-accent`/`.brass-accent-bg` vs. `.chrome-button`) resolves by stylesheet source order, not intent, and jsdom structure tests cannot detect it. Struck twice in one day, both times on the design system's single "Brass Budget" element per screen: the app shell's Instruments button (P0, caught live in-browser) and the designer's Start button (P2.4, caught via `preview_inspect`). Fix already shipped as compound-selector overrides in `web/src/design/tokens.css` plus structural cascade-guard tests in `tokens-sync.test.ts`; this entry documents the pattern for future utility-pair compositions. Same-day `testing-pitfalls.md` also gained a `ResizeObserver` stub entry (§7, unrelated mechanism, no formal cross-reference) — both findings share the theme that jsdom cannot observe layout or cascade computation.
+
+## 2026-07-03 — P3 composer-family refactor, alliance-singleton finding
+
+- Added WEB-2 (Client-Side Re-Derivation of Engine Eligibility Is Safe Only Under the Singleton-Alliance Invariant) to Section 4 — `AttackComposer`'s `eligibleAttackersFor` filters candidate attackers by strict ownership, which is behaviorally equal to the engine's alliance-based eligibility ONLY because alliances are singletons in P3 (Phase-3 alliance composition is out of scope). Found and flagged (not fixed — alliances remain out of scope) during a pre-P3.11 refactor/polish pass over the composer family; remediation is to consume an engine `legalAttackers(state, target)` export once Phase-3 alliance work lands. Cross-referenced from `docs/plans/2026-06-29-spa-client-plan.md`'s P3 Discoveries.
 
 ## 2026-07-03 — DO-Host + Wire-Protocol plan, Phase B9
 
@@ -420,6 +437,7 @@ Pitfalls that arise when a session dispatches parallel subagents and consolidate
 | WIRE-MAP-1 | Engine Throw Messages Are Load-Bearing for the Session Error Mappers | MEDIUM | VALIDATED | Wire Protocol |
 | WIRE-SHAPE-1 | The Wire Boundary Must Validate Full Shape, Not Just `type` | CRITICAL | VALIDATED | Wire Protocol |
 | WEB-1 | Equal-Specificity Utility Composition Is Decided by Source Order, Not Intent | HIGH | VALIDATED | Web Client (CSS/design-system) |
+| WEB-2 | Client-Side Re-Derivation of Engine Eligibility Is Safe Only Under the Singleton-Alliance Invariant | MEDIUM | VALIDATED | Web Client (CSS/design-system) |
 | ORCH-1 | Analysis Dispatches Must Persist Findings | HIGH | VALIDATED | Orchestration |
 
 Severity levels: `CRITICAL` (production data loss / security), `HIGH` (correctness bug under predictable conditions), `MEDIUM` (correctness bug under edge cases), `LOW` (cleanliness / clarity).
