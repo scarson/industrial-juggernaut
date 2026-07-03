@@ -34,6 +34,15 @@ function playPhaseState(): GameState {
 }
 
 describe("highlightSets", () => {
+  test("memoizes on the state reference (GEO-5 identity cache)", () => {
+    const state = playPhaseState();
+    // Same state reference → the identical HighlightSets object (no re-enumeration).
+    expect(highlightSets(state)).toBe(highlightSets(state));
+    // A different state object → a fresh result.
+    const other = playPhaseState();
+    expect(highlightSets(other)).not.toBe(highlightSets(state));
+  });
+
   test("setup phase: placementHexes matches legalFirstBaseHexes, build/attack empty", () => {
     const state = setupPhaseState();
     const sets = highlightSets(state);

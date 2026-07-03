@@ -13,8 +13,8 @@ import { hexKey } from "./projection";
  * - `attackTargets` — enemy-held hexes that are legal attack targets.
  * - `placementHexes` — legal first-base hexes during setup.
  *
- * P1 renders these; the `highlightSets(state, ...)` function that computes them lands in
- * this same file in P1.5, so Board.tsx can depend on the type now.
+ * `highlightSets(state)` below computes them; Board.tsx consumes them via its
+ * `highlights` prop.
  */
 export type HighlightSets = {
   buildHexes: Set<string>;
@@ -42,24 +42,36 @@ export type HighlightSets = {
  *
  * `legalActions` acts for `currentPlayer(state)` (the seat whose turn it is), so
  * the highlighted hexes always belong to the acting seat, not necessarily seat 0.
+ *
+ * Memoized on the immutable `GameState` reference (GEO-5 — the same WeakMap
+ * convention as `controlOf`/`strandedHexKeys`/`territoryFills`): `legalActions`
+ * traverses every board hex for build legality and every base pair for attacks,
+ * so hover/selection re-renders must reuse the sets rather than re-enumerate.
+ * Callers MUST NOT mutate the returned sets.
  */
+const highlightSetsCache = new WeakMap<GameState, HighlightSets>();
+
 export function highlightSets(state: GameState): HighlightSets {
+  const cached = highlightSetsCache.get(state);
+  if (cached !== undefined) return cached;
+
   const buildHexes = new Set<string>();
   const attackTargets = new Set<string>();
   const placementHexes = new Set<string>();
 
   if (state.phase.turn === 0) {
     for (const hex of legalFirstBaseHexes(state)) placementHexes.add(hexKey(hex));
-    return { buildHexes, attackTargets, placementHexes };
-  }
-
-  for (const action of legalActions(state)) {
-    if (action.kind === "build") {
-      for (const piece of action.pieces) buildHexes.add(hexKey(piece.hex));
-    } else if (action.kind === "attack") {
-      for (const decl of action.attacks) attackTargets.add(hexKey(decl.target));
+  } else {
+    for (const action of legalActions(state)) {
+      if (action.kind === "build") {
+        for (const piece of action.pieces) buildHexes.add(hexKey(piece.hex));
+      } else if (action.kind === "attack") {
+        for (const decl of action.attacks) attackTargets.add(hexKey(decl.target));
+      }
     }
   }
 
-  return { buildHexes, attackTargets, placementHexes };
+  const result = { buildHexes, attackTargets, placementHexes };
+  highlightSetsCache.set(state, result);
+  return result;
 }
