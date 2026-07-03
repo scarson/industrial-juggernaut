@@ -7,9 +7,11 @@ import { PlayerShapeIcon } from "../../identity/shapes";
 import type { PlayerId } from "../../engine-client/barrel";
 
 export interface VictoryProps {
-  /** The authoritative winners — `GameEvent`'s `victory.players`. A single id is the common
-   *  case; more than one is a coalition victory (spec: `Player.alliance` shares a win). P3.11
-   *  mounts this when a `victory` `GameEvent` arrives in an `applied` batch on the event stream. */
+  /** The authoritative winners. A single id is the common case; more than one is a coalition
+   *  victory (spec: `Player.alliance` shares a win). P3.11 mounts this from the `gameOver`
+   *  `DriverEvent` (`winners: PlayerId[]`) — a SIBLING of `applied`, not a `GameEvent` nested in
+   *  `applied.events`. (The engine's `GameEvent` union declares a `victory` variant, but nothing
+   *  ever constructs it; game-over flows through `status()` → the wire `gameOver` message.) */
   readonly winners: readonly PlayerId[];
 }
 
