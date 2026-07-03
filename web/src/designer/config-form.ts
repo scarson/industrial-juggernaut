@@ -27,6 +27,22 @@ export interface ConfigError {
 const KILL_BOUNTY_VALUES = ["full", "half", "none"] as const;
 const COMBAT_TABLE_KEYS = [3, 4, 5, 6] as const;
 
+/**
+ * `boardSize` request range, per DER #16 (`docs/superpowers/specs/
+ * 2026-06-12-web-client-design.md` §Digital Edition Rulings) — see the
+ * `boardSize` bullet on `validateConfig` below for the full rationale.
+ * Exported so other designer instruments (e.g. `board-source.ts`'s
+ * `generate`-kind validation) share this range instead of duplicating it.
+ */
+export const BOARD_SIZE_RANGE = { min: 96, max: 300 } as const;
+
+/**
+ * `ironCount` floor — see the `ironCount` bullet on `validateConfig` below
+ * for why there's no static upper bound. Exported for reuse by
+ * `board-source.ts`'s `generate`-kind validation.
+ */
+export const IRON_COUNT_MIN = 1;
+
 function isInteger(n: number): boolean {
   return Number.isInteger(n);
 }
@@ -94,10 +110,10 @@ export function validateConfig(cfg: RuleConfig): ConfigError[] {
 
   if (!isInteger(cfg.boardSize)) {
     errors.push({ knob: "boardSize", message: "boardSize must be an integer." });
-  } else if (cfg.boardSize < 96 || cfg.boardSize > 300) {
+  } else if (cfg.boardSize < BOARD_SIZE_RANGE.min || cfg.boardSize > BOARD_SIZE_RANGE.max) {
     errors.push({
       knob: "boardSize",
-      message: "boardSize must be between 96 and 300 (DER #16 oval-fit range).",
+      message: `boardSize must be between ${BOARD_SIZE_RANGE.min} and ${BOARD_SIZE_RANGE.max} (DER #16 oval-fit range).`,
     });
   }
 
