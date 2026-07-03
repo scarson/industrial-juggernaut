@@ -5,6 +5,8 @@ import { Hex, type HexHighlight } from "./Hex";
 import { Base } from "./Base";
 import { Factory } from "./Factory";
 import { IronGlyph } from "./IronGlyph";
+import { TerritoryFill } from "./TerritoryFill";
+import { territoryFills } from "./territory";
 import { boardViewBox, hexToPixel, hexKey } from "./projection";
 import type { HighlightSets } from "./highlight";
 import type { GameState, Hex as HexModel } from "../engine-client/barrel";
@@ -37,6 +39,10 @@ const HEX_SIZE = 12;
 export function Board({ state, highlights, selection, strandedHexes, onHexClick, onHexHover }: BoardProps) {
   const viewBox = boardViewBox(state.board, HEX_SIZE);
   const selectedKeys = selectionKeys(selection);
+  // `territoryFills` is memoized on the immutable `state` reference (GEO-5), so calling it inline
+  // each render is a WeakMap hit after the first — no useMemo needed. Consuming control()'s output
+  // here (never re-deriving control) keeps the renderer GEO-8-compliant.
+  const fills = territoryFills(state);
 
   return (
     <svg
@@ -59,6 +65,24 @@ export function Board({ state, highlights, selection, strandedHexes, onHexClick,
             selected={selectedKeys.has(key)}
             onHexClick={onHexClick}
             onHexHover={onHexHover}
+          />
+        );
+      })}
+
+      {/* Territory washes — a translucent player-color claim over the parchment, painted after the
+          landmass (so it sits on the parchment fill) but before iron/factories/bases (so the ink
+          glyphs stay crisp on top). Contested hexes get a two-color split. */}
+      {state.board.hexes.map((hex) => {
+        const key = hexKey(hex);
+        const controllers = fills.get(key);
+        if (controllers === undefined) return null;
+        return (
+          <TerritoryFill
+            key={key}
+            hexKey={key}
+            controllers={controllers}
+            center={pixelPoint(hex)}
+            size={HEX_SIZE}
           />
         );
       })}

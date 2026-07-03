@@ -4,32 +4,15 @@ import { describe, expect, test } from "vitest";
 import { territoryFills, overlapZones } from "./territory";
 import { controlOf } from "../engine-client/selectors";
 import { hexKey } from "./projection";
-import { initGame, defaultConfig, generateBoard, seed } from "../engine-client/barrel";
+import { defaultConfig, generateBoard, seed } from "../engine-client/barrel";
 import type { GameState } from "../engine-client/barrel";
-
-// Fixed-seed setup-phase fixture (2 players, size-96 board) — deterministic across runs.
-function setupState(): GameState {
-  return initGame({
-    seed: 1n,
-    boardSource: { kind: "generate", size: 96, ironCount: 14 },
-    nPlayers: 2,
-    config: defaultConfig(),
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Radius-disk (radiating, <4 bases) fixture: a single base at the origin on the
-// setup-phase size-96 board. config.radius defaults to 5 (src/engine/config.ts),
-// so board hexes within cube distance 5 of (0,0,0) are controlled.
-// ---------------------------------------------------------------------------
-function radiatingFixtureState(): GameState {
-  const base = setupState();
-  return {
-    ...base,
-    phase: { ...base.phase, turn: 1 },
-    bases: [{ owner: 0 as const, hex: { x: 0, y: 0, z: 0 }, state: "fresh" as const, order: 0 }],
-  };
-}
+import {
+  radiatingFixtureState,
+  overlapFixtureState,
+  P0_BASE,
+  P1_BASE,
+  SHARED_HEX,
+} from "./test-fixtures";
 
 // ---------------------------------------------------------------------------
 // Perimeter-hull (4+ bases) fixture. Player 0 holds 4 bases on a size-150 board
@@ -98,29 +81,6 @@ function perimeterFixtureState(): GameState {
 function threeBaseFixtureState(): GameState {
   const four = perimeterFixtureState();
   return { ...four, bases: four.bases.filter((b) => b.hex !== W) };
-}
-
-// ---------------------------------------------------------------------------
-// Overlap fixture: two radiating players with adjacent bases, structurally
-// overridden onto the size-96 setup board so their radius-5 disks share hexes.
-// p0Base=(0,0,0), p1Base=(2,-2,0) are distance 2 apart (well inside each
-// other's radius-5 reach); their exact midpoint (1,-1,0) is distance 1 from
-// each — a clean shared hex both players control.
-// ---------------------------------------------------------------------------
-const P0_BASE = { x: 0, y: 0, z: 0 };
-const P1_BASE = { x: 2, y: -2, z: 0 };
-const SHARED_HEX = { x: 1, y: -1, z: 0 };
-
-function overlapFixtureState(): GameState {
-  const base = setupState();
-  return {
-    ...base,
-    phase: { ...base.phase, turn: 1 },
-    bases: [
-      { owner: 0 as const, hex: P0_BASE, state: "fresh" as const, order: 0 },
-      { owner: 1 as const, hex: P1_BASE, state: "fresh" as const, order: 0 },
-    ],
-  };
 }
 
 describe("fixture validity", () => {

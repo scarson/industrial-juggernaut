@@ -12,6 +12,8 @@ import {
   defaultConfig,
 } from "../engine-client/barrel";
 import type { GameState, Hex } from "../engine-client/barrel";
+import { overlapFixtureState, SHARED_HEX } from "./test-fixtures";
+import { territoryFills, overlapZones } from "./territory";
 
 // A real post-setup 2-player state built from the pure engine with a fixed seed — real engine
 // calls beat structural overrides for the count/identity assertions (see task fixture guidance).
@@ -206,5 +208,70 @@ describe("Board", () => {
     cell.dispatchEvent(new Event("pointerout", { bubbles: true }));
     expect(onHexHover).toHaveBeenCalledTimes(2);
     expect(onHexHover.mock.calls[1]![0]).toBeNull();
+  });
+
+  describe("territory fills", () => {
+    // The overlap fixture is a real generated size-96 board with two hand-placed radiating bases
+    // (p0 @ origin, p1 two hexes away) whose radius-5 disks share exactly the region around
+    // SHARED_HEX — a clean single/contested/uncontrolled mix on one board. Board derives
+    // territoryFills(state) internally, so the test asserts against that same derivation.
+    test("a single-controller hex carries data-territory=<id> filled with that player's color", () => {
+      const state = overlapFixtureState();
+      const { container } = render(<Board state={state} />);
+
+      // A hex controlled by p0 alone: distance 5 from p0's base, well outside p1's reach.
+      const p0OnlyKey = hexKey({ x: -5, y: 5, z: 0 });
+      expect(territoryFills(state).get(p0OnlyKey)).toEqual([0]);
+
+      const el = container.querySelector(`polygon[data-territory="0"][data-hex-fill="${p0OnlyKey}"]`);
+      expect(el).not.toBeNull();
+      // Filled with player 0's identity color (the low-opacity wash rides fillOpacity, not the color).
+      expect(el!.getAttribute("fill")).toBe(playerIdentity(0).colorVar);
+    });
+
+    test("a contested hex carries data-territory=\"contested\" with both controllers discoverable", () => {
+      const state = overlapFixtureState();
+      const key = hexKey(SHARED_HEX);
+      expect(territoryFills(state).get(key)).toEqual([0, 1]);
+      expect(overlapZones(state).has(key)).toBe(true);
+
+      const { container } = render(<Board state={state} />);
+      const group = container.querySelector(`g[data-territory="contested"][data-hex-fill="${key}"]`);
+      expect(group).not.toBeNull();
+      // The two lowest controllers are enumerable off the group.
+      expect(group!.getAttribute("data-controllers")).toBe("0,1");
+      // Each controller paints its own half; both colors are discoverable.
+      const halves = group!.querySelectorAll("polygon[data-controller]");
+      expect([...halves].map((h) => h.getAttribute("data-controller"))).toEqual(["0", "1"]);
+      const fills = [...halves].map((h) => h.getAttribute("fill"));
+      expect(fills).toEqual([playerIdentity(0).colorVar, playerIdentity(1).colorVar]);
+    });
+
+    test("an uncontrolled hex carries no territory element", () => {
+      const state = overlapFixtureState();
+      // A hex far from both bases — outside every radius-5 disk on this board.
+      const farKey = hexKey({ x: 9, y: -9, z: 0 });
+      expect(territoryFills(state).has(farKey)).toBe(false);
+
+      const { container } = render(<Board state={state} />);
+      expect(container.querySelector(`[data-hex-fill="${farKey}"]`)).toBeNull();
+    });
+
+    test("every territoryFills hex gets exactly one territory element; contested ones are the overlap zones", () => {
+      const state = overlapFixtureState();
+      const { container } = render(<Board state={state} />);
+
+      const fills = territoryFills(state);
+      const zones = overlapZones(state);
+      // One territory element (single polygon OR contested group) per controlled hex.
+      expect(container.querySelectorAll("[data-hex-fill]")).toHaveLength(fills.size);
+      // Contested elements match the overlap-zone set exactly.
+      const contestedKeys = new Set(
+        [...container.querySelectorAll('[data-territory="contested"]')].map((e) =>
+          e.getAttribute("data-hex-fill"),
+        ),
+      );
+      expect(contestedKeys).toEqual(new Set(zones));
+    });
   });
 });
