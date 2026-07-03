@@ -437,12 +437,12 @@ export class GameRoom extends DurableObject<Env> {
     // Broadcast the applied resolution (the attack + any auto-close), each strictly after its awaited persist.
     this.sendEffects(result.effects);
     // The resolved attack may unblock agent turns (the attacker's chain continued, or the round rolled to an agent).
-    // Liveness note: a throw AFTER the awaited persist but BEFORE this driveAgents (e.g. a send throw in
-    // sendEffects) leaves the resolution durable but a rolled-to agent turn un-driven on this invocation. The
-    // alarm's at-least-once retry re-instantiates the DO → rehydrate()'s tail driveAgents self-heals the common
-    // (cold) case; a warm-instance retry no-ops at the pending-tombstone guard and the agent turn then waits for
-    // the next wake / human command (which tail-drives). B6.1's trySend makes sendEffects failure-tolerant, which
-    // closes this window for both alarm() and handleCommand.
+    // Liveness note: sends go through the non-throwing trySend, so sendEffects cannot strand this driveAgents; the
+    // only throw left between the awaited persist and this drive is a storage error in realizeAlarm. If that fires,
+    // the resolution is durable but a rolled-to agent turn is un-driven on this invocation — the alarm's
+    // at-least-once retry re-instantiates the DO and rehydrate()'s tail driveAgents self-heals the common (cold)
+    // case; a warm-instance retry no-ops at the pending-tombstone guard and the turn then waits for the next wake /
+    // human command (which tail-drives).
     await this.driveAgents();
   }
 
