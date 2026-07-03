@@ -71,6 +71,9 @@ const initialPreview: PreviewSlice = { state: null, source: null, combat: false 
 
 const initialUi: UiSlice = { openComposer: null, selection: null, hover: null };
 
+/** The handle `createGameStore()` returns — the type components/composers take as a `store` prop. */
+export type GameStore = ReturnType<typeof createGameStore>;
+
 /**
  * Builds a fresh, headless Zustand store instance (no React dependency — `getState`/`setState`/
  * `subscribe` work directly, which is what makes this testable without rendering anything).

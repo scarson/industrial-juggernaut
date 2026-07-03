@@ -1,7 +1,7 @@
 // ABOUTME: Pins the flat-top cube-to-pixel projection formula, hex corner geometry, and the
 // ABOUTME: viewBox padding math against hand-computed values for small fixed boards (no RNG).
 import { describe, expect, test } from "vitest";
-import { hexToPixel, hexCorners, hexPoints, boardViewBox, hexKey } from "./projection";
+import { hexToPixel, hexCorners, hexPoints, boardViewBox, hexKey, keyToHex } from "./projection";
 import type { Board } from "../engine-client/barrel";
 
 const SQRT3 = Math.sqrt(3);
@@ -127,5 +127,18 @@ describe("hexKey", () => {
     expect(hexKey(a)).toBe(hexKey(b));
     const set = new Set([hexKey(a), hexKey(b)]);
     expect(set.size).toBe(1);
+  });
+});
+
+describe("keyToHex", () => {
+  test("parses a canonical comma-joined string key back to a numeric Hex — the inverse of hexKey", () => {
+    expect(keyToHex("0,0,0")).toEqual({ x: 0, y: 0, z: 0 });
+    expect(keyToHex("1,-1,0")).toEqual({ x: 1, y: -1, z: 0 });
+    expect(keyToHex("-2,1,1")).toEqual({ x: -2, y: 1, z: 1 });
+  });
+
+  test("round-trips through hexKey", () => {
+    const hex = { x: 3, y: -5, z: 2 };
+    expect(keyToHex(hexKey(hex))).toEqual(hex);
   });
 });

@@ -17,6 +17,7 @@ export {
   currentPlayer,
   advanceRound,
   buildBudget,
+  isBootstrapOnly,
   status,
   applyEliminations,
   removeEncircledStrandedBases,
