@@ -32,15 +32,21 @@ function isRoutePath(path: string): path is RoutePath {
   return (ROUTES as readonly string[]).includes(path);
 }
 
-/** Renders the screen matching the current URL path, live-updating on navigate()/back/forward. */
-export function Router() {
+/** The current URL path, live-updating on navigate()/back/forward. Shared by the Router and
+ *  the app shell (which suppresses its placeholder rail on routes that own their layout). */
+export function useCurrentPath(): string {
   const [path, setPath] = useState(() => window.location.pathname);
-
   useEffect(() => {
     const handlePopState = () => setPath(window.location.pathname);
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
+  return path;
+}
+
+/** Renders the screen matching the current URL path, live-updating on navigate()/back/forward. */
+export function Router() {
+  const path = useCurrentPath();
 
   if (path === DEV_BOARD_PATH) {
     return (

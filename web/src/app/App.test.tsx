@@ -63,4 +63,12 @@ describe("App", () => {
     render(<App />);
     expect(screen.getByRole("heading", { name: /rules/i })).toBeInTheDocument();
   });
+
+  test("suppresses the shell's placeholder rail on /game (the game screen owns its own rail)", () => {
+    stubMatchMediaForWidth(1200);
+    window.history.pushState({}, "", "/game");
+    render(<App />);
+    // The shell's "Rail"-labelled aside must not render on /game; only GameScreen's own layout shows.
+    expect(screen.queryByRole("complementary", { name: /rail/i })).toBeNull();
+  });
 });
