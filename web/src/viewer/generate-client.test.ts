@@ -7,17 +7,22 @@ import type { SessionHeader } from "../engine-client/barrel";
 import type { RecordResult } from "../../../src/session/record";
 
 // A minimal fake worker: captures the posted message, exposes onmessage/onerror/onmessageerror
-// hooks the test drives directly, and a postMessage the test asserts on. No real Worker involved.
-function makeFakeWorker(): GenerateWorker & { posted: GenerateRequest[] } {
-  const fake: GenerateWorker & { posted: GenerateRequest[] } = {
+// hooks the test drives directly, a postMessage the test asserts on, and a counting terminate
+// spy (one worker per generation job — a settle without terminate is a worker leak). No real
+// Worker involved.
+function makeFakeWorker(): GenerateWorker & { posted: GenerateRequest[]; terminated: number } {
+  const fake: GenerateWorker & { posted: GenerateRequest[]; terminated: number } = {
     posted: [],
+    terminated: 0,
     onmessage: null,
     onerror: null,
     onmessageerror: null,
     postMessage(msg: GenerateRequest) {
       fake.posted.push(msg);
     },
-    terminate() {},
+    terminate() {
+      fake.terminated += 1;
+    },
   };
   return fake;
 }
@@ -51,6 +56,7 @@ describe("generateGame", () => {
     fake.onmessage!({ data: reply } as MessageEvent<GenerateReply>);
 
     await expect(promise).resolves.toBe(fakeResult);
+    expect(fake.terminated).toBe(1);
   });
 
   test("an error reply rejects with the message", async () => {
@@ -72,6 +78,7 @@ describe("generateGame", () => {
     fake.onerror!(new ErrorEvent("error", { message: "failed to load worker script" }));
 
     await expect(promise).rejects.toThrow(/worker/i);
+    expect(fake.terminated).toBe(1);
   });
 
   test("the worker's onmessageerror event rejects with a friendly message", async () => {
