@@ -174,11 +174,14 @@ export function makeLocalReducerDriver(header: SessionHeader, opts: LocalReducer
     }
   }
 
-  /** Emit the DriverEvents for one reducer result's Effects, in wire order: broadcasts, then toSeat, then reply. */
+  /** Emit the DriverEvents for one reducer result's Effects, in the DO host's own sink order —
+   *  reply, then toSeat, then broadcast (game-room.ts's sendEffects). Every reducer Effects bundle
+   *  populates at most one of these channels today, so the order is inert now; matching the host
+   *  keeps it inert if a future reducer path ever combines channels. */
   function emitEffects(effects: Effects): void {
-    for (const msg of effects.broadcast) { const e = toDriverEvent(msg); if (e) emit(e); }
-    for (const t of effects.toSeat) { const e = toDriverEvent(t.message); if (e) emit(e); }
     for (const msg of effects.reply) { const e = toDriverEvent(msg); if (e) emit(e); }
+    for (const t of effects.toSeat) { const e = toDriverEvent(t.message); if (e) emit(e); }
+    for (const msg of effects.broadcast) { const e = toDriverEvent(msg); if (e) emit(e); }
   }
 
   /** After a human command, advance every agent/setup/eliminated seat until a human seat / pending / game end,
@@ -230,6 +233,7 @@ export function makeLocalReducerDriver(header: SessionHeader, opts: LocalReducer
 
   return {
     subscribe(handler: (e: DriverEvent) => void): () => void {
+      if (disposed) return () => {}; // a subscribe after dispose registers nothing and delivers nothing
       handlers.add(handler);
       handler(syncEvent()); // a new subscriber gets the current authoritative state immediately
       return () => { handlers.delete(handler); };
