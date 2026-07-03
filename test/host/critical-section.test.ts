@@ -13,6 +13,7 @@ import {
 import type { ClientCommand, RoomOptions, ServerMessage } from "../../src/wire/protocol";
 import { representativeFirstBase, defaultConfig } from "../../src/index";
 import { seed as makeSeed } from "../../src/index";
+import { tokenDigest } from "../../src/host/ids";
 import { key } from "../../src/geometry/cube";
 import type { Base, GameState, Hex, PlayerId, RngState } from "../../src/engine/types";
 
@@ -157,10 +158,13 @@ describe("GameRoom /init routing", () => {
     });
   });
 
-  test("GET /ws with a valid seat → 101 upgrade (B4 owns the WebSocketPair); full hibernation coverage in hibernation.test.ts", async () => {
+  test("GET /ws with a valid seat + token → 101 upgrade (B6.2 auth); full hibernation coverage in hibernation.test.ts", async () => {
     const stub = freshStub();
-    await initRoom(stub, makeHeader([{ kind: "human" }, { kind: "human" }]), ROOM_OPTIONS_OFF, [null, null]);
-    const res = await stub.fetch("https://do.internal/ws?seat=0", { headers: { Upgrade: "websocket" } });
+    const digest0 = await tokenDigest("crit-token-0");
+    await initRoom(stub, makeHeader([{ kind: "human" }, { kind: "human" }]), ROOM_OPTIONS_OFF, [digest0, null]);
+    const res = await stub.fetch(`https://do.internal/ws?seat=0&token=${encodeURIComponent("crit-token-0")}`, {
+      headers: { Upgrade: "websocket" },
+    });
     expect(res.status).toBe(101);
     expect(res.webSocket).toBeTruthy();
   });

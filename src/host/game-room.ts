@@ -34,7 +34,9 @@ import type {
   LogEntry,
 } from "../session";
 import type { GameState } from "../engine/types";
-import { malformedError } from "../session";
+import { malformedError, unknownTypeError, oversizedError } from "../session";
+import { tokenDigest } from "./ids";
+import { parseClientCommand, isKnownCommandType } from "./parse-command";
 import type { ClientCommand, RoomOptions, ServerMessage } from "../wire/protocol";
 
 /**
@@ -53,23 +55,31 @@ const MUTATING_COMMANDS: ReadonlySet<ClientCommand["type"]> = new Set([
   "extendDecision",
 ]);
 
+/** The largest single wire message the host accepts. Anything larger is OVERSIZED (rejected before parse, B6.2). */
+const MAX_MESSAGE_BYTES = 64 * 1024;
+/** After this many cumulative malformed messages (the count survives hibernation) the socket is closed 1008 (B6.2). */
+const MAX_MALFORMED = 8;
+
+/** The result of `handleCommand`. `"reducer-threw"` means the Layer-2 backstop caught an unexpected throw from
+ *  `applyCommand` — the caller counts it toward the malformed-abuse budget (a shape Layer 1 missed, or a reducer bug). */
+type CommandOutcome = "ok" | "reducer-threw";
+
 /** The bindings this DO uses (mirrors wrangler.jsonc). */
 interface Env {
   GAME_ROOM: DurableObjectNamespace;
 }
 
 /**
- * The send sink: the three effect channels the reducer emits. B3.2 leaves these as no-op seams the
- * tests spy on; B6.1 replaces the default with real socket fan-out (broadcast / per-seat / originating
- * socket). Held as an instance property so a test can swap it and `runInDurableObject` can observe sends.
+ * The send sink: the three effect channels the reducer emits — `reply` (the originating socket only),
+ * `toSeat` (all of a seat's tabs), `broadcast` (every socket). Held as an instance property so a test can
+ * swap it wholesale and `runInDurableObject` can observe sends. The DEFAULT is real socket fan-out (built in
+ * the constructor from `getWebSockets`); `reply` routes to the per-command `replyTarget` the message handler binds.
  */
 type SendSink = {
   reply: (msgs: ServerMessage[]) => void;
   toSeat: (seat: number, msg: ServerMessage) => void;
   broadcast: (msgs: ServerMessage[]) => void;
 };
-
-const NOOP_SINK: SendSink = { reply: () => {}, toSeat: () => {}, broadcast: () => {} };
 
 /** The /init payload the Worker create flow POSTs (seed rides as a decimal string — JSON has no bigint). */
 type InitPayload = {
@@ -83,10 +93,14 @@ export class GameRoom extends DurableObject<Env> {
   private session: SessionState | null = null;
   /** True once recovery detected replay divergence (B3.3). A frozen room drives nothing and rejects mutations. */
   private frozen = false;
-  /** The effect send channels. Default no-op seam (tests spy by replacing it); `webSocketMessage` binds a
-   *  real per-socket send sink for the duration of a command. B6.1 formalizes send-routing (multi-tab toSeat
-   *  fan-out, trySend failure handling). */
-  private sink: SendSink = NOOP_SINK;
+  /** The originating socket of the command currently being handled. `webSocketMessage` sets it before dispatch and
+   *  clears it in `finally`; every non-command path (alarm / rehydrate / init drive) leaves it null, so a `reply`
+   *  emitted off those paths reaches nobody (they use broadcast / toSeat, which do not need an originating socket). */
+  private replyTarget: WebSocket | null = null;
+  /** The effect send channels — REAL socket fan-out by default (see the constructor). `broadcast`/`toSeat` route
+   *  from `getWebSockets()` on EVERY path (command, alarm, rehydrate, init); `reply` routes to `replyTarget`. Tests
+   *  spy by replacing this whole object and calling `handleCommand` directly. */
+  private sink: SendSink;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -95,6 +109,42 @@ export class GameRoom extends DurableObject<Env> {
     // Registered in the constructor so it is installed on every wake (the constructor runs on re-init after
     // hibernation), never a `setTimeout`/`setInterval` (those prevent hibernation and die on eviction).
     this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
+
+    // The permanent, real send sink. Built once here (not per-command) so alarm() / rehydrate() / init drives fan
+    // out to real sockets, not a no-op. Each message is JSON-encoded ONCE per socket set. Every send goes through
+    // `trySend` so a dead/closing socket can never throw out of `sendEffects` (the B5 liveness window — a send
+    // throw between the awaited persist and the trailing driveAgents would strand a rolled-to agent turn).
+    this.sink = {
+      reply: (msgs) => {
+        const ws = this.replyTarget;
+        if (ws === null) return; // no originating socket bound (an alarm/rehydrate path) → reaches nobody
+        for (const m of msgs) this.trySend(ws, JSON.stringify(m));
+      },
+      toSeat: (seat, msg) => {
+        const encoded = JSON.stringify(msg);
+        for (const ws of this.ctx.getWebSockets("seat:" + seat)) this.trySend(ws, encoded);
+      },
+      broadcast: (msgs) => {
+        for (const m of msgs) {
+          const encoded = JSON.stringify(m);
+          for (const ws of this.ctx.getWebSockets()) this.trySend(ws, encoded);
+        }
+      },
+    };
+  }
+
+  /**
+   * Send one already-encoded message to one socket, swallowing any throw. A send throws when the socket is
+   * closing/closed; presence is advisory UI state (spec §3), so a dead socket must NEVER propagate an error out
+   * of `sendEffects` — that would interrupt the persist→alarm→send→drive critical section (the B5 liveness window).
+   * The socket is simply dropped from this send; the seat tag + hibernation attachment remain the durable identity.
+   */
+  private trySend(ws: WebSocket, encoded: string): void {
+    try {
+      ws.send(encoded);
+    } catch {
+      // The socket is gone. Presence is advisory (spec §3); no durable state to unwind. Drop it from this send.
+    }
   }
 
   /**
@@ -116,16 +166,19 @@ export class GameRoom extends DurableObject<Env> {
   }
 
   /**
-   * The WebSocket upgrade (a wake path — lazy-rehydrate first). Validates the request SHAPE (not auth): it must be
-   * an `Upgrade: websocket` request to an initialized room, with an in-range integer `?seat=N`. On success it mints
+   * The WebSocket upgrade (a wake path — lazy-rehydrate first). Validates the request SHAPE then AUTHENTICATES the
+   * seat token: it must be an `Upgrade: websocket` request to an initialized room, with an in-range integer `?seat=N`
+   * (shape) AND a `?token=...` whose SHA-256 digest matches that seat's authorized digest (auth). On success it mints
    * a hibernatable socket tagged `seat:<n>` (so `getWebSockets("seat:"+n)` finds a seat's tabs — multi-tab, B6) and
-   * stashes the per-socket attachment (`seat` = the identity `webSocketMessage` reads back after hibernation;
-   * `malformedCount` = the abuse counter B6.2 increments). The seat parse is SHAPE validation — a clear rejection,
-   * not authentication.
+   * stashes the per-socket attachment (`seat` = the authenticated identity `webSocketMessage` reads back after
+   * hibernation; `malformedCount` = the abuse counter B6.2 increments).
    *
-   * B6.2 inserts the tokenDigest check + agent-seat bind-refusal HERE, BEFORE acceptWebSocket: it will compute
-   * `tokenDigest(?token=...)`, compare to `this.session.seats[seat].authorizedDigest`, and refuse a socket bound to
-   * an agent seat regardless of token validity. B4 accepts a valid-shaped upgrade WITHOUT validating a token.
+   * AUTH — the token-digest check is the ONLY authentication; the per-message handlers then TRUST the attachment's
+   * `seat` (validated here). LAYER 2 of the three-layer agent-seat resolution lives here: an agent seat has
+   * `authorizedDigest === null` (tokens are minted for HUMAN seats only), so it can never match any token — the
+   * upgrade refuses to bind a socket to an agent seat regardless of token validity (agent seats are host-driven,
+   * never socket-bound). A refusal returns a GENERIC 403 that does not reveal whether the seat exists, is an agent,
+   * or how close the token was. DO-AUTH-1: never log the token or the query string; never store the raw token.
    */
   private async handleUpgrade(request: Request, url: URL): Promise<Response> {
     if ((request.headers.get("Upgrade") ?? "").toLowerCase() !== "websocket") {
@@ -147,12 +200,20 @@ export class GameRoom extends DurableObject<Env> {
       return new Response("invalid seat", { status: 400 });
     }
 
-    // SECURITY: NOT YET AUTHENTICATED — the tokenDigest check + agent-seat bind-refusal are B6.2 and MUST land
-    // before any deploy surface (B8's deploy-staging.yml). This upgrade currently binds any valid-shaped ?seat=N
-    // without a token; do not wire a deploy workflow until B6 is merged.
+    // AUTHENTICATE the seat token. The authorized digest is null for an agent seat (LAYER 2 — no token to match, so
+    // the seat is refused outright: agent seats are host-driven, never socket-bound) and for any seat missing a token.
+    // A generic "bad seat token" 403 covers every failure mode (wrong token / agent seat / absent token) so the
+    // rejection leaks nothing. DO-AUTH-1: the raw token never touches a log or storage — only its digest is compared.
+    const authorizedDigest = this.session.seats[seat]!.authorizedDigest;
+    const token = url.searchParams.get("token");
+    if (authorizedDigest === null || token === null || (await tokenDigest(token)) !== authorizedDigest) {
+      return new Response("bad seat token", { status: 403 });
+    }
+
     // Mint the hibernatable socket. `acceptWebSocket(server, tags)` (NOT ws.accept()) is what lets the DO hibernate
     // while the socket stays connected; the `seat:<n>` tag is the multi-tab discovery key. The attachment survives
-    // hibernation (16 KiB cap — a small object is trivially under). Never store the raw token (DO-AUTH-1).
+    // hibernation (16 KiB cap — a small object is trivially under). Never store the raw token (DO-AUTH-1) — only the
+    // authenticated `seat` (the identity the per-message handler trusts) and the malformed-abuse counter.
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1], ["seat:" + seat]);
     pair[1].serializeAttachment({ seat, malformedCount: 0 });
@@ -201,14 +262,15 @@ export class GameRoom extends DurableObject<Env> {
    * build the per-command ctx, and call `handleCommand`. The JSON.parse / crypto.randomUUID happen HERE (before
    * handleCommand) so the critical section keeps its no-non-storage-await invariant (plan B3.2).
    *
-   * B4 wires a MINIMAL real-send sink for the duration of the command so a command round-trips end to end (reply →
-   * the originating socket; broadcast/toSeat → the tagged socket sets). B6.1 formalizes send-routing: `trySend`
-   * failure handling (marking a dead socket gone) and the full multi-tab fan-out semantics. B4 does the minimal
-   * `ws.send` those tests need and no more.
+   * Send routing (B6.1): the instance `sink` is the permanent real fan-out (broadcast/toSeat via `getWebSockets`,
+   * `reply` via `replyTarget`). This handler binds `replyTarget` to the originating socket for the duration of the
+   * command and clears it in `finally`, so a subsequent spy (or an alarm-path reply) sees the null default.
    *
-   * Malformed input: B4 wraps JSON.parse in try/catch and replies a structured MALFORMED error to THAT socket. The
-   * full malformed-traffic enforcement — the OVERSIZED / UNKNOWN_TYPE codes and the per-socket count-limit-before-
-   * close (the count lives in the attachment so it survives hibernation) — is B6.2.
+   * Malformed enforcement (B6.2): OVERSIZED (`> MAX_MESSAGE_BYTES`) / JSON.parse failure (MALFORMED) / unknown
+   * `type` (UNKNOWN_TYPE) each reply a structured error, then `registerMalformed` bumps the attachment's cumulative
+   * `malformedCount` (which survives hibernation — DO-HIBER-1) and closes the socket 1008 once it reaches
+   * MAX_MALFORMED. A WELL-FORMED command never increments the count. The count lives in the attachment (not memory)
+   * so an abuser cannot reset their malformed budget by idling until the DO hibernates.
    */
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     if (this.session === null) await this.rehydrate();
@@ -218,39 +280,73 @@ export class GameRoom extends DurableObject<Env> {
     if (att === null) return;
     const seat = att.seat;
 
-    // Bind a per-socket real-send sink for this command: reply → the originating socket; broadcast → every socket;
-    // toSeat → a seat's tagged sockets. Restored to the default seam in `finally` so a subsequent
-    // `runInDurableObject` spy (or another socket's message) sees the clean default. B6.1 replaces this with the
-    // formalized `trySend`-based routing.
-    const originating = ws;
-    this.sink = {
-      reply: (msgs) => {
-        for (const m of msgs) originating.send(JSON.stringify(m));
-      },
-      toSeat: (toSeat, msg) => {
-        for (const s of this.ctx.getWebSockets("seat:" + toSeat)) s.send(JSON.stringify(msg));
-      },
-      broadcast: (msgs) => {
-        for (const s of this.ctx.getWebSockets()) for (const m of msgs) s.send(JSON.stringify(m));
-      },
-    };
-
+    // Bind the originating socket so `reply` routes to it for this command; cleared in `finally`.
+    this.replyTarget = ws;
     try {
+      // OVERSIZED: reject on the raw wire byte length before parsing. A binary frame carries its byteLength for free
+      // (no decode). A text frame's exact UTF-8 byte length needs one encode pass; the transient buffer is bounded
+      // and short-lived, and an oversized frame is flagged immediately, so the cost is acceptable.
+      const byteLength = typeof message === "string" ? new TextEncoder().encode(message).length : message.byteLength;
+      if (byteLength > MAX_MESSAGE_BYTES) {
+        this.sink.reply([oversizedError(byteLength, MAX_MESSAGE_BYTES)]);
+        this.registerMalformed(ws, att);
+        return;
+      }
+
       const text = typeof message === "string" ? message : new TextDecoder().decode(message);
-      let command: ClientCommand;
+      let parsed: unknown;
       try {
-        command = JSON.parse(text) as ClientCommand;
+        parsed = JSON.parse(text);
       } catch {
-        // B6.2 adds the count-limit-before-close here (increment att.malformedCount, re-serializeAttachment,
-        // close at the threshold). B4 replies the structured MALFORMED error to the originating socket.
         this.sink.reply([malformedError("invalid JSON")]);
+        this.registerMalformed(ws, att);
+        return;
+      }
+
+      // LAYER 1 (primary) — full SHAPE validation before handleCommand. `applyCommand` dereferences fields like
+      // `decl.target.x` / `pieces.map(...)` without null/array guards, so a well-typed-`type` but shape-malformed
+      // payload ({type:"attack",decl:null}, {type:"build",pieces:"x"}, ...) from a VALID-seat client would throw
+      // uncaught out of the reducer — crashing the room AND bypassing the abuse budget. `parseClientCommand` rejects
+      // any shape mismatch → route it to MALFORMED + the count-limit, exactly like invalid JSON. UNKNOWN_TYPE (an
+      // unrecognized `type`) stays a distinct code; a known type with a broken shape is MALFORMED.
+      const command = parseClientCommand(parsed);
+      if (command === null) {
+        const type = (parsed as { type?: unknown } | null)?.type;
+        // UNKNOWN_TYPE is reserved for a real string `type` that isn't a known command; a known type with a broken
+        // shape, or a non-object / no-string-type payload, is MALFORMED (never surface a literal "undefined").
+        this.sink.reply([
+          typeof type === "string" && !isKnownCommandType(type)
+            ? unknownTypeError(type)
+            : malformedError(typeof type === "string" ? `malformed ${type} command` : "malformed command payload"),
+        ]);
+        this.registerMalformed(ws, att);
         return;
       }
 
       const ctx: CommandCtx = { actingSeat: seat, nowEpochMs: Date.now(), decisionId: crypto.randomUUID() };
-      await this.handleCommand(command, ctx);
+      // Layer 2 backstop: a reducer throw handleCommand caught (Layer 1 should have prevented it) counts toward the
+      // abuse budget too — a client that keeps tripping it is closed at MAX_MALFORMED, same as any malformed traffic.
+      if ((await this.handleCommand(command, ctx)) === "reducer-threw") {
+        this.registerMalformed(ws, att);
+      }
     } finally {
-      this.sink = NOOP_SINK;
+      this.replyTarget = null;
+    }
+  }
+
+  /**
+   * Record one malformed message against a socket: bump the attachment's cumulative `malformedCount` (re-serialized
+   * so it survives hibernation — an abuser cannot reset the budget by idling, DO-HIBER-1) and, once the count reaches
+   * {@link MAX_MALFORMED}, send a final error and close the socket 1008. Only malformed messages call this; a
+   * well-formed command never touches the count. Must run inside the `replyTarget`-bound window (the final error
+   * routes through `reply`).
+   */
+  private registerMalformed(ws: WebSocket, att: { seat: number; malformedCount: number }): void {
+    const malformedCount = att.malformedCount + 1;
+    ws.serializeAttachment({ seat: att.seat, malformedCount });
+    if (malformedCount >= MAX_MALFORMED) {
+      this.sink.reply([malformedError("too many malformed messages")]);
+      ws.close(1008, "too many malformed messages");
     }
   }
 
@@ -374,7 +470,7 @@ export class GameRoom extends DurableObject<Env> {
    * handler runs to completion atomically w.r.t. other events; the multiple awaits do not admit interleaving.
    * Never allowConcurrency/allowUnconfirmed on these writes.
    */
-  async handleCommand(command: ClientCommand, ctx: CommandCtx): Promise<void> {
+  async handleCommand(command: ClientCommand, ctx: CommandCtx): Promise<CommandOutcome> {
     if (this.session === null) await this.rehydrate();
     if (this.session === null) {
       // An uninitialized room cannot be joined (the Worker rejects joins to unknown rooms), but a command that
@@ -382,7 +478,7 @@ export class GameRoom extends DurableObject<Env> {
       this.sink.reply([
         { type: "error", code: "ROOM_NOT_INITIALIZED", message: "This room has not been initialized.", currentLogIndex: null },
       ]);
-      return;
+      return "ok";
     }
 
     // A frozen room (recovery divergence, B3.3) rejects every mutating command with a FROZEN error from the HOST.
@@ -398,11 +494,23 @@ export class GameRoom extends DurableObject<Env> {
           currentLogIndex: this.session.logLength,
         },
       ]);
-      return;
+      return "ok";
     }
 
-    // 1. Validate + apply — synchronous, pure, NO await between here and the persist.
-    const { next, effects } = applyCommand(this.session, command, ctx);
+    // 1. Validate + apply — synchronous, pure, NO await between here and the persist. LAYER 2 (backstop): wrap ONLY
+    //    this pre-persist reducer call. Layer 1 (parseClientCommand in webSocketMessage) should have rejected every
+    //    shape error already; this guarantees that even a shape Layer 1 missed OR a genuine reducer bug can never
+    //    crash the room or escape the abuse budget — it becomes a counted MALFORMED with NO persist, never a swallow.
+    //    Only applyCommand is wrapped; the persist/alarm/send/drive below stay unguarded so real storage failures
+    //    surface loud (B3). The caller (webSocketMessage) counts the reducer-throw toward MAX_MALFORMED.
+    let applied: { next: SessionState; effects: Effects };
+    try {
+      applied = applyCommand(this.session, command, ctx);
+    } catch {
+      this.sink.reply([malformedError(`could not process the ${command.type} command`)]);
+      return "reducer-threw";
+    }
+    const { next, effects } = applied;
 
     // 2. Persist (if any), THEN cache the new state. A non-mutating result (e.g. claimSeat's roster, a rejected
     //    command) has no persist but still advances the cache to `next`. Order below: persist → arm/clear alarm → send.
@@ -420,6 +528,7 @@ export class GameRoom extends DurableObject<Env> {
 
     // 5. Drive any agent/eliminated rounds this command unblocked (each round its own persist→send pair).
     await this.driveAgents();
+    return "ok";
   }
 
   /**

@@ -74,7 +74,7 @@ notes and commit messages.
 | B3 — GameRoom DO: storage + critical section + recovery | ✅ Shipped | ccd9d54c, 73d9e09f, 299b3eed, cf12da9f | branch `feat/host-gameroom` stacked on PR #45; **PR pending — Review-class, Sam merges**; flagship op-order test + crash-consistency gate (freeze-path throw variants fixed) |
 | B4 — Hibernation | ✅ Shipped | 01ba6709 (+ SECURITY-marker) | branch `feat/host-hibernation`; PR pending (Routine, agent-merge on green) |
 | B5 — Defender-timeout alarm (opt-in) | ✅ Shipped | 3d2dff32 (+liveness comment) | branch `feat/host-alarm` off dev; Routine; idempotent `alarm()` (tombstone no-op + recency re-arm + representative-defender resolve + null-defender freeze); arm/clear/extend already realized by `handleCommand` (not duplicated); alarmQueue Phase-2 hook documented; +5 host tests |
-| B6 — Socket attribution + malformed-traffic enforcement | ⬜ Not started | — | — |
+| B6 — Socket attribution + malformed-traffic enforcement | ✅ Shipped | 127b2ebc, 960f2da8, fc5ee54b (+polish) | branch `feat/host-socket-auth`; **PR pending — Review-class, Sam merges**; adversarial gate caught a DoS (shape-malformed crash), fixed |
 | B7 — vitest-pool-workers DO test suite | ⬜ Not started | — | — |
 | B8 — deploy-staging.yml + version guards + CI pool job | ⬜ Not started | — | — |
 | B9 — DO/wire pitfalls documentation | ⬜ Not started | — | — |
@@ -87,6 +87,7 @@ notes and commit messages.
 - **A2.3 (2026-07-02): `src/session/record.ts` DRY-refactored** to import `agentForSeat` from the new `src/session/agent-binding.ts`, deleting its inline copy (the plan's optional Step 4, taken per the duplication rule). Semantics preserved (verified against `git show 80489f96:src/session/record.ts`; the human-seat throw message is now `agentForSeat: a human seat has no agent`, still matching record.test.ts's `/human seat/i`). record.ts net −10/+2; no other restructuring.
 
 ### Discoveries
+- **WIRE-SHAPE-1 (B6 adversarial review, 2026-07-03; B9 pitfall + SPA-plan relevance): the reducer trusts the `ClientCommand` SHAPE — the wire boundary MUST validate it, not just the `type`.** `applyCommand` reads command fields (`c.decl.target`, `c.pieces.map`, `key(c.hex)`) assuming they conform; a well-typed but shape-malformed payload (`{type:"attack",decl:null}`, `{type:"build",pieces:null}`, `{type:"resolveDecision",defender:null}`) threw uncaught — crashing the room AND bypassing the malformed-abuse budget (a throw isn't counted). Fix (B6): defense in depth — Layer 1 full-shape `parseClientCommand` at the host boundary (shape mismatch → MALFORMED + count), Layer 2 a try/catch backstop around the pre-persist `applyCommand` call (any escaped throw → MALFORMED + count, never a crash). **SPA-plan relevance:** the client sends commands too, but the AUTHORITATIVE shape gate is server-side — never rely on client validation. Any future command entry point needs the same host-side shape validation before `applyCommand`.
 - **⚠️ B6.1 obligation (B5 review, 2026-07-03): `trySend` must make `sendEffects` failure-tolerant** — a throw inside a send (a dead/closing socket) BETWEEN the awaited persist and the trailing `driveAgents()` strands a rolled-to agent turn until the next wake (self-heals via `rehydrate`'s tail-drive on a cold retry, but a warm-instance retry no-ops at the pending-tombstone guard). Present in BOTH `alarm()` and `handleCommand`. B6.1's `trySend` (wrap `ws.send` in try/catch, mark the socket gone on failure) closes the window for both. Documented inline at both call sites.
 - **⚠️ B3/B7 obligation (B2 hardening round, 2026-07-02): the failing-init path is untestable pre-B3 and MUST be covered once real init exists** — `worker.ts`'s create flow now returns 500 (and hands out NO tokens) when the DO init responds non-ok/non-501, but the B2 stub can only answer 501, so the 500 path has no test yet. B3/B7 MUST add: a failing DO init (storage error) → create returns 500, no `{roomId, seatTokens}` leak. Also B3 removes the now-dead 501 tolerance (the contract comment in worker.ts marks it).
 - **`seatClaimed` broadcasts on the claim transition (Sam-directed, PR #41 review, 2026-07-02; commit 7a1906bb).** The protocol has no refresh cycle (resyncs fire only on connect/STALE_INDEX/explicit request), so without a broadcast an idle lobby client never sees a seat fill. Gated on the `claimed` false→true transition (re-acks and multi-tab acks stay quiet). **SPA-plan note:** the claiming socket receives `seatClaimed` TWICE (reply + broadcast) — clients must apply it as idempotent roster state, never count events.
@@ -1694,7 +1695,7 @@ The single alarm consumer in v1: the **opt-in** defender timeout (architectural 
 
 ## Phase B6 — Socket attribution + malformed-traffic enforcement
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED 2026-07-03 on branch `feat/host-socket-auth` — commits 127b2ebc (B6.1 send routing: broadcast/toSeat/reply via getWebSockets, non-throwing trySend closing the B5 liveness window; permanent real sink in the constructor), 960f2da8 (B6.2 auth: upgrade-time tokenDigest check + the agent-seat bind-refusal completing the 3-layer auth resolution; malformed count-limit in the hibernation-surviving attachment), fc5ee54b (the CRITICAL fix: shape-validate wire commands + a Layer-2 applyCommand backstop) + a classification polish. Adversarial gate found a CONFIRMED DoS — a valid-seat client could crash the room AND bypass the abuse budget via well-typed-but-shape-malformed commands ({type:"attack",decl:null}); fixed with defense-in-depth (parseClientCommand full-shape validation + a try/catch backstop, both routing to MALFORMED + the count-limit). Re-verified: criticalClosed. Host suite 130; full suite 2160. **Review-class — Sam merges.**
 
 **⚠️ Review-class: per-message seat-token authentication (socket-auth Domain trigger). Classify `Review — per-socket seat-token auth + malformed-traffic enforcement`.**
 
@@ -1712,9 +1713,9 @@ Multi-tab routing (a seat token admits many sockets), per-message authentication
 - `reply` → the originating socket only.
 - `trySend(ws, msg)` wraps `ws.send(JSON.stringify(msg))` in try/catch; on failure mark the socket gone (presence is advisory UI state — spec §3). Encode messages once (the `applied`/`resync` payloads are already JSON-safe via the wire codecs).
 
-- [ ] **Step 1: Write failing tests** (multi-tab: open two sockets on the same seat, assert a `toSeat` prompt reaches both; a `broadcast` reaches all seats' sockets; a `reply` reaches only the sender). **Assertion-rigor:** assert delivery to the *exact* socket set (mechanism), not just "≥1 send happened."
-- [ ] **Step 2-5:** implement; commit `feat(host): send routing — broadcast/toSeat/reply + send-failure marks dead`.
-- [ ] **Apply the Execution Discipline block.**
+- [x] **Step 1: Write failing tests** (multi-tab: open two sockets on the same seat, assert a `toSeat` prompt reaches both; a `broadcast` reaches all seats' sockets; a `reply` reaches only the sender). **Assertion-rigor:** assert delivery to the *exact* socket set (mechanism), not just "≥1 send happened."
+- [x] **Step 2-5:** implement; commit `feat(host): send routing — broadcast/toSeat/reply + send-failure marks dead`.
+- [x] **Apply the Execution Discipline block.**
 
 ### Task B6.2: Per-message authentication + malformed count-limit
 
@@ -1728,9 +1729,9 @@ Multi-tab routing (a seat token admits many sockets), per-message authentication
 
 > **Why the count lives in the attachment, not memory:** an in-memory per-socket counter is lost on hibernation, letting an abuser reset their malformed budget by idling. The attachment survives hibernation (16 KiB cap — a small int is trivial). Pitfall DO-HIBER-1 (B9).
 
-- [ ] **Step 1: Write failing tests** — a bad seat token at upgrade → rejected; N malformed messages → N structured errors then a close at the threshold; the count persists across an `evictDurableObject` hibernation (the abuser can't reset by idling). **Assertion-rigor + concurrency rule.**
-- [ ] **Step 2-5:** implement; commit `feat(host): per-socket seat-token auth + malformed count-limit-before-close`.
-- [ ] **Apply the Execution Discipline block.** **Review-class — Sam merges.**
+- [x] **Step 1: Write failing tests** — a bad seat token at upgrade → rejected; N malformed messages → N structured errors then a close at the threshold; the count persists across an `evictDurableObject` hibernation (the abuser can't reset by idling). **Assertion-rigor + concurrency rule.**
+- [x] **Step 2-5:** implement; commit `feat(host): per-socket seat-token auth + malformed count-limit-before-close`.
+- [x] **Apply the Execution Discipline block.** **Review-class — Sam merges.**
 
 **After Phase B6:** review from 3+ perspectives (multi-tab fan-out correctness; auth at accept + attachment trust; malformed count survives hibernation). **Review-class.** Update Execution Status.
 
