@@ -50,3 +50,11 @@ jobs:
         if: steps.diff.outputs.code == 'true'
       - run: bun run build
         if: steps.diff.outputs.code == 'true'
+      - run: bun run typecheck:client
+        if: steps.diff.outputs.code == 'true'
+      - run: bun run test:client
+        if: steps.diff.outputs.code == 'true'
+      - run: bun run build:client
+        if: steps.diff.outputs.code == 'true'
+      - run: bun run check:bundle
+        if: steps.diff.outputs.code == 'true'

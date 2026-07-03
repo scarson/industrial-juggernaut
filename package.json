@@ -9,15 +9,36 @@
     "test:watch": "vitest",
     "test:host": "vitest run --project host",
     "test:node": "vitest run --project node",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.host.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.host.json --noEmit",
+    "typecheck:client": "tsc -p web/tsconfig.json --noEmit",
+    "build:client": "vite build -c web/vite.config.ts",
+    "test:client": "vitest run -c web/vitest.config.ts",
+    "dev:client": "vite -c web/vite.config.ts",
+    "check:bundle": "bun web/scripts/check-bundle.ts"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.18.0",
     "@cloudflare/workers-types": "^4.20260702.1",
+    "@radix-ui/react-dialog": "^1.1.0",
+    "@radix-ui/react-popover": "^1.1.0",
+    "@radix-ui/react-slider": "^1.2.0",
+    "@radix-ui/react-tabs": "^1.1.0",
+    "@radix-ui/react-tooltip": "^1.1.0",
+    "@testing-library/jest-dom": "^6.5.0",
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/user-event": "^14.5.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.0",
     "fast-check": "^3.20.0",
+    "jsdom": "^25.0.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
     "tsx": "^4.16.0",
     "typescript": "^5.5.0",
+    "vite": "^6.0.0",
     "vitest": "^4.1.9",
-    "wrangler": "^4.93.0"
+    "wrangler": "^4.93.0",
+    "zustand": "^5.0.0"
   }
 }
