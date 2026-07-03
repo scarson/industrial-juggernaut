@@ -59,21 +59,25 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** In progress. 0/5 phases shipped. The DO-host track (Deliverable 1) is COMPLETE — Part A reducer + Part B host + staging Worker are all on `dev` — so the P3.10 (Part A) and P4 (Part B) gates are already OPEN; phases still execute in order.
+**Overall:** In progress. 1/5 phases shipped (P0 on an open Review PR). The DO-host track (Deliverable 1) is COMPLETE — Part A reducer + Part B host + staging Worker are all on `dev` — so the P3.10 (Part A) and P4 (Part B) gates are already OPEN; phases still execute in order.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
-| P0 — Foundation + visual system | 🚧 In progress | — | claimed 2026-07-03T05:34:32Z, branch `feat/web-p0-foundation` |
+| P0 — Foundation + visual system | ✅ Shipped, PR OPEN | 19 commits `8d14f51d`…`85682d84`, branch `feat/web-p0-foundation` | **Review — shared build/CI config — SAM MERGES.** 82 client tests + 2170 root green; bundle guard live; CVD/AA gate passed; DESIGN.md seed replaced with extracted tokens; 3-lens phase review clean after 1 Critical fix (brass cascade) |
 | P1 — SVG hex board renderer | ⬜ Not started | — | shipped-code-only |
 | P2 — Designer instrument + all-agent viewer + rules-reference | ⬜ Not started | — | shipped-code-only |
 | P3 — Interactive play UI + LocalReducerDriver | ⬜ Not started | — | components now (fake driver); real driver gated on DO-host **Part A** |
 | P4 — SocketDriver / live play | ⬜ Not started | — | gated on DO-host **Part B** + `src/wire` |
 
 ### Deviations
-- _(none yet)_
+- **P0 (2026-07-03), eight items.** (1) `check:bundle` runs via `bun web/scripts/check-bundle.ts`, not the plan's `tsx` — bun-only machine + the `compute-replay-version.ts` precedent (`tsx` stays an unused devDependency). (2) P0.1 Step 7 adds the `check:bundle` CI step one task before `web/scripts/check-bundle.ts` exists (the plan's own sequencing); the phase ships as ONE atomic PR so CI never evaluates the gap — but that one intermediate commit is not independently CI-green. (3) `passWithNoTests: true` in `web/vitest.config.ts` (vitest 4 exits 1 on zero test files; the task's pre-authorized contingency). (4) `@types/bun` added as a devDependency + `"bun"` in `web/tsconfig.json` `types` + the plugin file added to its `include` — required for `node:` module types and to typecheck `web/vite-plugin-bundle-guard.ts` at all. (5) **Fonts ship as static 400/600 instances** (Fraunces + Source Sans 3), not variable: Google Fonts' subsetted variable WOFF2s carry broken `fvar` defaults (Fraunces default=900, Source Sans 3 default=200 — both outside the declared 400–600 range; re-fetch returns byte-identical files) → instanced via `fontTools.varLib.instancer`. See the `google-fonts-broken-fvar-defaults` user memory. (6) The rail is a plain ARIA disclosure, not Radix Dialog — a modal primitive (focus trap, scrim) is wrong for a persistent in-flow sidebar; Radix remains for genuinely modal surfaces (the Instruments drawer, later). (7) `stepRound` is deliberately NOT re-exported through `web/src/engine-client/barrel.ts` (it exists in `src/index.ts`; exposing it through the client seam would invite bypassing the canonical per-declaration composition — spec §3). (8) P0.7's route stubs wear `table-panel` (not `board-surface` — the Parchment rule), and the phase added a `.chrome-button` UA-reset class + a body margin/background reset after browser review.
 
 ### Discoveries
-- _(none yet)_
+- **⚠️ CVD floor on the committed pair (P0.4):** brief-committed cobalt × violet collapse to ΔE ≈ 9.41 under deuteranopia (Machado-2009 sim, CIE76) — no gate threshold above ~9.4 is achievable without moving committed colors, so the gate is pinned at 9.0 and **shape redundancy is load-bearing for that pair**: cobalt=square, violet=triangle (the most orientation-distinct hard-edged shapes), now a DESIGN.md Named Rule ("The Cobalt–Violet Shape Rule").
+- **⚠️ `.bundle-modules.json` lands in the Worker assets dir:** the guard artifact is emitted into `dist/client/` (= `wrangler.jsonc` `assets.directory`) and contains absolute build-machine paths; only wrangler's dotfile handling keeps it unserved. When the staging deploy starts building the real SPA, exclude it explicitly (e.g. `.assetsignore`). **Related unowned follow-up:** `deploy-staging.yml` still deploys only the placeholder — NO task in this plan wires `bun run build:client` into the deploy workflow. Natural landing: end of P2, when the client is worth serving. Sam decides.
+- **Cascade hazard class (P0 close-out, was a live Critical):** a later single-class utility reset (`.chrome-button { color: inherit }`) silently beats an earlier equal-specificity utility (`.brass-accent`) by source order — the Instruments button rendered parchment, not brass. jsdom structure tests cannot compute the cascade; the phase review's live-browser pass caught it. Fixed with a compound `.chrome-button.brass-accent` override + a structural test pinning the rule (`tokens-sync.test.ts` §cascade guards). Lesson: any utility-class pair expected to compose needs either a compound rule or a browser-level check.
+- **RTL auto-cleanup doesn't register without vitest `globals: true`** — multiple `render()`s per file accumulate DOM. Fixed once in `web/vitest.setup.ts` (`afterEach(cleanup)`).
+- **CDP viewport emulation updates matchMedia state WITHOUT dispatching `change` events** (preview tooling quirk): a breakpoint hook can look broken under emulated resize while being correct — verify with a fresh load at the target width before debugging the hook.
 
 ---
 
@@ -329,7 +333,7 @@ Execute phases in order. Within a shared file, the earlier task MUST merge to `d
 
 # PHASE P0 — Foundation + visual system
 
-**Execution Status:** 🚧 IN PROGRESS — claimed 2026-07-03T05:34:32Z on branch `feat/web-p0-foundation`
+**Execution Status:** ✅ SHIPPED 2026-07-03 on branch `feat/web-p0-foundation` (19 commits, `8d14f51d`…`85682d84`) — all seven tasks (P0.1–P0.7) executed under subagent-driven development with two-stage (spec + quality) review per task, plus the close-out: browser verification, `/impeccable document` (DESIGN.md seed → extracted tokens + `.impeccable/design.json` sidecar), and a 3-lens phase review (brief-faithfulness / bundle-discipline+a11y / P1-readiness) that found and fixed one Critical (the brass cascade — see Discoveries). Gates at ship: 82 client tests + 2170 root tests green, both typechecks clean, `build:client` + `check:bundle` green. PR is **Review — shared build/CI config** (Sam merges): `package.json` (React/Vite/testing/Radix/zustand/@types/bun devDeps + 5 scripts), `.github/workflows/ci.yml` (4 guarded client steps appended to `check`), `bun.lock`.
 
 Stands up `web/` (Vite + React + TS), the build/test/CI wiring (minimizing shared-config collision — own `web/vitest.config.ts`, append steps to the existing `check` job, never restructure the root `vitest.config.ts`/`tsconfig.json` the DO-host track edits), the bundle-guard, the OKLCH visual-token system with its AA + CVD gate, the CVD-safe player identity, the `GameDriver` types, the engine-client barrel, and the app shell. All shipped-code-only; no DO/reducer/`src/wire` dependency. **`## Shared-config changes` on every config-touching PR.**
 
