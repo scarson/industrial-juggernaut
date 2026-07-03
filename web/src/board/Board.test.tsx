@@ -93,6 +93,30 @@ describe("Board", () => {
     expect(container.querySelectorAll("[data-iron]")).toHaveLength(state.board.iron.length);
   });
 
+  test("a base on an iron hex renders BOTH glyphs, with the base painted after (on top of) the iron", () => {
+    // Structural override: relocate the first iron deposit onto the first base's hex — setup
+    // placement is outer-ring-only, so stacking them via real engine calls would need a full
+    // build sequence for no extra structural fidelity (documented override, like the fatigued one).
+    const base = postSetupState();
+    const stackedHex = base.bases[0]!.hex;
+    const state: GameState = {
+      ...base,
+      board: { ...base.board, iron: [stackedHex, ...base.board.iron.slice(1)] },
+    };
+    const key = hexKey(stackedHex);
+    const { container } = render(<Board state={state} />);
+
+    const ironEl = container.querySelector(`[data-iron="${key}"]`);
+    const baseEl = container.querySelector(`[data-base="${key}"]`);
+    expect(ironEl).not.toBeNull();
+    expect(baseEl).not.toBeNull();
+    // SVG paints in document order, so the base token must FOLLOW the iron glyph to sit on top
+    // of the deposit — the landmass → iron → factories → bases paint-order contract in Board.tsx.
+    expect(
+      ironEl!.compareDocumentPosition(baseEl!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   test("renders one factory glyph per state.factories", () => {
     const state = postSetupState();
     // Synthesize a couple of factories on known hexes (setup leaves factories empty).
@@ -117,6 +141,20 @@ describe("Board", () => {
     expect(cell!.getAttribute("data-highlight")).toBe("build");
     // Only the one hex is highlighted.
     expect(container.querySelectorAll('polygon[data-highlight="build"]')).toHaveLength(1);
+  });
+
+  test("defined-but-empty highlight sets mark ZERO cells (distinct from the omitted-prop path)", () => {
+    // Pins the all-three-Set-miss branch of highlightFor: `highlights` is PRESENT but every set
+    // is empty, so no cell may carry data-highlight — same outcome as omitting the prop, reached
+    // through the has()-miss path rather than the undefined short-circuit.
+    const state = postSetupState();
+    const highlights = {
+      buildHexes: new Set<string>(),
+      attackTargets: new Set<string>(),
+      placementHexes: new Set<string>(),
+    };
+    const { container } = render(<Board state={state} highlights={highlights} />);
+    expect(container.querySelectorAll("polygon[data-highlight]")).toHaveLength(0);
   });
 
   test("a base whose hexKey is in strandedHexes carries the stranded mark", () => {
