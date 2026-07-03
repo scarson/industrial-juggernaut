@@ -59,11 +59,11 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** Not started. 0/5 phases shipped.
+**Overall:** In progress. 0/5 phases shipped. The DO-host track (Deliverable 1) is COMPLETE — Part A reducer + Part B host + staging Worker are all on `dev` — so the P3.10 (Part A) and P4 (Part B) gates are already OPEN; phases still execute in order.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
-| P0 — Foundation + visual system | ⬜ Not started | — | shipped-code-only; no DO/reducer dep |
+| P0 — Foundation + visual system | 🚧 In progress | — | claimed 2026-07-03T05:34:32Z, branch `feat/web-p0-foundation` |
 | P1 — SVG hex board renderer | ⬜ Not started | — | shipped-code-only |
 | P2 — Designer instrument + all-agent viewer + rules-reference | ⬜ Not started | — | shipped-code-only |
 | P3 — Interactive play UI + LocalReducerDriver | ⬜ Not started | — | components now (fake driver); real driver gated on DO-host **Part A** |
@@ -329,7 +329,7 @@ Execute phases in order. Within a shared file, the earlier task MUST merge to `d
 
 # PHASE P0 — Foundation + visual system
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** 🚧 IN PROGRESS — claimed 2026-07-03T05:34:32Z on branch `feat/web-p0-foundation`
 
 Stands up `web/` (Vite + React + TS), the build/test/CI wiring (minimizing shared-config collision — own `web/vitest.config.ts`, append steps to the existing `check` job, never restructure the root `vitest.config.ts`/`tsconfig.json` the DO-host track edits), the bundle-guard, the OKLCH visual-token system with its AA + CVD gate, the CVD-safe player identity, the `GameDriver` types, the engine-client barrel, and the app shell. All shipped-code-only; no DO/reducer/`src/wire` dependency. **`## Shared-config changes` on every config-touching PR.**
 
