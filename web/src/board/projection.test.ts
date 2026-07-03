@@ -1,7 +1,7 @@
 // ABOUTME: Pins the flat-top cube-to-pixel projection formula, hex corner geometry, and the
 // ABOUTME: viewBox padding math against hand-computed values for small fixed boards (no RNG).
 import { describe, expect, test } from "vitest";
-import { hexToPixel, hexCorners, boardViewBox, hexKey } from "./projection";
+import { hexToPixel, hexCorners, hexPoints, boardViewBox, hexKey } from "./projection";
 import type { Board } from "../engine-client/barrel";
 
 const SQRT3 = Math.sqrt(3);
@@ -49,6 +49,26 @@ describe("hexCorners", () => {
     const firstCorner = corners[0]!;
     expect(firstCorner.x).toBeCloseTo(center.x + SIZE, 10);
     expect(firstCorner.y).toBeCloseTo(center.y, 10);
+  });
+});
+
+describe("hexPoints", () => {
+  test("joins the 6 corners as an SVG points string (x,y pairs, space-separated)", () => {
+    const points = hexPoints({ x: 0, y: 0 }, SIZE);
+    const pairs = points.trim().split(/\s+/);
+    expect(pairs).toHaveLength(6);
+    // Each token is an "x,y" pair.
+    for (const pair of pairs) {
+      expect(pair.split(",")).toHaveLength(2);
+    }
+  });
+
+  test("its points match hexCorners for the same center/size", () => {
+    const center = { x: 15, y: -5 * SQRT3 };
+    const expected = hexCorners(center, SIZE)
+      .map((c) => `${c.x},${c.y}`)
+      .join(" ");
+    expect(hexPoints(center, SIZE)).toBe(expected);
   });
 });
 

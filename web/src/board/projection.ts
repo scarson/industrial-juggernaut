@@ -39,6 +39,15 @@ export function hexCorners(center: Point, size: number): Point[] {
   return corners;
 }
 
+// The SVG `points="..."` string for a hex centered at `center` — the six corners joined
+// as `"x,y x,y ..."`. Hoisted so the corners→points-string mapping lives in ONE place
+// instead of being inlined per-cell in the renderer's JSX.
+export function hexPoints(center: Point, size: number): string {
+  return hexCorners(center, size)
+    .map((c) => `${c.x},${c.y}`)
+    .join(" ");
+}
+
 // Tight bounding box over every hex's polygon, plus one extra hex radius of margin.
 // A flat-top hex's horizontal half-extent (center to corner) is `size`; its vertical
 // half-extent (center to edge midpoint) is `size * SQRT3 / 2`.
