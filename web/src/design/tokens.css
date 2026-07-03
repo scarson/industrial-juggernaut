@@ -140,3 +140,21 @@ body {
 .chrome-button.brass-accent:hover {
   color: var(--color-brass-400);
 }
+
+/* The filled brass variant for the ONE primary game action per screen (Start, Commit).
+ * Same cascade hazard as the text variant above: .brass-accent-bg's face/text and
+ * .chrome-button's later reset have equal single-class specificity, so the compound
+ * selector out-specifies the reset to keep the brass face + ink text. Hover carries the
+ * brass-400 glint. */
+.chrome-button.brass-accent-bg {
+  background-color: var(--accent);
+  color: var(--color-ink-900);
+}
+.chrome-button.brass-accent-bg:hover {
+  background-color: var(--color-brass-400);
+}
+.chrome-button.brass-accent-bg:disabled {
+  background-color: var(--surface-panel);
+  color: var(--color-ink-700);
+  cursor: not-allowed;
+}

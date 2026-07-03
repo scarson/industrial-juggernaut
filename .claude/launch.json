@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "spa-dev",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "dev:client"],
+      "port": 5173
+    }
+  ]
+}

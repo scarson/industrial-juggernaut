@@ -1,6 +1,9 @@
 // ABOUTME: A minimal path-based router (history.pushState + popstate) for the 4 static P0
 // ABOUTME: routes. No react-router: 4 fixed paths don't warrant the dependency (see P0.7 plan).
 import { lazy, Suspense, useEffect, useState } from "react";
+import { NewGame } from "../designer/NewGame";
+import { AgentViewer } from "../viewer/AgentViewer";
+import { RulesReference } from "../rules/RulesReference";
 
 const ROUTES = ["/", "/game", "/viewer", "/rules"] as const;
 type RoutePath = (typeof ROUTES)[number];
@@ -73,30 +76,29 @@ function HomeScreen() {
 }
 
 function GameScreen() {
+  // P2.4 smoke mount: the game board + action composers land in P3; until then the /game route
+  // hosts the new-game designer instrument so it can be exercised in-app. onStart logs the
+  // assembled header (P2.7's viewer / P3's game screen are the real consumers).
   return (
-    <section className="table-panel">
-      <h1>Game</h1>
-      <p>The board and action composers render here once the engine is wired in.</p>
-    </section>
+    <NewGame
+      onStart={(header) => {
+        // eslint-disable-next-line no-console
+        console.log("[NewGame] onStart", { ...header, seed: header.seed.toString() });
+      }}
+    />
   );
 }
 
 function ViewerScreen() {
-  return (
-    <section className="table-panel">
-      <h1>Viewer</h1>
-      <p>Watch a recorded or all-agent game, client-side (play / pause / step).</p>
-    </section>
-  );
+  // The product route (not a dev stub): the all-agent viewer where designers watch a game play
+  // itself. AgentViewer defaults its `generateGame` to the real off-main-thread worker.
+  return <AgentViewer />;
 }
 
 function RulesScreen() {
-  return (
-    <section className="table-panel">
-      <h1>Rules</h1>
-      <p>The rules reference, with Digital Edition Ruling callouts merged inline.</p>
-    </section>
-  );
+  // The product route: the rules reference with Digital Edition Ruling callouts merged inline —
+  // the teaching surface (PRODUCT.md "the board teaches itself").
+  return <RulesReference />;
 }
 
 function NotFoundScreen() {

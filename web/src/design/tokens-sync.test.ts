@@ -74,6 +74,22 @@ describe("cascade guards", () => {
     expect(hover).not.toBeNull();
     expect(hover![1]).toMatch(/color:\s*var\(--color-brass-400\)/);
   });
+
+  // The filled brass variant (Start / Commit) has the SAME hazard as the text variant:
+  // .brass-accent-bg's face + .chrome-button's later reset are equal-specificity, so
+  // without the compound override the primary action loses its brass face by source order.
+  test("the .chrome-button.brass-accent-bg compound override restores the brass face", () => {
+    const rule = tokensCss.match(/\.chrome-button\.brass-accent-bg\s*\{([^}]*)\}/);
+    expect(rule).not.toBeNull();
+    expect(rule![1]).toMatch(/background-color:\s*var\(--accent\)/);
+    expect(rule![1]).toMatch(/color:\s*var\(--color-ink-900\)/);
+  });
+
+  test("the disabled brass action reverts to quiet chrome (no brass budget spent while inert)", () => {
+    const rule = tokensCss.match(/\.chrome-button\.brass-accent-bg:disabled\s*\{([^}]*)\}/);
+    expect(rule).not.toBeNull();
+    expect(rule![1]).toMatch(/background-color:\s*var\(--surface-panel\)/);
+  });
 });
 
 describe("playerColors positional stability", () => {
