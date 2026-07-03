@@ -11,7 +11,6 @@ export {
   placeFirstBase,
   legalFirstBaseHexes,
   applyAction,
-  stepRound,
   legalActions,
   representativeDefender,
   representativeFirstBase,
