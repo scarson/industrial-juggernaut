@@ -9,7 +9,9 @@ import {
   needsDrive,
   driveOneStep,
   agentForSeat,
+  resolveDefender,
 } from "../session";
+import { representativeDefender } from "../index";
 import {
   writeHeader,
   persistEvent,
@@ -264,6 +266,93 @@ export class GameRoom extends DurableObject<Env> {
 
   override async webSocketError(_ws: WebSocket, _error: unknown): Promise<void> {
     // B6 seam: same advisory-presence handling as webSocketClose.
+  }
+
+  /**
+   * The defender-timeout alarm (a wake path — lazy-rehydrate first). The single alarm consumer in v1: the opt-in
+   * defender timeout (OFF by default; armed only while a pending decision is open AND roomOptions.defenderTimeout
+   * is enabled). A bare `setAlarm(atEpochMs)` carries NO decision id, so identity/recency is checked against the
+   * STORED `pending`, not the alarm itself. This handler RESOLVES a timed-out decision; it never arms/clears the
+   * alarm for the normal command path — `handleCommand`'s `realizeAlarm(effects.alarm)` already does that
+   * (openDefenderDecision → set, resolveDecision → clear, extendDecision → a fresh set with the pushed deadline).
+   *
+   * AT-LEAST-ONCE + IDEMPOTENCY (CF alarms retry on an uncaught throw with exponential backoff, ≤6): the resolving
+   * `log:N` append AND the pending-clear (`[PENDING_KEY]: PENDING_TOMBSTONE`) land in ONE atomic put (resolveDefender
+   * → persistEvent). A retry after a mid-handler failure re-reads a still-LIVE `pending` (the prior attempt never
+   * committed) and re-resolves IDENTICALLY (representativeDefender is deterministic on the write-locked board); once
+   * committed, `readPending` returns null → the retry no-ops at the tombstone guard below. NEVER leave `pending`
+   * live without the append, nor tombstone it without the append — the single atomic put guarantees both-or-neither.
+   *
+   * PHASE-2 alarmQueue MULTIPLEX HOOK (documented contract — NOT built in v1): a single DO has exactly ONE alarm
+   * slot. v1's only consumer is this defender timeout, so the slot IS the defender deadline and this handler owns
+   * it outright. When Phase 2 adds a SECOND consumer (room-TTL GC), the slot must be multiplexed: store an
+   * `alarmQueue` row — a sorted list of `{ atEpochMs, kind, payload }` — and have `alarm()` dispatch the
+   * earliest-due entry by `kind` (a `defenderTimeout` entry → this resolution path; a `roomTtl` entry → the GC
+   * path) and then re-arm `setAlarm` to the next-earliest entry. Until that lands, ship the single-consumer form.
+   */
+  override async alarm(_alarmInfo?: AlarmInvocationInfo): Promise<void> {
+    // Wake path: rehydrate an empty cache before touching `this.session` (B4's message/upgrade paths do the same).
+    if (this.session === null) await this.rehydrate();
+    if (this.session === null) return; // an uninitialized room has no decision to resolve
+    const pending = this.session.pending;
+
+    // (2) No-op on an absent/tombstoned pending — the decision was already resolved (fire-after-answer): the
+    //     answer's atomic put cleared the pending, and this is a late at-least-once retry firing after the commit.
+    if (pending === null) return;
+
+    // (3) Recency guard (extendDecision re-arm + early at-least-once retries): a null deadline means the timeout
+    //     is OFF and no alarm should exist → defensively no-op. A live deadline in the FUTURE means this alarm
+    //     fired for an OLD deadline (extendDecision pushed it later) or is an early retry → re-arm to the real
+    //     deadline and return WITHOUT resolving. alarm() is host code, so reading Date.now() here is allowed.
+    if (pending.deadlineEpochMs === null) return;
+    if (Date.now() < pending.deadlineEpochMs) {
+      await this.ctx.storage.setAlarm(pending.deadlineEpochMs);
+      return;
+    }
+
+    // (4) Date.now() >= deadline → resolve with the deterministic representative defender.
+    const def = representativeDefender(this.session.game, pending.proposed.target, pending.promptedSeat);
+    if (def === null) {
+      // Can't happen under the write-lock: validateTargetAttackable guaranteed an eligible defender at open, and
+      // the board is frozen while the pending holds the lock. Defense in depth — never call resolveDefender(null).
+      // Freeze the room (the B3.3 mechanism; mutating commands then → FROZEN) and DELETE the alarm so it does not
+      // retry-loop, leaving `pending` intact for post-mortem.
+      await this.freezeAndDisarm();
+      return;
+    }
+
+    const result = resolveDefender(this.session, pending, def);
+    if ("error" in result) {
+      // representativeDefender's pick is always eligible, so validateAttackDecl inside resolveDefender should never
+      // reject it — but if it somehow does, treat it exactly like the null-defender case: freeze + disarm rather
+      // than looping the alarm forever on an unresolvable decision, leaving `pending` intact for post-mortem.
+      await this.freezeAndDisarm();
+      return;
+    }
+
+    // The ONE atomic put: the resolving attack `log:N` (+ its auto-close endRound + snapshot) AND the pending-clear
+    // tombstone, together (resolveDefender merged [PENDING_KEY]: PENDING_TOMBSTONE into the same put).
+    await persistEvent(this.ctx.storage, result.effects.persist!);
+    // Maintain `chainAttacker` the same way the resolveDecision command layer does (session.ts withChainAttacker):
+    // a round that auto-closed (advanced) clears it; otherwise the attacker keeps their open chain.
+    this.session = { ...result.next, chainAttacker: result.advanced ? null : pending.declaringPlayer };
+    // Realize the reducer's alarm intent (a resolution emits { action: "clear" } → deleteAlarm).
+    await this.realizeAlarm(result.effects.alarm);
+    // Broadcast the applied resolution (the attack + any auto-close), each strictly after its awaited persist.
+    this.sendEffects(result.effects);
+    // The resolved attack may unblock agent turns (the attacker's chain continued, or the round rolled to an agent).
+    await this.driveAgents();
+  }
+
+  /**
+   * Freeze the room and delete the alarm — the alarm-side defense-in-depth exit (a null/unresolvable representative
+   * defender). Reuses the B3.3 freeze mechanism (writeFrozen + the `frozen` flag; mutating commands → FROZEN) and
+   * disarms the alarm so a non-resolving decision does not retry-loop, leaving `pending` live for post-mortem.
+   */
+  private async freezeAndDisarm(): Promise<void> {
+    await writeFrozen(this.ctx.storage);
+    this.frozen = true;
+    await this.ctx.storage.deleteAlarm();
   }
 
   /**

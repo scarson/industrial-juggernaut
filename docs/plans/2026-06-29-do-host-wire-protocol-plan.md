@@ -73,7 +73,7 @@ notes and commit messages.
 | B2 — Worker shell + room addressing | ✅ Shipped | c1f2de5f, 7ac0e334, a1de3906 | branch `feat/host-worker` stacked on PR #44; **PR pending — Review-class, Sam merges**; first deployable Worker (dry-run passes); adversarial hardening round (5 exploit classes killed) |
 | B3 — GameRoom DO: storage + critical section + recovery | ✅ Shipped | ccd9d54c, 73d9e09f, 299b3eed, cf12da9f | branch `feat/host-gameroom` stacked on PR #45; **PR pending — Review-class, Sam merges**; flagship op-order test + crash-consistency gate (freeze-path throw variants fixed) |
 | B4 — Hibernation | ✅ Shipped | 01ba6709 (+ SECURITY-marker) | branch `feat/host-hibernation`; PR pending (Routine, agent-merge on green) |
-| B5 — Defender-timeout alarm (opt-in) | ⬜ Not started | — | — |
+| B5 — Defender-timeout alarm (opt-in) | ✅ Shipped | — | branch `feat/host-alarm` off dev; Routine; idempotent `alarm()` (tombstone no-op + recency re-arm + representative-defender resolve + null-defender freeze); arm/clear/extend already realized by `handleCommand` (not duplicated); alarmQueue Phase-2 hook documented; +5 host tests |
 | B6 — Socket attribution + malformed-traffic enforcement | ⬜ Not started | — | — |
 | B7 — vitest-pool-workers DO test suite | ⬜ Not started | — | — |
 | B8 — deploy-staging.yml + version guards + CI pool job | ⬜ Not started | — | — |
@@ -1651,7 +1651,7 @@ WebSocket Hibernation so idle rooms cost nothing and survive eviction. **Verifie
 
 ## Phase B5 — Defender-timeout alarm (opt-in)
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** ✅ SHIPPED 2026-07-03 on branch `feat/host-alarm` off dev (B4 merged). B5.1 added the `alarm()` handler (lazy-rehydrate → tombstone no-op → recency-guard re-arm → resolve via `representativeDefender` → null-defender/unresolvable freeze+disarm), maintaining `chainAttacker` the same way the `resolveDecision` command layer does (the `advanced` field: auto-closed → null, else the attacker keeps their chain). B5.2 confirmed arm/clear + `extendDecision` re-arm are ALREADY realized by B3.2's `handleCommand` via `realizeAlarm(effects.alarm)` — NOT duplicated — and added the Phase-2 `alarmQueue` multiplex hook as a commented contract beside `alarm()`. `test/host/alarm.test.ts`: 5 tests (resolve-on-fire with representative-defender identity, fire-after-answer tombstone no-op with the alarm re-armed so the HANDLER's step-2 guard is exercised, recency re-arm, OFF-never-arms, null-defender freeze). Host suite 104; full suite 2079; typecheck clean. **Testing gotcha (verified):** the vitest-pool `runDurableObjectAlarm` deletes the alarm then invokes `alarm()`, and it returns `false` (does NOT run) when `getAlarm()` is null — workerd auto-fires-and-clears an alarm set to a PAST time, so it reads back null. To fire the handler, arm the alarm SLOT to a FUTURE time and control the handler's branch via the PENDING's `deadlineEpochMs` (which `alarm()` compares against `Date.now()`) — the two are independent knobs.
 
 The single alarm consumer in v1: the **opt-in** defender timeout (architectural decision #4 — OFF by default). Armed only when `roomOptions.defenderTimeout.enabled` and a pending decision is open. The `extendDecision` ("I'm still thinking") path re-arms it. The Phase-2 `alarmQueue` multiplex hook is **documented** (not built) so the Phase-2 GC subagent has a target.
 
@@ -1669,9 +1669,9 @@ The single alarm consumer in v1: the **opt-in** defender timeout (architectural 
 
 **At-least-once + idempotency (CF research):** alarms retry on uncaught exception with **exponential backoff (2 s start, ≤6 retries)**. The handler MUST be idempotent: because the resolving `log:N` append **and** the pending-clear (`[PENDING_KEY]: PENDING_TOMBSTONE`) land in ONE atomic `put` (B3.1), a retry after a mid-handler failure re-reads `pending` (still the live record — the prior attempt didn't commit) and re-resolves identically; once committed, `readPending` returns `null` (tombstone) → the retry no-ops at step 2. **Never** leave `pending` live without the matching append, or tombstone it without the append — the single atomic put guarantees both-or-neither.
 
-- [ ] **Step 1: Write failing tests** (workers pool + `runDurableObjectAlarm(stub)`) — arm a timeout on a human-defended attack (room with timeout ON), fire the alarm → the attack resolves with the representative defender (one `attack` log entry, pending cleared); fire the alarm **after** the human already answered → no-op (no duplicate entry); a room with timeout OFF never arms an alarm (a human-defended attack leaves `getAlarm()` null). **Assertion-rigor (alarm/idempotency):** assert the mechanism — fire-after-answer produces **zero** additional log entries; drive the alarm explicitly via `runDurableObjectAlarm`, never a real timer.
-- [ ] **Step 2-5:** implement; commit `feat(host): defender-timeout alarm — idempotent representative-defender resolution`.
-- [ ] **Apply the Execution Discipline block.** Alarm/idempotency → assertion-rigor rule.
+- [x] **Step 1: Write failing tests** (workers pool + `runDurableObjectAlarm(stub)`) — arm a timeout on a human-defended attack (room with timeout ON), fire the alarm → the attack resolves with the representative defender (one `attack` log entry, pending cleared); fire the alarm **after** the human already answered → no-op (no duplicate entry); a room with timeout OFF never arms an alarm (a human-defended attack leaves `getAlarm()` null). **Assertion-rigor (alarm/idempotency):** assert the mechanism — fire-after-answer produces **zero** additional log entries; drive the alarm explicitly via `runDurableObjectAlarm`, never a real timer.
+- [x] **Step 2-5:** implement; commit `feat(host): defender-timeout alarm — idempotent representative-defender resolution`.
+- [x] **Apply the Execution Discipline block.** Alarm/idempotency → assertion-rigor rule.
 
 ### Task B5.2: Arm / re-arm / clear + the Phase-2 alarmQueue hook
 
@@ -1686,8 +1686,8 @@ The single alarm consumer in v1: the **opt-in** defender timeout (architectural 
 
 **Phase-2 `alarmQueue` multiplex hook (DOCUMENT ONLY — do NOT build):** a single DO has one alarm slot. v1's only consumer is the defender timeout. When Phase 2 adds room-TTL GC (a second consumer), multiplex via a stored `alarmQueue` row — a sorted list of `{ atEpochMs, kind, payload }`; the `alarm()` handler dispatches the earliest-due entry by `kind` and re-arms `setAlarm` to the next. Write this as a commented contract in `game-room.ts` near the `alarm()` handler + a one-paragraph note in B9's pitfalls, so the Phase-2 GC subagent has a concrete target. **Ship the single-consumer form.**
 
-- [ ] **Step 1-5:** failing test (set arms `getAlarm()`; clear nulls it; extend pushes the deadline later) → implement → commit `feat(host): defender-timeout arm/re-arm/clear + documented alarmQueue Phase-2 hook`.
-- [ ] **Apply the Execution Discipline block.**
+- [x] **Step 1-5:** failing test (set arms `getAlarm()`; clear nulls it; extend pushes the deadline later) → implement → commit `feat(host): defender-timeout arm/re-arm/clear + documented alarmQueue Phase-2 hook`. Arm/clear/extend re-arm confirmed ALREADY realized by `handleCommand`'s `realizeAlarm` — NOT duplicated; the alarmQueue hook is a commented contract in `game-room.ts` beside `alarm()`.
+- [x] **Apply the Execution Discipline block.**
 
 **After Phase B5:** review from 3+ perspectives (OFF-by-default honored — no alarm armed when disabled; idempotent fire-after-answer; the extend reset; the alarmQueue hook is documented not built). Update Execution Status.
 
