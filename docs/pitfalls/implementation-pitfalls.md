@@ -27,7 +27,7 @@ This document serves three audiences. Start here, then go directly to the sectio
 | 1 | [Geometry & Engine](#section-1-geometry--engine) | Hex math, coordinate projection, PRNG threading, derived state | GEO-1 – GEO-8 | §1.C |
 | 2 | [Durable Object Host](#section-2-durable-object-host) | The `GameRoom` DO — storage, ordering, identity, auth, alarms, hibernation, tests | DO-PURITY-1 – DO-TEST-1 | §2.C |
 | 3 | [Wire Protocol](#section-3-wire-protocol) | The `ClientCommand`/`ServerMessage` boundary and the session-layer error mappers | WIRE-MAP-1 – WIRE-SHAPE-1 | §3.C |
-| 4 | [Web Client (CSS/design-system)](#section-4-web-client-cssdesign-system) | The `web/src/design/` token stylesheet and any component composing its utility classes, or a composer re-deriving engine eligibility client-side | WEB-1 – WEB-2 | §4.C |
+| 4 | [Web Client (CSS/design-system)](#section-4-web-client-cssdesign-system) | The `web/src/design/` token stylesheet and any component composing its utility classes, a composer re-deriving engine eligibility client-side, or a component mixing border shorthand/longhand in inline styles | WEB-1 – WEB-3 | §4.C |
 | — | [Orchestration](#orchestration) | Parallel subagent dispatch and output persistence | ORCH-1 | §Orchestration.C |
 | A | [Historical Changelog](#appendix-a-historical-changelog) | Provenance, validation dates, review process meta-observations | — | — |
 | B | [Unified Summary Table](#appendix-b-unified-summary-table) | All pitfalls at a glance, with severity and status | — | — |
@@ -351,6 +351,18 @@ The broken-perimeter death clock (`applyEliminations`, cause `brokenPerimeterAt1
 
 ---
 
+### WEB-3: A `border` Shorthand + `borderColor` Longhand in One Inline-Style Object Warns on Re-Render — Invisible to Static Tests
+
+**The Flaw:** A base React inline-style object uses the `border` **shorthand** (`border: "1px solid …"`), and an emphasis variant spreads it and overrides only `borderColor` (the longhand). When an element transitions from the emphasized variant back to the base — a current-seat token losing focus, an attacker span reverting to uncommitted, any "de-emphasis" re-render — React removes the `borderColor` longhand while the `border` shorthand remains, and emits `Warning: Removing a style property during rerender … when a conflicting property is set (border) … don't mix shorthand and non-shorthand properties`. Struck twice in P3: `TurnOrderTokens` (current-seat emphasis, caught by a live hotseat turn advance) and `AttackComposer`'s attacker spans (committed-emphasis, caught by the blind adversarial merge gate — the first fix's own class, missed by a point fix).
+
+**Why It Matters:** Test output MUST be pristine (a project rule), and this is a `console.error` in dev. But it is **invisible to the static jsdom suite**: it fires only on a *re-render that removes the longhand*, and structure tests that render once, or that only raise (never lower) the emphasis, never trigger it. Both P3 instances passed their full component suites and the 3-lens phase review's "no console.error leaks" check (which ran the suite, not a real interaction). React's own message warns it "can lead to styling bugs" — the reverted element may retain the stale emphasis color on that edge — so it is not purely cosmetic-console-noise. The nastier property is that it's a **class** bug: fixing one component leaves siblings warning, and only a codebase-wide sweep (`grep` for `border:` shorthands whose style object is spread into a `borderColor`/`borderWidth`/`borderStyle` override) closes it.
+
+**The Fix:** Express the base border as **longhand** (`borderWidth` / `borderStyle` / `borderColor`) so the emphasis override replaces only `borderColor` — no shorthand ever present, no reconciliation conflict. Regression-guard by spying on `console.error` across a re-render that *lowers* the emphasis (raise **then lower** the slider; move the current seat and move it back) and asserting no `"shorthand"` warning — the raise-only tests miss it. NOTE: a variant that sets `borderColor` *unconditionally* in every branch (a ternary that always supplies a value, e.g. NewGame's `ProvenanceBadge`) never removes the longhand and so never warns — that's latent fragility, not an active defect; don't "fix" non-buggy code, but avoid the shorthand+longhand mix in new code so a later conditional edit can't reintroduce the warning.
+
+**The Lesson:** Static jsdom tests exercise mount, not re-render *style reconciliation* — a whole class of React dev warnings (shorthand/longhand conflicts, key churn, effect-cleanup order) only surfaces when state transitions in a live browser. The phase-close browser pass earns its keep beyond screenshots specifically by *driving a state transition and reading the console*, not just looking at a static frame. And when a fix addresses a *pattern*, sweep the codebase for the pattern (here also the banned side-stripe `borderLeft` accent, which recurred in `shell.tsx` after P2 fixed it on DER callouts) — a point fix on the instance you happened to see is a half-fix.
+
+---
+
 ### Review Checklist
 
 - [ ] **Every utility-class pair expected to compose has an explicit compound-selector override in `tokens.css`** — never rely on stylesheet source order to resolve an equal-specificity collision (WEB-1)
@@ -358,6 +370,7 @@ The broken-perimeter death clock (`applyEliminations`, cause `brokenPerimeterAt1
 - [ ] **A new composition is verified with a real-browser computed-style check (`preview_inspect`) before shipping** — jsdom cannot compute a cascade and will pass on broken output (WEB-1)
 - [ ] **Compositions landing on the design system's single "Brass Budget" element per screen get extra scrutiny** — this is where the failure mode has struck twice, because it's exactly where the design language concentrates meaning (WEB-1)
 - [ ] **Any client-side re-derivation of an engine rule (eligibility, legality, scoring) names the exact invariant that makes it equivalent to the engine's real logic, and the exact remediation if that invariant breaks** — an unflagged re-derivation that's merely coincidentally correct today is a latent bug, not correct code (WEB-2)
+- [ ] **No inline-style object mixes a `border` shorthand with a `borderColor`/`borderWidth`/`borderStyle` longhand override; new components verified console-clean across a re-render that *removes* an emphasis (raise-then-lower, focus-then-blur), not just on mount** — the warning is invisible to static jsdom tests (WEB-3)
 
 ---
 
@@ -397,6 +410,10 @@ Pitfalls that arise when a session dispatches parallel subagents and consolidate
 ## 2026-07-03 — P3 composer-family refactor, alliance-singleton finding
 
 - Added WEB-2 (Client-Side Re-Derivation of Engine Eligibility Is Safe Only Under the Singleton-Alliance Invariant) to Section 4 — `AttackComposer`'s `eligibleAttackersFor` filters candidate attackers by strict ownership, which is behaviorally equal to the engine's alliance-based eligibility ONLY because alliances are singletons in P3 (Phase-3 alliance composition is out of scope). Found and flagged (not fixed — alliances remain out of scope) during a pre-P3.11 refactor/polish pass over the composer family; remediation is to consume an engine `legalAttackers(state, target)` export once Phase-3 alliance work lands. Cross-referenced from `docs/plans/2026-06-29-spa-client-plan.md`'s P3 Discoveries.
+
+## 2026-07-03 — P3 close-out, inline-style shorthand/longhand finding
+
+- Added WEB-3 (A `border` Shorthand + `borderColor` Longhand in One Inline-Style Object Warns on Re-Render) to Section 4 — a base inline style using the `border` shorthand plus an emphasis variant overriding `borderColor` emits a React style-conflict `console.error` on the re-render that *removes* the emphasis; invisible to static jsdom tests (fires only on de-emphasis re-render). Struck twice in P3: `TurnOrderTokens` (caught by a live hotseat turn advance) and `AttackComposer` attacker spans (caught by the blind adversarial merge gate — the first fix's own class, missed by a point fix). Fixed both to longhand + raise-then-lower regression tests; `NewGame`'s `ProvenanceBadge` shares the anti-pattern but sets `borderColor` unconditionally so it never warns (latent, left as-is). The entry also records the recurrence of the banned side-stripe `borderLeft` accent in `shell.tsx`/`NewGame.tsx` (P2 fixed it on DER callouts; the composer-shell extraction re-introduced it) — both re-treated as a hairline frame + recessed inset. Lesson: static tests exercise mount, not re-render style reconciliation, so the phase-close browser pass must *drive a state transition and read the console*; and a pattern fix needs a codebase-wide sweep, not a point fix.
 
 ## 2026-07-03 — DO-Host + Wire-Protocol plan, Phase B9
 
@@ -438,6 +455,7 @@ Pitfalls that arise when a session dispatches parallel subagents and consolidate
 | WIRE-SHAPE-1 | The Wire Boundary Must Validate Full Shape, Not Just `type` | CRITICAL | VALIDATED | Wire Protocol |
 | WEB-1 | Equal-Specificity Utility Composition Is Decided by Source Order, Not Intent | HIGH | VALIDATED | Web Client (CSS/design-system) |
 | WEB-2 | Client-Side Re-Derivation of Engine Eligibility Is Safe Only Under the Singleton-Alliance Invariant | MEDIUM | VALIDATED | Web Client (CSS/design-system) |
+| WEB-3 | A `border` Shorthand + `borderColor` Longhand in One Inline-Style Object Warns on Re-Render — Invisible to Static Tests | MEDIUM | VALIDATED | Web Client (CSS/design-system) |
 | ORCH-1 | Analysis Dispatches Must Persist Findings | HIGH | VALIDATED | Orchestration |
 
 Severity levels: `CRITICAL` (production data loss / security), `HIGH` (correctness bug under predictable conditions), `MEDIUM` (correctness bug under edge cases), `LOW` (cleanliness / clarity).
