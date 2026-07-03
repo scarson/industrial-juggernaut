@@ -13,6 +13,7 @@ import {
 import type { RoomOptions, ServerMessage } from "../../src/wire/protocol";
 import { representativeFirstBase, defaultConfig } from "../../src/index";
 import { seed as makeSeed } from "../../src/index";
+import { tokenDigest } from "../../src/host/ids";
 import { key } from "../../src/geometry/cube";
 import type { Base, GameState, Hex, PlayerId, RngState } from "../../src/engine/types";
 
@@ -55,14 +56,23 @@ async function initRoom(
   });
 }
 
+// Per-seat human tokens (B6.2): the upgrade now authenticates `?token=` against the seat's authorized digest, so
+// these tests install matching digests and open sockets WITH the seat's token. `humanDigests(n)` returns the digest
+// array to pass to initRoom; `openSocket` sends the matching token.
+const SEAT_TOKENS = ["hiber-token-0", "hiber-token-1", "hiber-token-2"] as const;
+async function humanDigests(count: number): Promise<string[]> {
+  return Promise.all(Array.from({ length: count }, (_, seat) => tokenDigest(SEAT_TOKENS[seat]!)));
+}
+
 /**
  * Open a hibernatable WebSocket to a seat via the DO's /ws upgrade route and accept the client end.
  * Mirrors the verified CF test pattern (docs: testing-with-durable-objects) — `response.webSocket`
  * is the client end; `.accept()` makes it usable in the test. The returned socket SURVIVES
- * `evictDurableObject(stub, { webSockets: "hibernate" })`.
+ * `evictDurableObject(stub, { webSockets: "hibernate" })`. Sends the seat's token (B6.2 auth).
  */
 async function openSocket(stub: DurableObjectStub<GameRoom>, seat: number): Promise<WebSocket> {
-  const res = await stub.fetch(`https://do.internal/ws?seat=${seat}`, {
+  const token = encodeURIComponent(SEAT_TOKENS[seat]!);
+  const res = await stub.fetch(`https://do.internal/ws?seat=${seat}&token=${token}`, {
     headers: { Upgrade: "websocket" },
   });
   expect(res.status).toBe(101);
@@ -86,7 +96,8 @@ function roundTrip(socket: WebSocket, command: unknown): Promise<ServerMessage> 
 }
 
 // ---------------------------------------------------------------------------
-// (1) Upgrade shape validation (this is shape validation, NOT auth — B6.2 adds the token check).
+// (1) Upgrade shape validation — the 426 / 400 / uninitialized rejections short-circuit BEFORE the token check
+//     (the token-digest auth itself is covered in malformed-auth.test.ts); the valid-upgrade case supplies a token.
 // ---------------------------------------------------------------------------
 describe("GameRoom /ws upgrade — shape validation", () => {
   test("a non-Upgrade request → 426 (never accepts a socket)", async () => {
@@ -126,10 +137,12 @@ describe("GameRoom /ws upgrade — shape validation", () => {
     expect(res.webSocket).toBeFalsy();
   });
 
-  test("a valid upgrade → 101 with a client WebSocket", async () => {
+  test("a valid upgrade (valid token) → 101 with a client WebSocket", async () => {
     const stub = freshStub();
-    await initRoom(stub, makeHeader([{ kind: "human" }, { kind: "human" }]), ROOM_OPTIONS_OFF, [null, null]);
-    const res = await stub.fetch("https://do.internal/ws?seat=1", { headers: { Upgrade: "websocket" } });
+    await initRoom(stub, makeHeader([{ kind: "human" }, { kind: "human" }]), ROOM_OPTIONS_OFF, await humanDigests(2));
+    const res = await stub.fetch(`https://do.internal/ws?seat=1&token=${encodeURIComponent(SEAT_TOKENS[1])}`, {
+      headers: { Upgrade: "websocket" },
+    });
     expect(res.status).toBe(101);
     expect(res.webSocket).toBeTruthy();
   });
@@ -142,7 +155,7 @@ describe("GameRoom hibernation — wake-replay on the surviving socket", () => {
   test("evict-hibernate mid-connection, then a mutating command on the SAME socket persists + replies", async () => {
     const stub = freshStub();
     // Seat 0 is the setup placer. A placeFirstBase mutates the log; a resync reads it back.
-    await initRoom(stub, makeHeader([{ kind: "human" }, { kind: "human" }]), ROOM_OPTIONS_OFF, [null, null]);
+    await initRoom(stub, makeHeader([{ kind: "human" }, { kind: "human" }]), ROOM_OPTIONS_OFF, await humanDigests(2));
     const socket = await openSocket(stub, 0);
 
     // A first command round-trips while warm: resync returns the current (empty) log.
@@ -192,7 +205,7 @@ describe("GameRoom auto-response — ping/pong does not wake the DO", () => {
 
   test('an app-level "ping" is answered "pong" WITHOUT incrementing the webSocketMessage counter', async () => {
     const stub = freshStub();
-    await initRoom(stub, makeHeader([{ kind: "human" }, { kind: "human" }]), ROOM_OPTIONS_OFF, [null, null]);
+    await initRoom(stub, makeHeader([{ kind: "human" }, { kind: "human" }]), ROOM_OPTIONS_OFF, await humanDigests(2));
     const socket = await openSocket(stub, 0);
 
     // Spy on the instance's webSocketMessage: count invocations without changing behavior.
@@ -234,7 +247,7 @@ describe("GameRoom serializeAttachment — seat identity survives hibernation", 
     const stub = freshStub();
     // Synthetic mid-play attack position: seat 0 can attack; it is seat 0's turn (phase.order[indexInOrder]=0).
     // Seat 1's socket therefore CANNOT act (NOT_YOUR_TURN); seat 0's socket CAN.
-    await initRoom(stub, makeHeader([{ kind: "human" }, { kind: "human" }]), ROOM_OPTIONS_OFF, [null, null]);
+    await initRoom(stub, makeHeader([{ kind: "human" }, { kind: "human" }]), ROOM_OPTIONS_OFF, await humanDigests(2));
     const seat0 = await openSocket(stub, 0);
     const seat1 = await openSocket(stub, 1);
 
@@ -275,7 +288,7 @@ describe("GameRoom serializeAttachment — seat identity survives hibernation", 
 describe("GameRoom seat-tag — multi-tab discovery", () => {
   test('two sockets on seat 1 → getWebSockets("seat:1") returns both; getWebSockets() returns all', async () => {
     const stub = freshStub();
-    await initRoom(stub, makeHeader([{ kind: "human" }, { kind: "human" }]), ROOM_OPTIONS_OFF, [null, null]);
+    await initRoom(stub, makeHeader([{ kind: "human" }, { kind: "human" }]), ROOM_OPTIONS_OFF, await humanDigests(2));
     const tabA = await openSocket(stub, 1);
     const tabB = await openSocket(stub, 1);
     const tabOther = await openSocket(stub, 0);

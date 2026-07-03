@@ -396,17 +396,17 @@ describe("routing", () => {
     expect([404, 405]).toContain(res.status);
   });
 
-  test("GET /api/games/:id/ws WITH Upgrade forwards to the DO, which accepts the socket (101)", async () => {
-    // Create a real room so idFromName resolves to the room's stub.
+  test("GET /api/games/:id/ws WITH Upgrade + the minted seat token forwards to the DO, which accepts (101)", async () => {
+    // Create a real room so idFromName resolves to the room's stub; use the MINTED seat-0 token (B6.2 auth).
     const created = await create(validBody());
-    const { roomId } = (await created.json()) as { roomId: string };
-    const res = await SELF.fetch(`https://host.test/api/games/${roomId}/ws?seat=0&token=x`, {
-      headers: { Upgrade: "websocket" },
-    });
-    // Mechanism assertion: the request reached the DO, which owns the WebSocketPair (B4) and returns a
-    // 101 upgrade for a valid in-range seat. A 101-with-a-webSocket PROVES the Worker forwarded rather
-    // than short-circuiting (a 426/404 would mean it never reached the DO). The `token=x` is ignored in
-    // B4 (shape-only; B6.2 adds the tokenDigest check + agent-seat bind-refusal at the upgrade).
+    const { roomId, seatTokens } = (await created.json()) as { roomId: string; seatTokens: (string | null)[] };
+    const res = await SELF.fetch(
+      `https://host.test/api/games/${roomId}/ws?seat=0&token=${encodeURIComponent(seatTokens[0]!)}`,
+      { headers: { Upgrade: "websocket" } },
+    );
+    // Mechanism assertion: the request reached the DO, which owns the WebSocketPair and returns a 101 upgrade
+    // for a valid seat WHOSE MINTED TOKEN AUTHENTICATES (B6.2). A 101-with-a-webSocket PROVES the Worker forwarded
+    // rather than short-circuiting (a 426/404 would mean it never reached the DO) AND that the mint→auth loop holds.
     expect(res.status).toBe(101);
     expect(res.webSocket).toBeTruthy();
   });

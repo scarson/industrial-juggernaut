@@ -34,7 +34,8 @@ import type {
   LogEntry,
 } from "../session";
 import type { GameState } from "../engine/types";
-import { malformedError } from "../session";
+import { malformedError, unknownTypeError, oversizedError } from "../session";
+import { tokenDigest } from "./ids";
 import type { ClientCommand, RoomOptions, ServerMessage } from "../wire/protocol";
 
 /**
@@ -52,6 +53,35 @@ const MUTATING_COMMANDS: ReadonlySet<ClientCommand["type"]> = new Set([
   "resolveDecision",
   "extendDecision",
 ]);
+
+/** Every valid ClientCommand `type` — a parsed message whose `type` is outside this set is UNKNOWN_TYPE (B6.2).
+ *  Kept exhaustive against the wire `ClientCommand` union (a missing entry would falsely reject a real command). */
+const KNOWN_COMMANDS: ReadonlySet<ClientCommand["type"]> = new Set([
+  "hello",
+  "claimSeat",
+  "placeFirstBase",
+  "build",
+  "attack",
+  "endRound",
+  "pass",
+  "resolveDecision",
+  "extendDecision",
+  "resync",
+]);
+
+/** True when a parsed value is a known ClientCommand kind. A non-object / missing-type value is NOT known. */
+function isKnownCommandType(value: unknown): value is ClientCommand {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    KNOWN_COMMANDS.has((value as { type?: unknown }).type as ClientCommand["type"])
+  );
+}
+
+/** The largest single wire message the host accepts. Anything larger is OVERSIZED (rejected before parse, B6.2). */
+const MAX_MESSAGE_BYTES = 64 * 1024;
+/** After this many cumulative malformed messages (the count survives hibernation) the socket is closed 1008 (B6.2). */
+const MAX_MALFORMED = 8;
 
 /** The bindings this DO uses (mirrors wrangler.jsonc). */
 interface Env {
@@ -155,16 +185,19 @@ export class GameRoom extends DurableObject<Env> {
   }
 
   /**
-   * The WebSocket upgrade (a wake path — lazy-rehydrate first). Validates the request SHAPE (not auth): it must be
-   * an `Upgrade: websocket` request to an initialized room, with an in-range integer `?seat=N`. On success it mints
+   * The WebSocket upgrade (a wake path — lazy-rehydrate first). Validates the request SHAPE then AUTHENTICATES the
+   * seat token: it must be an `Upgrade: websocket` request to an initialized room, with an in-range integer `?seat=N`
+   * (shape) AND a `?token=...` whose SHA-256 digest matches that seat's authorized digest (auth). On success it mints
    * a hibernatable socket tagged `seat:<n>` (so `getWebSockets("seat:"+n)` finds a seat's tabs — multi-tab, B6) and
-   * stashes the per-socket attachment (`seat` = the identity `webSocketMessage` reads back after hibernation;
-   * `malformedCount` = the abuse counter B6.2 increments). The seat parse is SHAPE validation — a clear rejection,
-   * not authentication.
+   * stashes the per-socket attachment (`seat` = the authenticated identity `webSocketMessage` reads back after
+   * hibernation; `malformedCount` = the abuse counter B6.2 increments).
    *
-   * B6.2 inserts the tokenDigest check + agent-seat bind-refusal HERE, BEFORE acceptWebSocket: it will compute
-   * `tokenDigest(?token=...)`, compare to `this.session.seats[seat].authorizedDigest`, and refuse a socket bound to
-   * an agent seat regardless of token validity. B4 accepts a valid-shaped upgrade WITHOUT validating a token.
+   * AUTH — the token-digest check is the ONLY authentication; the per-message handlers then TRUST the attachment's
+   * `seat` (validated here). LAYER 2 of the three-layer agent-seat resolution lives here: an agent seat has
+   * `authorizedDigest === null` (tokens are minted for HUMAN seats only), so it can never match any token — the
+   * upgrade refuses to bind a socket to an agent seat regardless of token validity (agent seats are host-driven,
+   * never socket-bound). A refusal returns a GENERIC 403 that does not reveal whether the seat exists, is an agent,
+   * or how close the token was. DO-AUTH-1: never log the token or the query string; never store the raw token.
    */
   private async handleUpgrade(request: Request, url: URL): Promise<Response> {
     if ((request.headers.get("Upgrade") ?? "").toLowerCase() !== "websocket") {
@@ -186,12 +219,20 @@ export class GameRoom extends DurableObject<Env> {
       return new Response("invalid seat", { status: 400 });
     }
 
-    // SECURITY: NOT YET AUTHENTICATED — the tokenDigest check + agent-seat bind-refusal are B6.2 and MUST land
-    // before any deploy surface (B8's deploy-staging.yml). This upgrade currently binds any valid-shaped ?seat=N
-    // without a token; do not wire a deploy workflow until B6 is merged.
+    // AUTHENTICATE the seat token. The authorized digest is null for an agent seat (LAYER 2 — no token to match, so
+    // the seat is refused outright: agent seats are host-driven, never socket-bound) and for any seat missing a token.
+    // A generic "bad seat token" 403 covers every failure mode (wrong token / agent seat / absent token) so the
+    // rejection leaks nothing. DO-AUTH-1: the raw token never touches a log or storage — only its digest is compared.
+    const authorizedDigest = this.session.seats[seat]!.authorizedDigest;
+    const token = url.searchParams.get("token");
+    if (authorizedDigest === null || token === null || (await tokenDigest(token)) !== authorizedDigest) {
+      return new Response("bad seat token", { status: 403 });
+    }
+
     // Mint the hibernatable socket. `acceptWebSocket(server, tags)` (NOT ws.accept()) is what lets the DO hibernate
     // while the socket stays connected; the `seat:<n>` tag is the multi-tab discovery key. The attachment survives
-    // hibernation (16 KiB cap — a small object is trivially under). Never store the raw token (DO-AUTH-1).
+    // hibernation (16 KiB cap — a small object is trivially under). Never store the raw token (DO-AUTH-1) — only the
+    // authenticated `seat` (the identity the per-message handler trusts) and the malformed-abuse counter.
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1], ["seat:" + seat]);
     pair[1].serializeAttachment({ seat, malformedCount: 0 });
@@ -244,9 +285,11 @@ export class GameRoom extends DurableObject<Env> {
    * `reply` via `replyTarget`). This handler binds `replyTarget` to the originating socket for the duration of the
    * command and clears it in `finally`, so a subsequent spy (or an alarm-path reply) sees the null default.
    *
-   * Malformed input: JSON.parse failure replies a structured MALFORMED error to THAT socket. The full
-   * malformed-traffic enforcement — the OVERSIZED / UNKNOWN_TYPE codes and the per-socket count-limit-before-close
-   * (the count lives in the attachment so it survives hibernation) — is B6.2.
+   * Malformed enforcement (B6.2): OVERSIZED (`> MAX_MESSAGE_BYTES`) / JSON.parse failure (MALFORMED) / unknown
+   * `type` (UNKNOWN_TYPE) each reply a structured error, then `registerMalformed` bumps the attachment's cumulative
+   * `malformedCount` (which survives hibernation — DO-HIBER-1) and closes the socket 1008 once it reaches
+   * MAX_MALFORMED. A WELL-FORMED command never increments the count. The count lives in the attachment (not memory)
+   * so an abuser cannot reset their malformed budget by idling until the DO hibernates.
    */
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     if (this.session === null) await this.rehydrate();
@@ -259,14 +302,31 @@ export class GameRoom extends DurableObject<Env> {
     // Bind the originating socket so `reply` routes to it for this command; cleared in `finally`.
     this.replyTarget = ws;
     try {
+      // OVERSIZED: reject on the raw wire byte length BEFORE decoding — a huge buffer must not be materialized as a
+      // string first. Text carries its UTF-8 byte length; binary carries its ArrayBuffer.byteLength.
+      const byteLength = typeof message === "string" ? new TextEncoder().encode(message).length : message.byteLength;
+      if (byteLength > MAX_MESSAGE_BYTES) {
+        this.sink.reply([oversizedError(byteLength, MAX_MESSAGE_BYTES)]);
+        this.registerMalformed(ws, att);
+        return;
+      }
+
       const text = typeof message === "string" ? message : new TextDecoder().decode(message);
-      let command: ClientCommand;
+      let command: unknown;
       try {
-        command = JSON.parse(text) as ClientCommand;
+        command = JSON.parse(text);
       } catch {
-        // B6.2 adds the count-limit-before-close here (increment att.malformedCount, re-serializeAttachment,
-        // close at the threshold). B4 replies the structured MALFORMED error to the originating socket.
         this.sink.reply([malformedError("invalid JSON")]);
+        this.registerMalformed(ws, att);
+        return;
+      }
+
+      // UNKNOWN_TYPE: a parsed value whose `type` is not a known ClientCommand kind (or which is not an object).
+      // Caught at the transport layer (before handleCommand) so it counts toward the malformed budget — flooding
+      // unknown-type messages is abuse, and the reducer's own UNKNOWN_TYPE backstop does not touch the count.
+      if (!isKnownCommandType(command)) {
+        this.sink.reply([unknownTypeError(String((command as { type?: unknown } | null)?.type))]);
+        this.registerMalformed(ws, att);
         return;
       }
 
@@ -274,6 +334,22 @@ export class GameRoom extends DurableObject<Env> {
       await this.handleCommand(command, ctx);
     } finally {
       this.replyTarget = null;
+    }
+  }
+
+  /**
+   * Record one malformed message against a socket: bump the attachment's cumulative `malformedCount` (re-serialized
+   * so it survives hibernation — an abuser cannot reset the budget by idling, DO-HIBER-1) and, once the count reaches
+   * {@link MAX_MALFORMED}, send a final error and close the socket 1008. Only malformed messages call this; a
+   * well-formed command never touches the count. Must run inside the `replyTarget`-bound window (the final error
+   * routes through `reply`).
+   */
+  private registerMalformed(ws: WebSocket, att: { seat: number; malformedCount: number }): void {
+    const malformedCount = att.malformedCount + 1;
+    ws.serializeAttachment({ seat: att.seat, malformedCount });
+    if (malformedCount >= MAX_MALFORMED) {
+      this.sink.reply([malformedError("too many malformed messages")]);
+      ws.close(1008, "too many malformed messages");
     }
   }
 
