@@ -44,5 +44,9 @@ jobs:
         if: steps.diff.outputs.code == 'true'
       - run: bun run test
         if: steps.diff.outputs.code == 'true'
+      # Fails when a replay-closure file changed without bumping REPLAY_VERSION —
+      # an unbumped closure change silently corrupts in-flight games on the next deploy.
+      - run: bun run scripts/compute-replay-version.ts --check
+        if: steps.diff.outputs.code == 'true'
       - run: bun run build
         if: steps.diff.outputs.code == 'true'

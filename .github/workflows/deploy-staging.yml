@@ -1,0 +1,26 @@
+name: deploy-staging
+# Push to dev → deploy the staging Worker (industrial-juggernaut-staging).
+# Non-gating: only the CI `check` context gates merges. Requires two repo secrets
+# (CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID); until Sam sets them this job fails red.
+# wrangler bundles the Worker (src/host/worker.ts) itself — no `bun run build` needed.
+on:
+  push:
+    branches: [dev]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      # Generate the placeholder dist/client/index.html so wrangler's assets-directory
+      # check passes until the SPA build (deliverable 2) replaces it. No-clobber: the
+      # real build's index.html is never overwritten.
+      - run: bun run scripts/ensure-placeholder-assets.ts
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --env staging
