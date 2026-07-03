@@ -20,6 +20,7 @@ export {
   status,
   applyEliminations,
   removeEncircledStrandedBases,
+  strandedBases,
   control,
   generateBoard,
   loadBoard,
@@ -33,6 +34,7 @@ export {
 export type {
   RuleConfig,
   KillBounty,
+  Control,
   Hex,
   PlayerId,
   PieceKind,

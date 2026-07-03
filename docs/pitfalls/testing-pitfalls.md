@@ -96,6 +96,7 @@ The test suite itself is code. It decays if not maintained. Messy test infrastru
 - [ ] **Test doubles are minimal and honest.** A mock that returns fixed data is testing the mock, not the code. Use real implementations where feasible; mock only external boundaries.
 - [ ] **No hardcoded time-of-day or timezone assumptions.** Tests that pass at 09:00 UTC but fail at 23:00 UTC are flaky by design. Use injected clocks for time-sensitive tests.
 - [ ] **No network calls in unit tests.** A unit test that hits a real API is an integration test with a misleading name. Either mock the boundary or move it to the integration suite.
+- [ ] **jsdom has no `PointerEvent` constructor, and React 18 doesn't listen for `pointerenter`/`pointerleave` natively.** `new PointerEvent(...)` throws `TypeError: undefined is not a constructor` in this project's jsdom (25.x); use `new Event(type, { bubbles })` instead — React reads `event.type`, not the constructor. React 18 also synthesizes `onPointerEnter`/`onPointerLeave` from the bubbling `pointerover`/`pointerout` DOM events (the same enter/leave-from-over/out polyfill pattern as `mouseenter`/`mouseleave`), so dispatch `pointerover`/`pointerout` with `bubbles: true` — dispatching `pointerenter`/`pointerleave` directly fires nothing, silently (0 calls, no error). See `web/src/board/Board.test.tsx`'s hover test for the worked pattern. Relevant to any future drag/hover interaction test (P3 composers).
 
 ---
 

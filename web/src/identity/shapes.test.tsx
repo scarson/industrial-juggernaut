@@ -97,14 +97,22 @@ describe("PlayerShapeIcon", () => {
   });
 
   test("with a center prop, positions the nested svg so the icon's visual center lands on it", () => {
+    // The box grew past `2*size` to give the largest area-normalized shape (six-point)
+    // headroom against clipping (see ICON_HALF_EXTENT_FACTOR in shapes.tsx), so this asserts
+    // the behavioral contract — box center == `center` — rather than a hardcoded x/y pinned
+    // to the old `2*size` box.
     const { container } = render(
       <svg>
         <PlayerShapeIcon identity={playerIdentity(0)} size={20} center={{ x: 100, y: 80 }} />
       </svg>,
     );
     const nestedSvg = container.querySelector("svg svg")!;
-    expect(nestedSvg.getAttribute("x")).toBe("80");
-    expect(nestedSvg.getAttribute("y")).toBe("60");
+    const x = Number(nestedSvg.getAttribute("x"));
+    const y = Number(nestedSvg.getAttribute("y"));
+    const width = Number(nestedSvg.getAttribute("width"));
+    const height = Number(nestedSvg.getAttribute("height"));
+    expect(x + width / 2).toBe(100);
+    expect(y + height / 2).toBe(80);
   });
 
   test("without a center prop, the nested svg has no x/y attributes", () => {
@@ -113,9 +121,46 @@ describe("PlayerShapeIcon", () => {
     expect(nestedSvg.getAttribute("x")).toBeNull();
     expect(nestedSvg.getAttribute("y")).toBeNull();
   });
+
+  test("every shape's filled area is within 15% of the circle's area at the same size", () => {
+    // Equal-circumradius construction gives wildly different filled areas per shape (a
+    // diamond/square at ~2x the triangle/six-point's area) even though all 6 identities
+    // must read at comparable visual weight on the board (PRODUCT.md #4: legible at a
+    // glance). Per-shape radius scale factors normalize filled area to the circle's.
+    const size = 20;
+    const circleArea = Math.PI * (size * 0.8) ** 2;
+    for (const id of [0, 1, 2, 3, 4, 5]) {
+      const { container } = render(<PlayerShapeIcon identity={playerIdentity(id)} size={size} />);
+      const shapeEl = container.querySelector("circle, polygon")!;
+      const area = shapeEl.tagName === "circle" ? circleArea : polygonArea(shapeEl);
+      const ratio = area / circleArea;
+      expect(ratio, `id ${id} (${playerIdentity(id).shape}) area ratio ${ratio.toFixed(3)}`).toBeGreaterThanOrEqual(
+        0.85,
+      );
+      expect(ratio, `id ${id} (${playerIdentity(id).shape}) area ratio ${ratio.toFixed(3)}`).toBeLessThanOrEqual(
+        1.15,
+      );
+    }
+  });
 });
 
 function pointCount(polygon: Element): number {
   const pointsAttr = polygon.getAttribute("points") ?? "";
   return pointsAttr.trim().split(/\s+/).filter(Boolean).length;
+}
+
+/** Shoelace formula over a `<polygon>`'s `points` attribute. */
+function polygonArea(polygon: Element): number {
+  const points = (polygon.getAttribute("points") ?? "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((pair) => pair.split(",").map(Number) as [number, number]);
+  let sum = 0;
+  for (let i = 0; i < points.length; i++) {
+    const [x1, y1] = points[i]!;
+    const [x2, y2] = points[(i + 1) % points.length]!;
+    sum += x1 * y2 - x2 * y1;
+  }
+  return Math.abs(sum) / 2;
 }

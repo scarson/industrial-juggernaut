@@ -6,7 +6,7 @@ import type { PlayerIdentity, PlayerPattern, PlayerShape } from "./player-identi
 
 export interface PlayerShapeIconProps {
   readonly identity: PlayerIdentity;
-  /** Radius in px the shape should fit within, centered in a `2*size` square viewBox. */
+  /** Radius in px the circle shape fits within; other shapes are scaled to match its filled area. */
   readonly size: number;
   /**
    * Where the icon's visual center should land in the parent SVG's coordinate space. When
@@ -26,14 +26,18 @@ export interface PlayerShapeIconProps {
  */
 export function PlayerShapeIcon({ identity, size, center }: PlayerShapeIconProps) {
   const patternId = usePatternId(identity.pattern);
-  const diameter = size * 2;
-  const cx = size;
-  const cy = size;
-  const shapeRadius = size * 0.8;
-  const positionProps = center === undefined ? {} : { x: center.x - size, y: center.y - size };
+  // The box half-extent must clear the largest scaled circumradius (six-point, see
+  // AREA_NORMALIZED_SCALE) so no shape clips its own icon — see ICON_HALF_EXTENT_FACTOR.
+  const halfExtent = size * ICON_HALF_EXTENT_FACTOR;
+  const boxSize = halfExtent * 2;
+  const cx = halfExtent;
+  const cy = halfExtent;
+  const shapeRadius = size * 0.8 * AREA_NORMALIZED_SCALE[identity.shape];
+  const positionProps =
+    center === undefined ? {} : { x: center.x - halfExtent, y: center.y - halfExtent };
 
   return (
-    <svg {...positionProps} width={diameter} height={diameter} viewBox={`0 0 ${diameter} ${diameter}`}>
+    <svg {...positionProps} width={boxSize} height={boxSize} viewBox={`0 0 ${boxSize} ${boxSize}`}>
       <defs>
         <PatternDef id={patternId} pattern={identity.pattern} />
       </defs>
@@ -49,6 +53,42 @@ export function PlayerShapeIcon({ identity, size, center }: PlayerShapeIconProps
     </svg>
   );
 }
+
+/**
+ * Per-shape circumradius scale, applied on top of the circle's baseline radius (`size * 0.8`)
+ * so every shape's FILLED AREA matches the circle's at the same `size` (PRODUCT.md #4:
+ * identity must be legible at a glance — a diamond and a triangle drawn at equal circumradius
+ * fill wildly different areas and read as different visual weights).
+ *
+ * scale = sqrt(circleArea / shapeArea), where each shapeArea is the exact area of the polygon
+ * `shapePoints()` draws at circumradius 1 (verified against the shoelace formula over the
+ * actual rendered points, not just the closed-form derivation below):
+ *   - circle:      pi * r^2                                     (baseline, scale 1)
+ *   - square:      regularPolygonPoints(..., 4, 45)  is a square with diagonal 2r -> 2r^2
+ *   - diamond:     regularPolygonPoints(..., 4, 0)   is the same square rotated 45 deg -> 2r^2
+ *   - triangle:    equilateral triangle, circumradius r -> (3*sqrt(3)/4) r^2
+ *   - pentagon:    regular pentagon, circumradius r  -> (5/2) r^2 sin(72 deg)
+ *   - six-point:   sixPointStarPoints draws a 12-gon alternating outer radius R and inner
+ *                  radius 0.42*R every 30 deg; that's 12 congruent triangles from the center,
+ *                  each with included angle 30 deg between adjacent radii R and 0.42*R:
+ *                  area = 12 * (1/2) * R * (0.42*R) * sin(30 deg) = 1.26 * R^2
+ */
+const AREA_NORMALIZED_SCALE: Record<PlayerShape, number> = {
+  circle: 1,
+  square: 1.253314,
+  triangle: 1.55512,
+  diamond: 1.253314,
+  pentagon: 1.149481,
+  "six-point": 1.579027,
+};
+
+/**
+ * The nested icon `<svg>`'s half-extent as a multiple of `size`. Must be >= the largest
+ * scaled circumradius fraction (`0.8 * max(AREA_NORMALIZED_SCALE)`, currently six-point at
+ * 0.8 * 1.579027 =~ 1.263) so the widest shape's polygon doesn't clip the icon's own box;
+ * the 1.3 constant leaves a small margin for the 1px identity stroke drawn on the shape edge.
+ */
+const ICON_HALF_EXTENT_FACTOR = 1.3;
 
 function usePatternId(pattern: PlayerPattern): string {
   const reactId = useId();
