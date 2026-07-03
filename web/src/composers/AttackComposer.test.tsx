@@ -2,7 +2,7 @@
 // ABOUTME: the commitment slider reads odds from config.combatTable (anti-hardcoding proof),
 // ABOUTME: Commit submits the attack decl with the representativeDefender proposal, no local
 // ABOUTME: combat resolution happens, and a null-defender target blocks Commit with DER #4.
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AttackComposer } from "./AttackComposer";
@@ -119,6 +119,32 @@ describe("AttackComposer — target selection", () => {
 });
 
 describe("AttackComposer — commitment odds follow config.combatTable", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  test("lowering the commitment re-renders without a React style-conflict warning", async () => {
+    // A committed attacker span emphasizes its border color over the base span's border. If the
+    // base uses the `border` shorthand and the committed override sets `borderColor`, React warns
+    // on the re-render that reverts a span from committed→uncommitted (shorthand/longhand conflict)
+    // — the exact defect fixed in TurnOrderTokens. Lowering the slider MUST stay console-clean.
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const user = userEvent.setup();
+    const state = attackFixture();
+    const store = createGameStore();
+    const driver = driverFor(state);
+    store.getState().connectDriver(driver);
+
+    render(<AttackComposer state={state} player={0} driver={driver} store={store} />);
+    await user.click(screen.getByTestId(`attack-target-${key(TARGET)}`));
+
+    const slider = screen.getByRole("slider", { name: /commitment/i });
+    slider.focus();
+    await user.keyboard("{ArrowRight}{ArrowRight}{ArrowRight}"); // raise 3 → 6 (commit spans)
+    await user.keyboard("{ArrowLeft}{ArrowLeft}{ArrowLeft}"); // lower 6 → 3 (revert spans)
+
+    const styleWarnings = consoleError.mock.calls.filter((call) => String(call[0]).includes("shorthand"));
+    expect(styleWarnings).toEqual([]);
+  });
+
   test("default combatTable: commitment 3/4/5/6 render 75%/83%/89%/auto", async () => {
     const user = userEvent.setup();
     const state = attackFixture();

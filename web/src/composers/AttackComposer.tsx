@@ -225,7 +225,12 @@ const TARGET_ILLEGAL_STYLE: React.CSSProperties = {
 };
 const ATTACKER_STYLE: React.CSSProperties = {
   padding: "0.15rem 0.4rem",
-  border: "1px solid var(--hairline)",
+  // Longhand (not the `border` shorthand) so ATTACKER_COMMITTED_STYLE's override can replace only
+  // `borderColor` without a shorthand/longhand reconciliation conflict when a span reverts to
+  // uncommitted (the slider lowering).
+  borderWidth: "1px",
+  borderStyle: "solid",
+  borderColor: "var(--hairline)",
   color: "var(--color-ink-700)",
 };
 const ATTACKER_COMMITTED_STYLE: React.CSSProperties = {
