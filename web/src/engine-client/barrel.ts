@@ -17,6 +17,7 @@ export {
   currentPlayer,
   advanceRound,
   buildBudget,
+  isBootstrapOnly,
   status,
   applyEliminations,
   removeEncircledStrandedBases,
@@ -31,6 +32,7 @@ export {
   decodeRng,
   defaultConfig,
 } from "../../../src/index";
+export { distance } from "../../../src/geometry/cube";
 export type {
   RuleConfig,
   KillBounty,

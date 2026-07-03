@@ -14,6 +14,14 @@ export function hexKey(hex: Hex): string {
   return `${hex.x},${hex.y},${hex.z}`;
 }
 
+// The inverse of hexKey — parses a canonical `"x,y,z"` string back to a numeric Hex. Used
+// wherever a DOM attribute or Set/Map member carries a hexKey and the caller needs the Hex back
+// (Hex.tsx's click handler reads its own `data-hex`; composers parse a legal-hex-set member).
+export function keyToHex(key: string): Hex {
+  const [x, y, z] = key.split(",").map(Number);
+  return { x: x!, y: y!, z: z! };
+}
+
 // Flat-top axial mapping q=x, r=z (cube's `y` is redundant given x+y+z=0).
 // px = size * 1.5 * q
 // py = size * SQRT3 * (r + q/2)

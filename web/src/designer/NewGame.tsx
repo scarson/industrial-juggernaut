@@ -685,8 +685,11 @@ const NOTE_STYLE: React.CSSProperties = {
   margin: 0,
   fontSize: "0.8rem",
   color: "var(--color-parchment-300)",
-  borderLeft: "2px solid var(--accent)",
-  paddingLeft: "0.6rem",
+  // A hairline frame + recessed inset sets the note apart without the colored side-stripe that
+  // DESIGN.md's anti-references reject (cf. the DER callout's hairline frame in RulesReference).
+  border: "1px solid var(--hairline)",
+  backgroundColor: "var(--surface-app)",
+  padding: "0.3rem 0.55rem",
 };
 const FIELD_ERROR_STYLE: React.CSSProperties = {
   margin: 0,

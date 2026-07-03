@@ -1,7 +1,7 @@
 // ABOUTME: One landmass cell — a parchment-filled, ink-stroked hex polygon that parses its own
 // ABOUTME: data-hex on click/hover. Highlight and selection are rendered as cell treatments.
 import { color } from "../design/tokens";
-import { hexPoints, hexKey } from "./projection";
+import { hexPoints, hexKey, keyToHex } from "./projection";
 import type { Point } from "./projection";
 import type { Hex as HexModel } from "../engine-client/barrel";
 
@@ -19,14 +19,6 @@ export interface HexProps {
   readonly selected?: boolean | undefined;
   readonly onHexClick?: ((hex: HexModel) => void) | undefined;
   readonly onHexHover?: ((hex: HexModel | null) => void) | undefined;
-}
-
-// Parses a `"x,y,z"` data-hex back to a numeric Hex — the SVG element IS the hit-test target
-// (pitfall GEO-2: there is no pixel->hex inverse), so the click handler reads coordinates off
-// the clicked element rather than inverting the projection.
-function parseHexKey(dataHex: string): HexModel {
-  const [x, y, z] = dataHex.split(",").map(Number);
-  return { x: x!, y: y!, z: z! };
 }
 
 /**
@@ -50,7 +42,10 @@ export function Hex({ hex, center, size, highlight = null, selected = false, onH
       onClick={
         onHexClick === undefined
           ? undefined
-          : (e) => onHexClick(parseHexKey(e.currentTarget.getAttribute("data-hex")!))
+          : // The SVG element IS the hit-test target (pitfall GEO-2: there is no pixel->hex
+            // inverse), so this reads coordinates off the clicked element's own `data-hex`
+            // rather than closing over `hex` directly.
+            (e) => onHexClick(keyToHex(e.currentTarget.getAttribute("data-hex")!))
       }
       onPointerEnter={onHexHover === undefined ? undefined : () => onHexHover(hex)}
       onPointerLeave={onHexHover === undefined ? undefined : () => onHexHover(null)}

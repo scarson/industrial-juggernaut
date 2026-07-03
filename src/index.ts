@@ -6,7 +6,7 @@ export { setupGame, currentPlayer, advanceRound, representativeFirstBase, placeF
 export { applyAction } from "./engine/apply";
 export { stepRound } from "./engine/round";
 export { legalActions, representativeDefender } from "./engine/legal";
-export { buildBudget } from "./engine/build";
+export { buildBudget, isBootstrapOnly } from "./engine/build";
 export { status, applyEliminations } from "./engine/status";
 export { removeEncircledStrandedBases, strandedBases } from "./engine/stranded";
 export { control } from "./engine/control";

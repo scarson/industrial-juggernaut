@@ -1,7 +1,7 @@
 // ABOUTME: A minimal path-based router (history.pushState + popstate) for the 4 static P0
 // ABOUTME: routes. No react-router: 4 fixed paths don't warrant the dependency (see P0.7 plan).
 import { lazy, Suspense, useEffect, useState } from "react";
-import { NewGame } from "../designer/NewGame";
+import { GameScreen } from "./GameScreen";
 import { AgentViewer } from "../viewer/AgentViewer";
 import { RulesReference } from "../rules/RulesReference";
 
@@ -32,15 +32,21 @@ function isRoutePath(path: string): path is RoutePath {
   return (ROUTES as readonly string[]).includes(path);
 }
 
-/** Renders the screen matching the current URL path, live-updating on navigate()/back/forward. */
-export function Router() {
+/** The current URL path, live-updating on navigate()/back/forward. Shared by the Router and
+ *  the app shell (which suppresses its placeholder rail on routes that own their layout). */
+export function useCurrentPath(): string {
   const [path, setPath] = useState(() => window.location.pathname);
-
   useEffect(() => {
     const handlePopState = () => setPath(window.location.pathname);
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
+  return path;
+}
+
+/** Renders the screen matching the current URL path, live-updating on navigate()/back/forward. */
+export function Router() {
+  const path = useCurrentPath();
 
   if (path === DEV_BOARD_PATH) {
     return (
@@ -72,20 +78,6 @@ function HomeScreen() {
       <h1>Home</h1>
       <p>Start or resume a game of Industrial Juggernaut.</p>
     </section>
-  );
-}
-
-function GameScreen() {
-  // P2.4 smoke mount: the game board + action composers land in P3; until then the /game route
-  // hosts the new-game designer instrument so it can be exercised in-app. onStart logs the
-  // assembled header (P2.7's viewer / P3's game screen are the real consumers).
-  return (
-    <NewGame
-      onStart={(header) => {
-        // eslint-disable-next-line no-console
-        console.log("[NewGame] onStart", { ...header, seed: header.seed.toString() });
-      }}
-    />
   );
 }
 
