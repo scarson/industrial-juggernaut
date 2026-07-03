@@ -55,6 +55,35 @@ describe("PlayerShapeIcon", () => {
     expect(shapeEl!.getAttribute("fill")).toContain(identity.colorVar);
   });
 
+  test("each of the 6 identities renders exactly one <pattern> def", () => {
+    for (const id of [0, 1, 2, 3, 4, 5]) {
+      const { container } = render(<PlayerShapeIcon identity={playerIdentity(id)} size={20} />);
+      expect(container.querySelectorAll("defs pattern")).toHaveLength(1);
+    }
+  });
+
+  test("the 5 non-solid pattern tiles are non-empty and pairwise distinct", () => {
+    // Compares each tile's inner markup (its child elements), not the pattern's id
+    // attribute, so distinctness reflects actual visual structure rather than naming.
+    const tiles = [1, 2, 3, 4, 5].map((id) => {
+      const { container } = render(<PlayerShapeIcon identity={playerIdentity(id)} size={20} />);
+      return container.querySelector("defs pattern")!.innerHTML;
+    });
+    for (const tile of tiles) {
+      expect(tile).not.toBe("");
+    }
+    expect(new Set(tiles).size).toBe(5);
+  });
+
+  test("solid (id 0) renders an intentionally empty pattern tile", () => {
+    // "solid" means no texture mark on top of the color fill — the empty tile is designed
+    // behavior, pinned here so emptiness can't be mistaken for a broken pattern.
+    const { container } = render(<PlayerShapeIcon identity={playerIdentity(0)} size={20} />);
+    const pattern = container.querySelector("defs pattern");
+    expect(pattern).not.toBeNull();
+    expect(pattern!.childElementCount).toBe(0);
+  });
+
   test("square and triangle (the CVD floor pair, ids 1 and 2) render visually distinct element shapes", () => {
     const { container: squareContainer } = render(
       <PlayerShapeIcon identity={playerIdentity(1)} size={20} />,

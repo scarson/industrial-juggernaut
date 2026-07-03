@@ -57,13 +57,19 @@ describe("playerIdentity", () => {
     expect(cobalt.shape).not.toBe(violet.shape);
   });
 
-  test("out-of-range ids throw a clear error", () => {
-    expect(() => playerIdentity(6)).toThrow(/2.*6|player/i);
-    expect(() => playerIdentity(-1)).toThrow(/2.*6|player/i);
-    expect(() => playerIdentity(100)).toThrow(/2.*6|player/i);
+  test("out-of-range ids throw naming the valid range and the offending value", () => {
+    // Assert literal message content: the valid range AND the specific bad id must both
+    // appear, so a message that loses either (e.g. a generic "invalid player id") fails.
+    expect(() => playerIdentity(6)).toThrow(/\[0, 5\]/);
+    expect(() => playerIdentity(6)).toThrow(/got 6/);
+    expect(() => playerIdentity(-1)).toThrow(/\[0, 5\]/);
+    expect(() => playerIdentity(-1)).toThrow(/got -1/);
+    expect(() => playerIdentity(100)).toThrow(/\[0, 5\]/);
+    expect(() => playerIdentity(100)).toThrow(/got 100/);
   });
 
-  test("non-integer ids throw", () => {
-    expect(() => playerIdentity(1.5)).toThrow();
+  test("non-integer ids throw naming the valid range and the offending value", () => {
+    expect(() => playerIdentity(1.5)).toThrow(/\[0, 5\]/);
+    expect(() => playerIdentity(1.5)).toThrow(/got 1\.5/);
   });
 });
