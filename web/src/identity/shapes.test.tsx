@@ -95,6 +95,24 @@ describe("PlayerShapeIcon", () => {
     const trianglePoints = pointCount(triangleContainer.querySelector("polygon")!);
     expect(squarePoints).not.toBe(trianglePoints);
   });
+
+  test("with a center prop, positions the nested svg so the icon's visual center lands on it", () => {
+    const { container } = render(
+      <svg>
+        <PlayerShapeIcon identity={playerIdentity(0)} size={20} center={{ x: 100, y: 80 }} />
+      </svg>,
+    );
+    const nestedSvg = container.querySelector("svg svg")!;
+    expect(nestedSvg.getAttribute("x")).toBe("80");
+    expect(nestedSvg.getAttribute("y")).toBe("60");
+  });
+
+  test("without a center prop, the nested svg has no x/y attributes", () => {
+    const { container } = render(<PlayerShapeIcon identity={playerIdentity(0)} size={20} />);
+    const nestedSvg = container.querySelector("svg")!;
+    expect(nestedSvg.getAttribute("x")).toBeNull();
+    expect(nestedSvg.getAttribute("y")).toBeNull();
+  });
 });
 
 function pointCount(polygon: Element): number {

@@ -8,6 +8,14 @@ export interface PlayerShapeIconProps {
   readonly identity: PlayerIdentity;
   /** Radius in px the shape should fit within, centered in a `2*size` square viewBox. */
   readonly size: number;
+  /**
+   * Where the icon's visual center should land in the parent SVG's coordinate space. When
+   * provided, the nested `<svg>` is positioned (via its `x`/`y` attributes) so the shape drawn
+   * at its own center appears centered on this point — the caller does not need to offset by
+   * `size` itself. When omitted, the nested `<svg>` is left unpositioned for standalone
+   * rendering.
+   */
+  readonly center?: { x: number; y: number };
 }
 
 /**
@@ -16,15 +24,16 @@ export interface PlayerShapeIconProps {
  * (PRODUCT.md: player identity is never color alone) — the shape's fill carries color, and
  * the pattern overlay carries the third channel as a stroke/mark treatment on top.
  */
-export function PlayerShapeIcon({ identity, size }: PlayerShapeIconProps) {
+export function PlayerShapeIcon({ identity, size, center }: PlayerShapeIconProps) {
   const patternId = usePatternId(identity.pattern);
   const diameter = size * 2;
   const cx = size;
   const cy = size;
   const shapeRadius = size * 0.8;
+  const positionProps = center === undefined ? {} : { x: center.x - size, y: center.y - size };
 
   return (
-    <svg width={diameter} height={diameter} viewBox={`0 0 ${diameter} ${diameter}`}>
+    <svg {...positionProps} width={diameter} height={diameter} viewBox={`0 0 ${diameter} ${diameter}`}>
       <defs>
         <PatternDef id={patternId} pattern={identity.pattern} />
       </defs>
