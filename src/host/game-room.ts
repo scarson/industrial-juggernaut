@@ -36,6 +36,7 @@ import type {
 import type { GameState } from "../engine/types";
 import { malformedError, unknownTypeError, oversizedError } from "../session";
 import { tokenDigest } from "./ids";
+import { parseClientCommand, isKnownCommandType } from "./parse-command";
 import type { ClientCommand, RoomOptions, ServerMessage } from "../wire/protocol";
 
 /**
@@ -54,34 +55,14 @@ const MUTATING_COMMANDS: ReadonlySet<ClientCommand["type"]> = new Set([
   "extendDecision",
 ]);
 
-/** Every valid ClientCommand `type` — a parsed message whose `type` is outside this set is UNKNOWN_TYPE (B6.2).
- *  Kept exhaustive against the wire `ClientCommand` union (a missing entry would falsely reject a real command). */
-const KNOWN_COMMANDS: ReadonlySet<ClientCommand["type"]> = new Set([
-  "hello",
-  "claimSeat",
-  "placeFirstBase",
-  "build",
-  "attack",
-  "endRound",
-  "pass",
-  "resolveDecision",
-  "extendDecision",
-  "resync",
-]);
-
-/** True when a parsed value is a known ClientCommand kind. A non-object / missing-type value is NOT known. */
-function isKnownCommandType(value: unknown): value is ClientCommand {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    KNOWN_COMMANDS.has((value as { type?: unknown }).type as ClientCommand["type"])
-  );
-}
-
 /** The largest single wire message the host accepts. Anything larger is OVERSIZED (rejected before parse, B6.2). */
 const MAX_MESSAGE_BYTES = 64 * 1024;
 /** After this many cumulative malformed messages (the count survives hibernation) the socket is closed 1008 (B6.2). */
 const MAX_MALFORMED = 8;
+
+/** The result of `handleCommand`. `"reducer-threw"` means the Layer-2 backstop caught an unexpected throw from
+ *  `applyCommand` — the caller counts it toward the malformed-abuse budget (a shape Layer 1 missed, or a reducer bug). */
+type CommandOutcome = "ok" | "reducer-threw";
 
 /** The bindings this DO uses (mirrors wrangler.jsonc). */
 interface Env {
@@ -302,8 +283,9 @@ export class GameRoom extends DurableObject<Env> {
     // Bind the originating socket so `reply` routes to it for this command; cleared in `finally`.
     this.replyTarget = ws;
     try {
-      // OVERSIZED: reject on the raw wire byte length BEFORE decoding — a huge buffer must not be materialized as a
-      // string first. Text carries its UTF-8 byte length; binary carries its ArrayBuffer.byteLength.
+      // OVERSIZED: reject on the raw wire byte length before parsing. A binary frame carries its byteLength for free
+      // (no decode). A text frame's exact UTF-8 byte length needs one encode pass; the transient buffer is bounded
+      // and short-lived, and an oversized frame is flagged immediately, so the cost is acceptable.
       const byteLength = typeof message === "string" ? new TextEncoder().encode(message).length : message.byteLength;
       if (byteLength > MAX_MESSAGE_BYTES) {
         this.sink.reply([oversizedError(byteLength, MAX_MESSAGE_BYTES)]);
@@ -312,26 +294,39 @@ export class GameRoom extends DurableObject<Env> {
       }
 
       const text = typeof message === "string" ? message : new TextDecoder().decode(message);
-      let command: unknown;
+      let parsed: unknown;
       try {
-        command = JSON.parse(text);
+        parsed = JSON.parse(text);
       } catch {
         this.sink.reply([malformedError("invalid JSON")]);
         this.registerMalformed(ws, att);
         return;
       }
 
-      // UNKNOWN_TYPE: a parsed value whose `type` is not a known ClientCommand kind (or which is not an object).
-      // Caught at the transport layer (before handleCommand) so it counts toward the malformed budget — flooding
-      // unknown-type messages is abuse, and the reducer's own UNKNOWN_TYPE backstop does not touch the count.
-      if (!isKnownCommandType(command)) {
-        this.sink.reply([unknownTypeError(String((command as { type?: unknown } | null)?.type))]);
+      // LAYER 1 (primary) — full SHAPE validation before handleCommand. `applyCommand` dereferences fields like
+      // `decl.target.x` / `pieces.map(...)` without null/array guards, so a well-typed-`type` but shape-malformed
+      // payload ({type:"attack",decl:null}, {type:"build",pieces:"x"}, ...) from a VALID-seat client would throw
+      // uncaught out of the reducer — crashing the room AND bypassing the abuse budget. `parseClientCommand` rejects
+      // any shape mismatch → route it to MALFORMED + the count-limit, exactly like invalid JSON. UNKNOWN_TYPE (an
+      // unrecognized `type`) stays a distinct code; a known type with a broken shape is MALFORMED.
+      const command = parseClientCommand(parsed);
+      if (command === null) {
+        const type = (parsed as { type?: unknown } | null)?.type;
+        this.sink.reply([
+          isKnownCommandType(type)
+            ? malformedError(`malformed ${String(type)} command`)
+            : unknownTypeError(String(type)),
+        ]);
         this.registerMalformed(ws, att);
         return;
       }
 
       const ctx: CommandCtx = { actingSeat: seat, nowEpochMs: Date.now(), decisionId: crypto.randomUUID() };
-      await this.handleCommand(command, ctx);
+      // Layer 2 backstop: a reducer throw handleCommand caught (Layer 1 should have prevented it) counts toward the
+      // abuse budget too — a client that keeps tripping it is closed at MAX_MALFORMED, same as any malformed traffic.
+      if ((await this.handleCommand(command, ctx)) === "reducer-threw") {
+        this.registerMalformed(ws, att);
+      }
     } finally {
       this.replyTarget = null;
     }
@@ -473,7 +468,7 @@ export class GameRoom extends DurableObject<Env> {
    * handler runs to completion atomically w.r.t. other events; the multiple awaits do not admit interleaving.
    * Never allowConcurrency/allowUnconfirmed on these writes.
    */
-  async handleCommand(command: ClientCommand, ctx: CommandCtx): Promise<void> {
+  async handleCommand(command: ClientCommand, ctx: CommandCtx): Promise<CommandOutcome> {
     if (this.session === null) await this.rehydrate();
     if (this.session === null) {
       // An uninitialized room cannot be joined (the Worker rejects joins to unknown rooms), but a command that
@@ -481,7 +476,7 @@ export class GameRoom extends DurableObject<Env> {
       this.sink.reply([
         { type: "error", code: "ROOM_NOT_INITIALIZED", message: "This room has not been initialized.", currentLogIndex: null },
       ]);
-      return;
+      return "ok";
     }
 
     // A frozen room (recovery divergence, B3.3) rejects every mutating command with a FROZEN error from the HOST.
@@ -497,11 +492,23 @@ export class GameRoom extends DurableObject<Env> {
           currentLogIndex: this.session.logLength,
         },
       ]);
-      return;
+      return "ok";
     }
 
-    // 1. Validate + apply — synchronous, pure, NO await between here and the persist.
-    const { next, effects } = applyCommand(this.session, command, ctx);
+    // 1. Validate + apply — synchronous, pure, NO await between here and the persist. LAYER 2 (backstop): wrap ONLY
+    //    this pre-persist reducer call. Layer 1 (parseClientCommand in webSocketMessage) should have rejected every
+    //    shape error already; this guarantees that even a shape Layer 1 missed OR a genuine reducer bug can never
+    //    crash the room or escape the abuse budget — it becomes a counted MALFORMED with NO persist, never a swallow.
+    //    Only applyCommand is wrapped; the persist/alarm/send/drive below stay unguarded so real storage failures
+    //    surface loud (B3). The caller (webSocketMessage) counts the reducer-throw toward MAX_MALFORMED.
+    let applied: { next: SessionState; effects: Effects };
+    try {
+      applied = applyCommand(this.session, command, ctx);
+    } catch {
+      this.sink.reply([malformedError(`could not process the ${command.type} command`)]);
+      return "reducer-threw";
+    }
+    const { next, effects } = applied;
 
     // 2. Persist (if any), THEN cache the new state. A non-mutating result (e.g. claimSeat's roster, a rejected
     //    command) has no persist but still advances the cache to `next`. Order below: persist → arm/clear alarm → send.
@@ -519,6 +526,7 @@ export class GameRoom extends DurableObject<Env> {
 
     // 5. Drive any agent/eliminated rounds this command unblocked (each round its own persist→send pair).
     await this.driveAgents();
+    return "ok";
   }
 
   /**
