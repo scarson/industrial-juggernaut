@@ -42,8 +42,15 @@ export function TurnOrderCeremony({ rollover }: TurnOrderCeremonyProps) {
   return (
     <ComposerPanel ariaLabel="Turn order draw">
       <ol role="list" aria-label="Turn order" className={listClassName} style={ORDER_LIST_STYLE}>
-        {order.map((seat) => (
-          <li key={seat} role="listitem" data-testid={`turn-order-seat-${seat}`} style={ORDER_ENTRY_STYLE}>
+        {order.map((seat, i) => (
+          <li
+            key={seat}
+            role="listitem"
+            data-testid={`turn-order-seat-${seat}`}
+            // `--i` drives the CSS stagger delay (choreography.css); drawn seats reveal in order.
+            // Cast: custom properties aren't part of the CSSProperties type.
+            style={{ ...ORDER_ENTRY_STYLE, ["--i"]: i } as React.CSSProperties}
+          >
             <PlayerShapeIcon identity={playerIdentity(seat)} size={10} />
             <span>{seat}</span>
             {ironWeights !== null && (
