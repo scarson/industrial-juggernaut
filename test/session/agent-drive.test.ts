@@ -624,23 +624,27 @@ test("smoke: an all-agent game driven purely by driveOneStep reaches terminal �
 });
 
 // ===========================================================================
-// Mid-setup victory: a placeFirstBase can decide the game before every seat
-// has placed (a well-placed first base in a 3+ player game can already control
-// ≥ victoryThreshold iron). applyEntry's placeFirstBase branch reports
-// advanced:false, terminal:null UNCONDITIONALLY (placements never close a
-// round), so the drive/command path would end the game with NO gameOver ever
-// emitted — the plan's B3 obligation, resolved here IN commitEntries via a
-// post-application status() check on placement batches. These tests pin the
-// clinching-placement broadcast (exactly one gameOver, no turnRollover,
-// advanced:false, no snapshot) on both the drive path and the command path.
+// Setup→play boundary victory (DER #18): no victory is decided while phase.turn
+// === 0 (status() returns ongoing during setup — src/engine/status.ts). A first
+// base that already controls ≥ victoryThreshold iron does NOT clinch mid-setup;
+// EVERY seat places, and the FINAL placement — which advances phase.turn to 1
+// (the setup→play transition, src/engine/turn.ts placeFirstBase) — is the first
+// moment a victory can resolve. commitEntries runs a post-application status()
+// check on placement batches, so the boundary placement's DriveResult carries
+// terminal + exactly one gameOver (no turnRollover, no snapshot — placements
+// never close a round). The ONE victory is the DER #14 tie-break over the full
+// board (most iron, then lowest player id), so the transitioning placer need not
+// be the winner. These tests pin the boundary broadcast on both the drive path
+// and the command path.
 // ===========================================================================
 
-describe("mid-setup victory: commitEntries broadcasts gameOver at the clinching placement", () => {
-  // 4p-mixed DEFAULT config, seed 1n: a greedy(aggressive)/greedy(expansionist)/greedy(economic)/heuristic roster
-  // whose SECOND setup placement (seat 1) already controls ≥ victoryThreshold (10) iron — an iron victory decided
-  // after 2 of 4 placements (probed across seeds; seed 1n is representative). The remaining seats can never place
-  // interactively (their placeFirstBase would be GAME_OVER-rejected — session.ts). The all-agent DRIVE path reaches
-  // this via driveOneStep; the command path reaches it when the clinching seat is a HUMAN placing via applyCommand.
+describe("setup→play boundary victory: commitEntries broadcasts gameOver at the setup→play transition", () => {
+  // 4p-mixed DEFAULT config, seed 1n: a greedy(aggressive)/greedy(expansionist)/greedy(economic)/heuristic roster.
+  // All four seats place in id-order [0,1,2,3]; placements 0–2 stay ongoing (turn 0), and the FOURTH placement
+  // advances phase.turn to 1, at which point status() resolves the iron victory over the whole board (winner is
+  // seat 1 by the DER #14 tie-break — the transitioning placer is not necessarily the winner; probed, seed 1n is
+  // representative). The all-agent DRIVE path reaches the boundary via driveOneStep; the command path reaches it
+  // when the LAST-placing seat (seat 3) is a HUMAN placing via applyCommand.
   const agg = (): SeatConfig => ({ kind: "agent", agent: "greedy", archetype: "aggressive" });
   const exp = (): SeatConfig => ({ kind: "agent", agent: "greedy", archetype: "expansionist" });
   const eco = (): SeatConfig => ({ kind: "agent", agent: "greedy", archetype: "economic" });
@@ -657,15 +661,16 @@ describe("mid-setup victory: commitEntries broadcasts gameOver at the clinching 
     };
   }
 
-  test("drive path: the clinching setup placement's DriveResult carries terminal + exactly one gameOver, no turnRollover, no snapshot", () => {
-    // All-agent 4p roster: the drive auto-places each seat via representativeFirstBase until the game is decided.
+  test("drive path: the setup→play transition placement's DriveResult carries terminal + exactly one gameOver, no turnRollover, no snapshot", () => {
+    // All-agent 4p roster: the drive auto-places each seat via representativeFirstBase. Placements 0–2 stay in
+    // setup; the FOURTH placement transitions to play (turn 1) and resolves the victory at that boundary.
     let s = openSession(midSetupHeader([agg(), exp(), eco(), heu()]), DEFAULT_ROOM_OPTIONS);
 
     let clinching: ReturnType<typeof driveOneStep> | null = null;
     let placementsBefore = 0;
     let step = 0;
     while (needsDrive(s) && step < 100) {
-      expect(s.game.phase.turn).toBe(0); // this scenario is decided ENTIRELY within setup — never leaves turn 0
+      expect(s.game.phase.turn).toBe(0); // no victory resolves until the drive LEAVES setup — every pre-boundary step is turn 0
       const r = driveOneStep(s, agentForSeat, { nowEpochMs: 1_000_000 + step, decisionId: `d-${step}` });
       s = r.next;
       step += 1;
@@ -673,25 +678,26 @@ describe("mid-setup victory: commitEntries broadcasts gameOver at the clinching 
       placementsBefore += 1;
     }
 
-    // The game was decided mid-setup — BEFORE all four seats placed (the load-bearing precondition; if a future
-    // board/agent change pushed the victory to the last placement or into play, this scenario would be vacuous).
-    expect(clinching, "the drive must reach a mid-setup terminal").not.toBeNull();
-    expect(placementsBefore, "victory was decided before all 4 seats placed").toBeLessThan(3);
+    // The victory resolves ONLY at the setup→play transition, AFTER all four seats placed (DER #18): the three
+    // pre-boundary placements are non-terminal, so exactly 3 placements precede the terminal fourth. (If a future
+    // board/agent change let the boundary yield no victory, or resolved it earlier, this scenario would be vacuous.)
+    expect(clinching, "the drive must reach a terminal at the setup→play transition").not.toBeNull();
+    expect(placementsBefore, "victory resolves only at the setup→play transition, after ALL seats place").toBe(3);
 
-    // The clinching step is a placeFirstBase that did NOT close a round (advanced:false) yet reported terminal.
+    // The transition step is a placeFirstBase that did NOT close a round (advanced:false) yet reported terminal.
     const put = clinching!.effects.persist!.put;
     const logKeys = Object.keys(put).filter((k) => k.startsWith("log:"));
-    expect(logKeys, "the clinching put carries exactly the placement's log:N").toHaveLength(1);
+    expect(logKeys, "the transition put carries exactly the placement's log:N").toHaveLength(1);
     expect((put[logKeys[0]!] as LogEntry).kind).toBe("placeFirstBase");
     expect(clinching!.advanced, "a placement never closes a round").toBe(false);
     expect(Object.keys(put)).not.toContain(SNAPSHOT_KEY); // NO snapshot — snapshots are round-boundary artifacts
 
     // terminal is the victory status; the broadcast carries EXACTLY ONE gameOver and NO turnRollover.
-    expect(clinching!.terminal, "the DriveResult captured the mid-setup terminal").not.toBeNull();
+    expect(clinching!.terminal, "the DriveResult captured the boundary terminal").not.toBeNull();
     expect(clinching!.terminal!.kind).toBe("victory");
     const gameOvers = clinching!.effects.broadcast.filter((m) => m.type === "gameOver");
-    expect(gameOvers, "exactly one gameOver at the clinching placement").toHaveLength(1);
-    expect(clinching!.effects.broadcast.some((m) => m.type === "turnRollover"), "no turnRollover at a mid-setup victory (placements never advanceRound)").toBe(false);
+    expect(gameOvers, "exactly one gameOver at the setup→play transition placement").toHaveLength(1);
+    expect(clinching!.effects.broadcast.some((m) => m.type === "turnRollover"), "no turnRollover at a boundary victory (placements never advanceRound)").toBe(false);
 
     // winners/cause match an INDEPENDENT status() call on the post-application state.
     const st = status(s.game) as Extract<ReturnType<typeof status>, { kind: "victory" }>;
@@ -704,37 +710,47 @@ describe("mid-setup victory: commitEntries broadcasts gameOver at the clinching 
     expect(needsDrive(s), "terminal → no further drive").toBe(false);
   });
 
-  test("command path: a HUMAN seat's clinching placeFirstBase reply/broadcast carries the gameOver; a later mutating command → GAME_OVER", () => {
-    // Same seed/board, but seat 1 (the clinching seat) is HUMAN placing via applyCommand. Seat 0 places first (via
-    // the drive, mirroring the real host split), then the human's placement clinches the iron victory — the reply
-    // path must surface the gameOver, and the game is then GAME_OVER-locked for every subsequent mutating command.
-    let s = openSession(midSetupHeader([agg(), { kind: "human" }, eco(), heu()]), DEFAULT_ROOM_OPTIONS);
+  test("command path: the LAST-placing HUMAN seat's boundary placeFirstBase reply/broadcast carries the gameOver; a later mutating command → GAME_OVER", () => {
+    // Same seed/board, but the HUMAN is the LAST placer (seat 3), so its applyCommand placement is the one that
+    // crosses the setup→play transition and surfaces the victory. Seats 0–2 (agents) place first via the drive
+    // (mirroring the real host split) — each stays in setup with NO gameOver (DER #18: no victory before the
+    // boundary). The human's boundary placement then resolves the ONE victory via the command/reply path (coverage
+    // distinct from the drive-path test above), and the game is GAME_OVER-locked for every subsequent mutating command.
+    let s = openSession(midSetupHeader([agg(), eco(), heu(), { kind: "human" }]), DEFAULT_ROOM_OPTIONS);
 
-    // Seat 0 (agent) places via the drive — one placement, no victory yet, still setup.
-    expect(currentActor(s)).toBe(0);
-    const seat0 = driveOneStep(s, agentForSeat, { nowEpochMs: 1_000_000, decisionId: "d-0" });
-    expect(seat0.terminal, "seat 0's placement does not yet decide the game").toBeNull();
-    s = seat0.next;
-    expect(s.game.phase.turn).toBe(0); // still setup
-    expect(status(s.game).kind).toBe("ongoing");
+    // Seats 0–2 (agents) place via the drive — three setup placements, NO victory yet, still turn 0 throughout.
+    for (let seat = 0; seat < 3; seat += 1) {
+      expect(currentActor(s)).toBe(seat);
+      const step = driveOneStep(s, agentForSeat, { nowEpochMs: 1_000_000 + seat, decisionId: `d-${seat}` });
+      expect(step.terminal, `agent seat ${seat}'s setup placement does not decide the game (no victory before the boundary)`).toBeNull();
+      expect(step.effects.broadcast.some((m) => m.type === "gameOver"), `no gameOver at agent seat ${seat}'s mid-setup placement`).toBe(false);
+      s = step.next;
+      expect(s.game.phase.turn, "still in setup until the last seat places").toBe(0);
+      expect(status(s.game).kind).toBe("ongoing");
+    }
 
-    // Seat 1 (human) places its first base via applyCommand — the SAME representative hex the drive would pick,
-    // so it clinches the identical iron victory. (legalFirstBaseHexes[0] is not guaranteed the clincher; use the
-    // deterministic representative placement the engine/drive uses.)
-    expect(currentActor(s)).toBe(1);
-    const clinchHex = representativeFirstBase(s.game, 1);
-    const ctx1: CommandCtx = { actingSeat: 1, nowEpochMs: 1_000_000, decisionId: "d-1" };
-    const clinch = applyCommand(s, { type: "placeFirstBase", expectedLogIndex: s.logLength, hex: clinchHex }, ctx1);
+    // Seat 3 (human) places its first base via applyCommand — the SAME deterministic representative hex the drive
+    // would pick. This is the FOURTH/last placement, so it advances phase.turn to 1 and resolves the victory at the
+    // setup→play boundary. (legalFirstBaseHexes[0] is not guaranteed to reproduce the boundary board; use the
+    // representative placement the engine/drive uses.)
+    expect(currentActor(s)).toBe(3);
+    const clinchHex = representativeFirstBase(s.game, 3);
+    const ctx3: CommandCtx = { actingSeat: 3, nowEpochMs: 1_000_000, decisionId: "d-3" };
+    const clinch = applyCommand(s, { type: "placeFirstBase", expectedLogIndex: s.logLength, hex: clinchHex }, ctx3);
 
-    // The placement applied (persist present, one log:N, NO snapshot) and carries the gameOver in its broadcast.
+    // The placement applied (persist present, one log:N, NO snapshot) and crosses to play (turn 1), carrying the
+    // gameOver in its broadcast.
     const put = clinch.effects.persist!.put;
     const logKeys = Object.keys(put).filter((k) => k.startsWith("log:"));
     expect(logKeys).toHaveLength(1);
     expect((put[logKeys[0]!] as LogEntry).kind).toBe("placeFirstBase");
     expect(Object.keys(put)).not.toContain(SNAPSHOT_KEY);
+    expect(clinch.next.game.phase.turn, "the last placement crossed the setup→play boundary").toBe(1);
     const gameOvers = clinch.effects.broadcast.filter((m) => m.type === "gameOver");
-    expect(gameOvers, "the human's clinching placement broadcasts exactly one gameOver").toHaveLength(1);
+    expect(gameOvers, "the human's boundary placement broadcasts exactly one gameOver").toHaveLength(1);
     expect(clinch.effects.broadcast.some((m) => m.type === "turnRollover")).toBe(false);
+    // The ONE victory is the DER #14 tie-break over the whole board — cross-checked against an INDEPENDENT status()
+    // call, NOT hardcoded to seat 3 (the transitioning placer need not be the winner).
     const st = status(clinch.next.game) as Extract<ReturnType<typeof status>, { kind: "victory" }>;
     expect(st.kind).toBe("victory");
     const gameOver = gameOvers[0] as Extract<ServerMessage, { type: "gameOver" }>;
@@ -742,9 +758,9 @@ describe("mid-setup victory: commitEntries broadcasts gameOver at the clinching 
     expect(gameOver.cause).toBe(st.reason);
     s = clinch.next;
 
-    // The game is now over: any subsequent mutating command (e.g. seat 2's placeFirstBase) → GAME_OVER, no state change.
-    const ctx2: CommandCtx = { actingSeat: 2, nowEpochMs: 1_000_000, decisionId: "d-2" };
-    const after = applyCommand(s, { type: "placeFirstBase", expectedLogIndex: s.logLength, hex: legalFirstBaseHexes(s.game)[0]! }, ctx2);
+    // The game is now over: any subsequent mutating command (e.g. seat 2's pass) → GAME_OVER, no state change.
+    const ctx2: CommandCtx = { actingSeat: 2, nowEpochMs: 1_000_000, decisionId: "d-x" };
+    const after = applyCommand(s, { type: "pass", expectedLogIndex: s.logLength }, ctx2);
     expect(after.next).toBe(s); // unchanged
     expect(after.effects.persist).toBeNull();
     expect(after.effects.reply).toHaveLength(1);
