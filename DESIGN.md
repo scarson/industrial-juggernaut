@@ -128,14 +128,14 @@ The per-surface rem scale lands with the first real screens (P1–P3); product-r
 
 Flat by default. The chrome conveys structure through the table's material layering — walnut-800 panels with walnut-700 hairline borders on the walnut-900 body — not floating shadows. Depth is reserved for the board's physicality (pieces sit *on* the map), and the few choreographed set pieces (combat draw, elimination, victory) may use warm, ambient shadow to stage the moment. No cool gray SaaS card-shadows, ever.
 
-Motion follows the same discipline: feedback transitions run 150/200/250ms (`duration.fast/base/slow` in `web/src/design/motion.ts`) with symmetric/enter/exit easings; every animation has a `prefers-reduced-motion` alternative (`prefersReducedMotion()` / `transitionOf()` return honest no-motion values). Choreography exists only at combat/elimination/victory.
+Motion follows the same discipline: feedback transitions run 150/200/250ms (`duration.fast/base/slow` in `web/src/design/motion.ts`) with symmetric/enter/exit easings; every animation has a `prefers-reduced-motion` alternative (`prefersReducedMotion()` / `transitionOf()` return honest no-motion values). Choreography is reserved for the four earned set pieces — combat, elimination, victory, and the turn-order draw — and is realized in `web/src/design/choreography.css`, staged separately from the feedback scale on its own longer timings (360–680ms, ease-out quint/expo). Each moment gets a distinct signature, never one uniform entrance: combat **settles**, elimination **sinks**, victory **rises** with a brief warm brass glow-bloom on its title (`--color-brass-500` at 0.4 alpha) and the winner tokens staggering in, and the turn-order seats stagger down the draw. Every keyframe is transform-led with an opacity floor (never 0), so an animation that never fires (a background tab, a headless render) leaves the honest content at its fully-visible resting state — motion stages the moment, it never gates whether content is visible.
 
 ### Named Rules
 **The Material-Layering Rule.** Elevation is a change of material (a lighter walnut + a hairline), never a drop shadow. If a panel floats, it's off the table.
 
 ## 5. Components
 
-The component vocabulary is young (the P0 shell); these are the committed primitives. All chrome components share the same quiet-instrument character: hard-edged (no radius tokens exist — corners are square), hairline-bordered, UA styling fully reset.
+The component vocabulary now spans the full client — the P0 shell, the P1 SVG board, the P2 designer instrument / all-agent viewer / rules reference, and the P3–P4 interactive play surface (contextual composers, the right-rail HUD, the choreographed set pieces, and the transport-agnostic driver behind live play). All chrome components share the same quiet-instrument character: hard-edged (no radius tokens exist — corners are square), hairline-bordered, UA styling fully reset. The primitives below are the load-bearing ones; the composer/HUD/set-piece families that grew on top of them are described after.
 
 ### Buttons
 - **Shape:** square-cornered, 1px hairline border (`--hairline`, walnut-700). No radius.
@@ -149,10 +149,19 @@ The component vocabulary is young (the P0 shell); these are the committed primit
 
 ### Navigation
 - **Top bar** (`.shell-topbar`): slim, ≤44px (`--layout-topbar-height`), on the table surface: wordmark (Cartouche serif — the title plate), turn/phase chip, seed/config readout in mono, and the Instruments button (brass). 
-- **Right rail:** ONE collapsible complementary landmark (`aria-label="Rail"`); expanded at the wide tier (≥1100px), collapsed behind a `.chrome-button` toggle with `aria-expanded`/`aria-controls` (always-mounted, `hidden`-toggled panel) below it. Routing is an in-house pushState router (4 static routes) — no router dependency.
+- **Right rail:** ONE collapsible complementary landmark (`aria-label="Rail"`); expanded at the wide tier (≥1100px), collapsed behind a `.chrome-button` toggle with `aria-expanded`/`aria-controls` (always-mounted, `hidden`-toggled panel) below it. The shell owns the rail on every route and hosts the game HUD into it via a rail-content context (the game screen publishes its HUD; the rail shows it or a placeholder) — the rail is not a per-screen widget. Routing is an in-house pushState router (4 static routes) — no router dependency.
 
 ### Player Identity Token (signature component)
 `PlayerShapeIcon` (`web/src/identity/shapes.tsx`): a pure SVG primitive rendering a player's identity — color (CSS var fill) + shape (circle/square/triangle/diamond/pentagon/six-point) + pattern overlay (solid/ring/dots/hatch/cross/checker) — sized to a hex cell, positionable on the board via its `center` prop. The triple encoding is the accessibility contract: every place a player is shown, at least shape+color travel together.
+
+### Contextual composers
+The action surface beside the board is ONE composer at a time, resolved from game state (`web/src/composers/`): build, attack, defender prompt, chain-continue, forced-pass, setup placement, and the turn-order ceremony, sharing an extracted `ComposerPanel`/`RuleLine` shell. They wear the working type and the mono face for numbers — never the display serif (the Cartouche Rule); a composer is instrument-panel, not a game moment. The a11y path is each composer's own list of real, keyboard-reachable hex buttons; the SVG board is a reading/pointing surface, not the action path. Combat odds are shown before the draw in mono — honest tension — and rejected commands teach the rule they broke (`explainError` over the full wire error catalog) rather than surfacing a bare code.
+
+### HUD (right-rail instruments)
+The rail's game content: per-player resources, the 36-factory supply gauge, turn tokens, elimination/bounty counts, and a virtualized event log narrating `GameEvent`s (reused from the viewer). It is published INTO the shell rail via the rail-content context, not rendered as its own landmark — one rail, hosting whatever the current screen provides.
+
+### Choreographed set pieces (signature)
+Combat, elimination, victory, and the turn-order draw (`web/src/game/choreography/`, `composers/TurnOrderCeremony.tsx`). Each renders its honest content unconditionally — the committed count and outcome, the eliminated player and cause, the shape-tagged winners, the drawn order with the 2-player iron weighting — set in the Cartouche display serif for the moment's title and the mono face for its numbers. The motion (see Elevation) is additive staging on top of already-visible content, each moment with its own distinct signature, with a `prefers-reduced-motion` static branch. Victory is terminal and persistent; combat and elimination are transient beats dismissed by Continue or superseded by the next authoritative action.
 
 ## 6. Do's and Don'ts
 
