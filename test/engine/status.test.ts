@@ -340,6 +340,22 @@ describe("applyEliminations", () => {
   });
 });
 
+describe("DER #18 setup-phase guard", () => {
+  it("suppresses iron victory during setup (turn 0) but resolves it once play begins (turn 1), same board", () => {
+    const s = mkState({ board: 96, basesP0: [hex(0, 0, 0)], basesP1: [hex(30, -30, 0)], iron: TEN_IRON });
+    const setup = { ...s, phase: { ...s.phase, turn: 0 } };
+
+    expect(status(setup).kind).toBe("ongoing");
+
+    const r = status(s);
+    expect(r.kind).toBe("victory");
+    if (r.kind === "victory") {
+      expect(r.reason).toBe("iron");
+      expect(r.players).toEqual([0]);
+    }
+  });
+});
+
 describe("DER #17 elimination ripple", () => {
   it("B-noIron: radiating p0 whose only iron sits inside non-ally perimeter is eliminated with cause noIron", () => {
     const ironHex = hex(0, 0, 0);

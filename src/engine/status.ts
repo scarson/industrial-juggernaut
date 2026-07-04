@@ -94,6 +94,11 @@ export type Status =
  * (c) Else ongoing.
  */
 export function status(state: GameState): Status {
+  // DER #18: no victory is decided during the setup phase (turn 0). Every seat places
+  // first; the setup→play transition (final placement advances phase.turn to 1) is the
+  // first moment a victory can resolve, so a mid-setup iron majority is not yet terminal.
+  if (state.phase.turn === 0) return { kind: "ongoing" };
+
   const comps = coalitions(state);
   const threshold = state.config.victoryThreshold;
 
