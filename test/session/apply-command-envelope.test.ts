@@ -128,10 +128,12 @@ test("DECISION_PENDING: a mutating command while a decision is pending is reject
 });
 
 test("GAME_OVER: a mutating command after victory is rejected", () => {
-  // Construction: a 2-player fresh session, mark player 1 eliminated on a state copy. With one non-eliminated
+  // Construction: a 2-player game driven THROUGH setup to the play phase (turn ≥1 — DER #18 suppresses any
+  // victory while phase.turn === 0), then mark player 1 eliminated on a state copy. With one non-eliminated
   // coalition left, status() reports last-standing victory (players:[0], reason:"last-standing") — no base
-  // counts needed (verified against src/engine/status.ts §(b)). This is the cheapest legitimate victory.
-  const base = freshSession();
+  // counts needed (verified against src/engine/status.ts §(b)). This is the cheapest legitimate victory: the
+  // terminal state must sit at turn ≥1 for status() to resolve it, so we build it atop completeSetup().
+  const base = completeSetup(freshSession());
   const s: SessionState = {
     ...base,
     game: {
@@ -139,7 +141,7 @@ test("GAME_OVER: a mutating command after victory is rejected", () => {
       players: base.game.players.map((p, i) => (i === 1 ? { ...p, eliminated: true } : p)),
     },
   };
-  const { next, effects } = applyCommand(s, { type: "pass", expectedLogIndex: 0 }, mkCtx(0));
+  const { next, effects } = applyCommand(s, { type: "pass", expectedLogIndex: s.logLength }, mkCtx(0));
 
   expect(next).toBe(s);
   expect(effects.persist).toBeNull();

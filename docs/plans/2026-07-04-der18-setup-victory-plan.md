@@ -55,18 +55,35 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** Not started. Awaiting Sam's confirmation on Phase-1 merge authority (the `REPLAY_VERSION` bump) before execution.
+**Overall:** DER #18 legs 1–2 COMPLETE. **Phase 2** (designer warning) MERGED to `dev` via [#72](https://github.com/scarson/industrial-juggernaut/pull/72) (`2e76cb25`). **Phase 1** (engine turn-0 guard + `REPLAY_VERSION` bump) merging to `dev` via [#71](https://github.com/scarson/industrial-juggernaut/pull/71) — Sam extended the balance-redesign auto-merge authority to this fidelity change on 2026-07-04 after the close-out review + blind gate cleared. (Ship-SHA cells reference the pre-rebase commits; #71 was rebased onto `origin/dev` post-Phase-2 to resolve the shared plan-doc edit, so its on-`dev` commits carry equivalent post-rebase SHAs.)
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
-| 1 — Engine: turn-0 guard + version bump + test remediation | ⬜ Not started | — | Review-class (version bump, winner semantics); Sam-merge-authority decision pending |
-| 2 — Designer degeneracy warning | 🚧 In progress (`fix/der18-designer-warning`) | — | Routine, frontend, independent of Phase 1 (branched off `origin/dev`) |
+| 1 — Engine: turn-0 guard + version bump + test remediation | 🟢 Merging — [#71](https://github.com/scarson/industrial-juggernaut/pull/71) (Sam extended authority) | `0e78ecb5`, `ff080e9e`, `56426ae3`, `e62209dd` (pre-rebase) | Review-class (version bump, winner semantics); close-out clean; blind gate NO BLOCKER |
+| 2 — Designer degeneracy warning | ✅ Merged — [#72](https://github.com/scarson/industrial-juggernaut/pull/72) (`2e76cb25`) | `9f84bee5`, `29346903` | Routine, frontend, independent of Phase 1 |
 
 ### Deviations
-_(none yet)_
+
+- **Task 1.4 test (a) runs at `victoryThreshold: 5`, not the default 10** (commit `56426ae3`). On the default 96/14/radius-5 board a 2P *agent drive* never resolves a boundary iron victory at threshold 10: `representativeFirstBase` lands on a ~5–6-iron hex and two non-allied singletons don't union iron (verified: seeds 1–60 stay ongoing at the 2P boundary). Lowering the threshold to 5 makes seat 0 provably ≥threshold *during setup* — which is a STRONGER test of the DER #18 suppression (the guard demonstrably holds while a qualifier exists) than the design's original "second placement covers ≥10" premise. The suppression mechanism is threshold-independent, so this is faithful. See the Discoveries note on why threshold 10 is unreachable by a 2P drive yet the default is still degenerate.
 
 ### Discoveries
-_(none yet)_
+
+**Task 1.1 — old-timing test audit (confirmed 2026-07-04, branch `fix/der18-setup-victory`).** Re-grepped for drift per Task 1.1 (`reason:`/`cause:`, bare `GAME_OVER`/`last-standing`, and `test/session/` for `freshSession`/`openSession` + `eliminated`). No drift from the plan-review's known set.
+
+- **Confirmed breaker set (guard-driven; to re-express in Task 1.3):**
+  - `test/version.test.ts` — expected; fixed by the Task 1.2 `REPLAY_VERSION` recompute, not by test edits.
+  - `test/session/agent-drive.test.ts` — the "mid-setup victory" describe block. SCENARIO RESTRUCTURE (invert the turn-0/`placementsBefore`/`needsDrive` invariants to the boundary), not an assertion move.
+  - `test/session/apply-command-envelope.test.ts` — the "GAME_OVER: a mutating command after victory is rejected" test. Mechanical fix: build the eliminated-player terminal state on top of the file's `completeSetup(s)` helper so it sits at turn ≥1.
+- **Audit-only (plan-review verified PASS under the guard — do NOT restructure):** `test/session/drive-vs-recordgame.test.ts`, `test/session/record.test.ts`, `test/session/part-a-integration.test.ts`, `test/session/place-first-base-command.test.ts`. These contain `GAME_OVER`/`last-standing`/`eliminated` strings but assert on post-setup states, so they stay green.
+- **Empirical confirmation (Task 1.2 guard run, `0e78ecb5`):** `bun run test` → 2168 passed, **3 failed across exactly 2 files** — no drift, matches the prediction:
+  - `test/session/agent-drive.test.ts` — **2** tests in the "mid-setup victory" block fail: the *drive path* test (line 679: `placementsBefore` reaches 3, not < 3 — the drive now places all 4 seats before resolving) and the *command path* test (line 736: zero `gameOver` in the human's mid-setup placement broadcast). The third test in that block (2p non-victory placement) stays GREEN. Task 1.3 must re-express BOTH failing tests + rewrite the block's obsolete header comment (lines 626-636).
+  - `test/session/apply-command-envelope.test.ts` — the "GAME_OVER after victory" test (line 150: got `SETUP_PLACEMENT_REQUIRED`, expected `GAME_OVER`).
+  - `test/version.test.ts` — already green (fixed by the Task 1.2 `REPLAY_VERSION` recompute `dadb040bd8d6546e` → `29568541c4550281`).
+  - Audit-only set confirmed green under the guard (no restructure needed).
+
+**Coverage-distribution finding (controller probe, 2026-07-04) — reconciles the "instant-win" premise with the outer-ring restriction; load-bearing for Phase 2.** First bases are OUTER-RING-restricted (`placeFirstBase` validates `ringDepthFromEdge === 0`, `src/engine/turn.ts:117`); the design's "single radius-5 disk covers ≥10 of 14 iron" and the ruling's "DER #6 free placement" language describe the free-placement *analysis* regime, not the shipped setup command. Probing the default config (96/14/radius5) over ALL 32 outer-ring hexes: **max single-base iron coverage is 10–11, with 1–3 hexes ≥10 on every seed tested (1,2,3,4,7,42).**
+  - So the instant-win IS reachable via the shipped engine — a player who *chooses* a max-coverage ring hex wins during setup — but `representativeFirstBase` (what a drive picks) usually lands on a ~5–6-iron hex, which is why a 2P drive never clinches at threshold 10 (the Task 1.4 (a) deviation) yet a 4P drive occasionally does (some seat lands on a degenerate hex). This validates DER #18's necessity: the bug is a real, human-reachable setup victory.
+  - **Phase 2 consequence:** the degeneracy predicate must enumerate `legalFirstBaseHexes` (outer-ring) and take the **MAX** coverage — which is exactly 10 = `victoryThreshold` on most default seeds → the warning fires. The `≥` comparison (not `>`) is load-bearing since max often EQUALS threshold. Clean-config test cases (threshold ≥12, radius ≤4, size ≥120) must push the max strictly below 10–11; the Phase 2 implementer MUST verify each clean case empirically rather than assume.
 
 ## Merge authority (decide before executing Phase 1)
 
@@ -76,7 +93,9 @@ Phase 1 carries a `REPLAY_VERSION` bump (replay-compat blast radius) and changes
 
 ## Phase 1 — Engine: turn-0 guard, version bump, test remediation
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** 🔵 PR OPEN — [#71](https://github.com/scarson/industrial-juggernaut/pull/71), awaiting Sam's merge-authority decision. Tasks 1.1–1.4 COMPLETE; full root suite GREEN (2176 passed), typecheck clean. Commits: 1.2 guard+version `0e78ecb5`, 1.3 test re-expression `ff080e9e`, 1.4 new semantics tests `56426ae3`, close-out comment fix `e62209dd`.
+
+**Close-out (2026-07-04):** author 3-lens review (spec-faithfulness / test-remediation integrity / version-bump + guard-correctness) — all clear. Blind adversarial merge gate (fresh subagent, no prior context) — **NO BLOCKER FOUND**: independently drove 280 full games (7 rosters × 40 seeds, 2P–6P) with 0 failures / exactly one gameOver per game / none mid-setup / no stall; verified assertion integrity (count rose 37→39) via a sensitivity mutation; confirmed the version hash isn't hand-faked and `turn===0 ⇔ setup`. The gate's one minor finding (stale "mid-setup victory" comment in `agent-drive.ts`) fixed in `e62209dd`. **Gate ran on opus, not the usual Fable tier — Fable 5 was unavailable (monthly spend limit); cross-model diversity reduced, fresh-context adversarial framing preserved.**
 
 **Why this matters:** the Living Document Contract (above) comes from `/writing-plans-enhanced` Step 5 — keep the banners current so a follow-up dispatch reads state instead of reconstructing it.
 

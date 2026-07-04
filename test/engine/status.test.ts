@@ -340,6 +340,22 @@ describe("applyEliminations", () => {
   });
 });
 
+describe("DER #18 setup-phase guard", () => {
+  it("suppresses iron victory during setup (turn 0) but resolves it once play begins (turn 1), same board", () => {
+    const s = mkState({ board: 96, basesP0: [hex(0, 0, 0)], basesP1: [hex(30, -30, 0)], iron: TEN_IRON });
+    const setup = { ...s, phase: { ...s.phase, turn: 0 } };
+
+    expect(status(setup).kind).toBe("ongoing");
+
+    const r = status(s);
+    expect(r.kind).toBe("victory");
+    if (r.kind === "victory") {
+      expect(r.reason).toBe("iron");
+      expect(r.players).toEqual([0]);
+    }
+  });
+});
+
 describe("DER #17 elimination ripple", () => {
   it("B-noIron: radiating p0 whose only iron sits inside non-ally perimeter is eliminated with cause noIron", () => {
     const ironHex = hex(0, 0, 0);
@@ -364,5 +380,115 @@ describe("DER #17 elimination ripple", () => {
     // (controlled factories = 0 < 1), and p0 has 1 legit iron, so it is NOT eliminated.
     const { events } = applyEliminations(s, null);
     expect(events.some((e) => e.kind === "eliminated" && e.player === 0)).toBe(false);
+  });
+});
+
+// ===========================================================================
+// DER #18 boundary resolution (turn 1): once the setup→play transition lands
+// (phase.turn === 1, mkState's default), status() resolves the ONE victory over
+// the whole board via the DER #14 tie-break — among coalitions >= victoryThreshold
+// iron, the winner is the coalition with the MOST iron, ties broken by the LOWEST
+// player id. These are pure status() unit tests over hand-crafted boundary states
+// (mkState does not ring-validate, so bases sit at arbitrary hexes with iron set
+// directly). Two singleton, non-allied players hold DISJOINT iron clusters, each
+// within radius 5 of its own base and > radius 5 from the other's, so control is
+// clean (a single base radiates its full disk; no DER #17 perimeter effect with
+// <=1 base each). Iron counts are asserted explicitly via coalitionIron so each
+// fixture is self-documenting; coordinates were generated + verified to give the
+// exact stated counts with zero cluster overlap.
+// ===========================================================================
+
+// P0's cluster: 11 distinct hexes within cube-distance 5 of P0_BASE and > 5 from
+// P1_BASE (slice to 10 for the most-iron and winner-flip cases; all 11 for the tie).
+const P0_BASE = hex(1, 3, -4);
+const P0_IRON_11 = [
+  hex(-4, 3, 1), hex(-4, 4, 0), hex(-4, 5, -1), hex(-4, 6, -2), hex(-4, 7, -3),
+  hex(-4, 8, -4), hex(-3, 8, -5), hex(-2, 8, -6), hex(-1, 8, -7), hex(0, 8, -8),
+  hex(1, 8, -9),
+];
+// P1's cluster: 11 distinct hexes within cube-distance 5 of P1_BASE and > 5 from P0_BASE.
+const P1_BASE = hex(2, 2, -4);
+const P1_IRON_11 = [
+  hex(2, -3, 1), hex(3, -3, 0), hex(4, -3, -1), hex(5, -3, -2), hex(6, -3, -3),
+  hex(7, -3, -4), hex(7, -2, -5), hex(7, -1, -6), hex(7, 0, -7), hex(7, 1, -8),
+  hex(7, 2, -9),
+];
+
+describe("DER #18 boundary tie-break + winner-flip", () => {
+  const cfg = () => ({ ...defaultConfig(), victoryThreshold: 10 });
+
+  it("tie-break among qualifiers: two players both >= threshold with DIFFERENT iron => most iron wins (higher-iron player)", () => {
+    // P0 controls 10 (its 11-hex cluster sliced to 10); P1 controls all 11 of its cluster.
+    // Both clear the threshold (10), so the DER #14 tie-break decides: MOST iron wins.
+    const s = mkState({
+      board: 96,
+      basesP0: [P0_BASE],
+      basesP1: [P1_BASE],
+      iron: [...P0_IRON_11.slice(0, 10), ...P1_IRON_11],
+      config: cfg(),
+    });
+    // Self-documenting: both qualify (>= 10), P1 has strictly more.
+    expect(coalitionIron(s, [0])).toBe(10);
+    expect(coalitionIron(s, [1])).toBe(11);
+    const r = status(s);
+    expect(r.kind).toBe("victory");
+    if (r.kind === "victory") {
+      expect(r.reason).toBe("iron");
+      expect(r.players).toEqual([1]); // most iron, NOT lowest id — the counts differ
+    }
+  });
+
+  it("tie-break among qualifiers: two players with EQUAL iron >= threshold => lowest player id wins the tie", () => {
+    // P0 and P1 each control 11 (disjoint clusters). Equal iron, both >= threshold =>
+    // the DER #14 tie-break falls through to the LOWEST player id.
+    const s = mkState({
+      board: 96,
+      basesP0: [P0_BASE],
+      basesP1: [P1_BASE],
+      iron: [...P0_IRON_11, ...P1_IRON_11],
+      config: cfg(),
+    });
+    expect(coalitionIron(s, [0])).toBe(11);
+    expect(coalitionIron(s, [1])).toBe(11);
+    const r = status(s);
+    expect(r.kind).toBe("victory");
+    if (r.kind === "victory") {
+      expect(r.reason).toBe("iron");
+      expect(r.players).toEqual([0]); // equal counts => lowest id
+    }
+  });
+
+  it("DER #18 winner-flip: the boundary picks the higher-iron answerer, not the first-clincher", () => {
+    // The semantic change DER #18 introduces, pinned as a regression test.
+    //
+    // OLD (first-clinch) semantics: during setup, the FIRST player to reach the iron
+    // threshold ended the game and won AT ITS OWN placement — here P0, reaching exactly
+    // 10, would have clinched and won before P1 ever answered.
+    //
+    // DER #18 semantics: NO victory resolves during setup (phase.turn === 0). Every seat
+    // places; the setup→play transition (phase.turn -> 1) is the FIRST moment status()
+    // resolves, and it resolves over the WHOLE board via the DER #14 tie-break. So P1's
+    // answering 11 (> P0's 10) takes the win — the winner FLIPS from P0 to P1.
+    //
+    // Base hexes are the design's near-center coords (1,3,-4)/(2,2,-4); mkState does not
+    // ring-validate, and it is the 10-vs-11 iron counts (verified below) that decide.
+    const s = mkState({
+      board: 96,
+      basesP0: [P0_BASE],
+      basesP1: [P1_BASE],
+      iron: [...P0_IRON_11.slice(0, 10), ...P1_IRON_11],
+      config: cfg(),
+    });
+    // P0 clinches exactly the threshold; P1 answers with one more. (Empirically confirmed.)
+    expect(coalitionIron(s, [0])).toBe(10);
+    expect(coalitionIron(s, [1])).toBe(11);
+    const r = status(s);
+    expect(r.kind).toBe("victory");
+    if (r.kind === "victory") {
+      expect(r.reason).toBe("iron");
+      // The boundary resolves to P1 (the higher-iron answerer) — NOT P0, who under the
+      // old first-clinch rule would have won at its own setup placement.
+      expect(r.players).toEqual([1]);
+    }
   });
 });
