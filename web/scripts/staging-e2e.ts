@@ -61,6 +61,16 @@ function redactSeatTokens(seatTokens: readonly (string | null)[]): string {
   return `[${marks.join(", ")}]`;
 }
 
+/**
+ * Strip any `token=<value>` occurrence from a string before it is logged — defense in depth for the ONE
+ * catch-all (`UNEXPECTED`) that prints a raw error stack. No normal path routes the ws URL into an error,
+ * but a stack from an unforeseen throw could carry `?token=…`; this rewrites the value to `token=<redacted>`
+ * so the credential can never reach the log even through a path this script did not anticipate.
+ */
+function stripToken(text: string): string {
+  return text.replace(/token=[^&\s"')]+/gi, "token=<redacted>");
+}
+
 /** The ws(s) URL for a room+seat+token (token URL-encoded, exactly as the SocketDriver builds it). */
 function wsUrl(host: string, roomId: string, seat: number, token: string): string {
   const scheme = host.startsWith("https:") ? "wss:" : "ws:";
@@ -75,7 +85,16 @@ function wsUrl(host: string, roomId: string, seat: number, token: string): strin
 async function playOneRound(url: string): Promise<ServerMessage[]> {
   return new Promise<ServerMessage[]>((resolve, reject) => {
     const transcript: ServerMessage[] = [];
-    const ws = new WebSocket(url);
+    // `url` carries `?token=<seat token>`. A malformed URL makes the WebSocket constructor throw a
+    // SyntaxError whose message/stack embeds the whole URL — the token with it. Catch that here and reject
+    // with a token-FREE message so the credential can never reach the error log (it never leaves this scope).
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(url);
+    } catch (err) {
+      reject(new InfraError(`could not open the socket: ${(err as Error).name}`));
+      return;
+    }
 
     let placed = false;
     let settled = false;
@@ -213,6 +232,6 @@ main().catch((err: unknown) => {
     console.error(`staging-e2e: INFRA (staging unreachable/transient) — ${err.message}`);
     process.exit(2);
   }
-  console.error(`staging-e2e: UNEXPECTED — ${(err as Error).stack ?? String(err)}`);
+  console.error(`staging-e2e: UNEXPECTED — ${stripToken((err as Error).stack ?? String(err))}`);
   process.exit(3);
 });
