@@ -375,6 +375,18 @@ The broken-perimeter death clock (`applyEliminations`, cause `brokenPerimeterAt1
 
 ---
 
+### WEB-5: A Version-Mismatch Loop-Guard Marker Must Clear on the Server's Compatibility Verdict (First `sync`/`resync`), Never on Transport `connection:"open"`
+
+**The Flaw:** The reload guard (`web/src/game/reload-guard.ts`) sets a `sessionStorage` marker on the first version-mismatch reload so a persistent mismatch shows the manual-refresh notice instead of reloading forever. A "fix" cleared that marker when the connection reached `connection:"open"`, reasoning that a healthy handshake means the mismatch resolved. But `"open"` is **transport-level**: the SocketDriver emits it in `sock.onopen` the instant the WebSocket upgrade completes (`socket-driver.ts` ~L141), BEFORE it sends `hello` and long before the server replies with its `reload`-vs-`resync` verdict. On a persistent mismatch the per-load event order is `open` → (round-trip) → `connection:"reload-required"`, with NO intervening `sync`. Clearing on `open` wipes the marker a tick before `reload-required` arrives, so `handleReload` sees no marker → reloads again → infinite loop. An empirical probe confirmed `reloadFn` fires on load 2.
+
+**Why It Matters:** The failure is invisible to a mount-only test: the clear-on-open unit and integration tests passed (they pushed `connection:"open"` and asserted the marker gone — the wrong assertion), because they never modeled the real `open`-then-`reload-required` ordering. The bug only manifests against a live host emitting the true sequence — exactly the case the guard exists to survive — turning a one-time reload into a hard reload loop that locks the user out of the app entirely. This is the P4 reload guard's whole reason to exist, defeated by clearing on the wrong signal.
+
+**The Fix:** Never clear the marker within a page-load cycle (it clears naturally when the tab/session ends — `sessionStorage` semantics). This satisfies the spec ("reload at most once per page load") and fails safe: a rare second-deploy-in-one-tab mismatch shows the manual-refresh notice rather than looping. If auto-reload on that second mismatch is ever wanted (a pre-users nicety, deferred as YAGNI), clear the marker on the first `sync`/`resync` — the server's *actual* compatibility verdict, which by construction arrives only when the versions match — NEVER on transport `open`.
+
+**The Lesson:** "Connection healthy" is not one event — it is a transport-open followed by an application-level handshake verdict, and they can disagree (open succeeds, then the server says reload). A guard keyed on the earlier, weaker signal acts before the truth is known. When a signal gates a safety mechanism, verify *when it fires relative to the decision it depends on* by reading the emitter's real order (here `socket-driver.ts`'s `onopen` vs. its `onmessage` pump), not by its intuitive name — and model that ordering in the test, or the test rubber-stamps the bug.
+
+---
+
 ### Review Checklist
 
 - [ ] **Every utility-class pair expected to compose has an explicit compound-selector override in `tokens.css`** — never rely on stylesheet source order to resolve an equal-specificity collision (WEB-1)
@@ -384,6 +396,7 @@ The broken-perimeter death clock (`applyEliminations`, cause `brokenPerimeterAt1
 - [ ] **Any client-side re-derivation of an engine rule (eligibility, legality, scoring) names the exact invariant that makes it equivalent to the engine's real logic, and the exact remediation if that invariant breaks** — an unflagged re-derivation that's merely coincidentally correct today is a latent bug, not correct code (WEB-2)
 - [ ] **No inline-style object mixes a `border` shorthand with a `borderColor`/`borderWidth`/`borderStyle` longhand override; new components verified console-clean across a re-render that *removes* an emphasis (raise-then-lower, focus-then-blur), not just on mount** — the warning is invisible to static jsdom tests (WEB-3)
 - [ ] **Adding a SECOND dynamic importer of a lazy-only module (`src/wire`/`src/agent`) requires the bundle guard to classify eager by static-import reachability from entries — NOT the `!dynamicallyImported` proxy** — Rollup hoists the twice-imported module into a shared chunk that is lazy but not a dynamic entry; when `check:bundle` reddens, first confirm the entry chunk actually carries the module (grep the built `index-*.js`; inspect `.bundle-modules.json` by source path) before touching the gate or the code (WEB-4)
+- [ ] **A version-mismatch / reload loop-guard marker is cleared (if at all) on the server's compatibility verdict — the first `sync`/`resync` — NEVER on transport `connection:"open"`** — `open` fires on the WebSocket upgrade, before the server decides reload-vs-resync, so clearing on `open` wipes the marker a tick before `reload-required` arrives and reloads forever; the current guard never clears within a page-load cycle (fails safe to the manual-refresh notice), and any test must model the real `open` → `reload-required` order or it rubber-stamps the loop (WEB-5)
 
 ---
 
@@ -415,6 +428,10 @@ Pitfalls that arise when a session dispatches parallel subagents and consolidate
 <!-- ## YYYY-MM-DD — <event> -->
 <!-- - Added PREFIX-N (<title>) — <what and why> -->
 <!-- - Updated PREFIX-M — <what changed> -->
+
+## 2026-07-04 — P4 reload-guard clear-on-open finding
+
+- Added WEB-5 (A Version-Mismatch Loop-Guard Marker Must Clear on the Server's Compatibility Verdict, Never on Transport `connection:"open"`) to Section 4 — a P4 "fix" cleared the reload-guard `sessionStorage` marker on `connection:"open"`, reintroducing the infinite reload loop the marker exists to prevent: `"open"` is transport-level (emitted on the WebSocket upgrade in `socket-driver.ts` `onopen`, before the server's reload-vs-resync verdict), so on a persistent mismatch the per-load order is `open` → `reload-required` and clearing on `open` wipes the marker a tick before `reload-required` arrives. Caught by a blind follow-up review with an empirical probe (reloadFn fired on load 2); the clear-on-open code was reverted to the original never-clear behavior (reloads at most once per page load, fails safe to the manual-refresh notice). Clear-on-first-`sync` (the server's real verdict) would be safe but only buys an auto-reload on a rare second-deploy-in-one-tab mismatch — deferred as an unneeded pre-users nicety (YAGNI). Also backfilled the WEB-4 registry row (present in the entries + checklist since its own commit, missing from the registry table).
 
 ## 2026-07-03 — Web client cascade-composition finding
 
@@ -469,6 +486,8 @@ Pitfalls that arise when a session dispatches parallel subagents and consolidate
 | WEB-1 | Equal-Specificity Utility Composition Is Decided by Source Order, Not Intent | HIGH | VALIDATED | Web Client (CSS/design-system) |
 | WEB-2 | Client-Side Re-Derivation of Engine Eligibility Is Safe Only Under the Singleton-Alliance Invariant | MEDIUM | VALIDATED | Web Client (CSS/design-system) |
 | WEB-3 | A `border` Shorthand + `borderColor` Longhand in One Inline-Style Object Warns on Re-Render — Invisible to Static Tests | MEDIUM | VALIDATED | Web Client (CSS/design-system) |
+| WEB-4 | A Module Imported by Two Dynamic Chunks Becomes a Shared Chunk the `!dynamicallyImported` Bundle-Guard Proxy False-Flags as Eager | MEDIUM | VALIDATED | Web Client (CSS/design-system) |
+| WEB-5 | A Version-Mismatch Loop-Guard Marker Must Clear on the Server's Compatibility Verdict (First `sync`/`resync`), Never on Transport `connection:"open"` | HIGH | VALIDATED | Web Client (CSS/design-system) |
 | ORCH-1 | Analysis Dispatches Must Persist Findings | HIGH | VALIDATED | Orchestration |
 
 Severity levels: `CRITICAL` (production data loss / security), `HIGH` (correctness bug under predictable conditions), `MEDIUM` (correctness bug under edge cases), `LOW` (cleanliness / clarity).
