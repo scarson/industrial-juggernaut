@@ -45,6 +45,9 @@ export interface NewGameProps {
   readonly onStartOnline?: (payload: StartOnlinePayload) => void;
   /** A create-room failure to surface on the online action (e.g. the host's 400 message). */
   readonly onlineError?: string | null;
+  /** True while an online start is in flight (the createRoom POST is pending): disables BOTH start
+   *  actions so a second start can't launch a duplicate room while the first is resolving. */
+  readonly startPending?: boolean;
   /** Fork entry point (UI brief §7): pre-fills the knobs from a running game's config. */
   readonly initialConfig?: RuleConfig;
 }
@@ -67,7 +70,7 @@ type BoardMode = "generate" | "fixed";
  * hairline-separated knob clusters, and the ONE brass-filled Start (the Brass Budget). Emphatically
  * not a SaaS settings form — knob groups read as instrument clusters, never a card grid.
  */
-export function NewGame({ onStart, onStartOnline, onlineError, initialConfig }: NewGameProps) {
+export function NewGame({ onStart, onStartOnline, onlineError, startPending = false, initialConfig }: NewGameProps) {
   const [config, setConfig] = useState<RuleConfig>(() =>
     initialConfig ? cloneConfig(initialConfig) : defaultConfig(),
   );
@@ -171,7 +174,7 @@ export function NewGame({ onStart, onStartOnline, onlineError, initialConfig }: 
         <button
           type="button"
           className="chrome-button brass-accent-bg"
-          disabled={!canStart}
+          disabled={!canStart || startPending}
           onClick={handleStart}
         >
           Start
@@ -180,7 +183,7 @@ export function NewGame({ onStart, onStartOnline, onlineError, initialConfig }: 
           <button
             type="button"
             className="chrome-button"
-            disabled={!canStartOnline}
+            disabled={!canStartOnline || startPending}
             onClick={handleStartOnline}
           >
             Play online

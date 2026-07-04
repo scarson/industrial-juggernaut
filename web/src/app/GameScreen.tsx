@@ -192,6 +192,22 @@ export function GameScreen({
   const [started, setStarted] = useState<StartedGame | null>(header ? { mode: "local", header } : null);
   // A create-room failure surfaced back on the designer (the online action's async error path).
   const [onlineError, setOnlineError] = useState<string | null>(null);
+  // True while a createRoom POST is in flight — disables BOTH start actions so no second start can launch.
+  const [onlinePending, setOnlinePending] = useState(false);
+  // A monotonically-increasing id stamping each online-start attempt. The async resolve bails if the id
+  // it captured is no longer current (a superseded or unmounted start), so a stale/late response can't
+  // mount a driver or clobber state. Bumped on unmount (below) to invalidate any request still in flight.
+  const startIdRef = useRef(0);
+  useEffect(() => () => void (startIdRef.current += 1), []);
+
+  function handleStartOnline(payload: StartOnlinePayload) {
+    if (onlinePending) return; // an in-flight start is already running; ignore a repeat click
+    const myStartId = (startIdRef.current += 1);
+    const isCurrent = () => startIdRef.current === myStartId;
+    setOnlineError(null);
+    setOnlinePending(true);
+    void startOnlineGame(payload, createRoomFn, isCurrent, setStarted, setOnlineError, setOnlinePending);
+  }
 
   if (started === null) {
     // The `/game` entry flow: the NewGame designer IS the pre-game screen. `onStart` starts a LOCAL
@@ -199,11 +215,9 @@ export function GameScreen({
     return (
       <NewGame
         onStart={(h) => setStarted({ mode: "local", header: h })}
-        onStartOnline={(payload) => {
-          setOnlineError(null);
-          void startOnlineGame(payload, createRoomFn, setStarted, setOnlineError);
-        }}
+        onStartOnline={handleStartOnline}
         onlineError={onlineError}
+        startPending={onlinePending}
       />
     );
   }
@@ -235,15 +249,22 @@ function defaultReloadFn(): void {
  * Create the room for an online game, then start it. On success the resolved `{ roomId, seatTokens }` is
  * paired with the creator's ONE human seat (the first — and, per the one-human gate, only — human seat)
  * and its token into the `online` StartedGame. A `createRoom` failure surfaces its message on the designer.
+ *
+ * `isCurrent` gates EVERY state write: if this attempt was superseded (a later start) or the screen
+ * unmounted while the POST was in flight, a late response is IGNORED — it can neither mount a driver nor
+ * clobber state. `setPending` is always cleared (when still current) so the start actions re-enable.
  */
 async function startOnlineGame(
   payload: StartOnlinePayload,
   createRoomFn: CreateRoomFn,
+  isCurrent: () => boolean,
   setStarted: (g: StartedGame) => void,
   setError: (message: string) => void,
+  setPending: (pending: boolean) => void,
 ): Promise<void> {
   try {
     const { roomId, seatTokens } = await createRoomFn(payload.request);
+    if (!isCurrent()) return; // superseded/unmounted while the POST was in flight — drop the stale result
     const seat = payload.request.seats.findIndex((s) => s.kind === "human");
     const token = seat >= 0 ? seatTokens[seat] : null;
     if (seat < 0 || token == null) {
@@ -254,7 +275,10 @@ async function startOnlineGame(
     }
     setStarted({ mode: "online", header: payload.header, connection: { roomId, seat, token } });
   } catch (err) {
+    if (!isCurrent()) return; // a stale failure must not surface an error on a screen that moved on
     setError(err instanceof Error ? err.message : "Could not create the online game.");
+  } finally {
+    if (isCurrent()) setPending(false); // re-enable the start actions once THIS attempt settles
   }
 }
 

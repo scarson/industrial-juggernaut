@@ -115,6 +115,102 @@ describe("GameScreen — live path drives the same store/composers", () => {
   });
 });
 
+describe("GameScreen — online-start in-flight guard", () => {
+  /** A create-room stub whose promise is held OPEN until the test resolves it, so a request can be kept
+   *  pending across multiple clicks. Records how many times it was called. */
+  function deferredCreateRoom(): {
+    fn: (req: CreateRoomRequest) => Promise<CreateRoomResult>;
+    calls: () => number;
+    resolve: (result: CreateRoomResult) => void;
+  } {
+    let calls = 0;
+    let resolveInner: (result: CreateRoomResult) => void = () => {};
+    const fn = (_req: CreateRoomRequest): Promise<CreateRoomResult> => {
+      calls += 1;
+      return new Promise<CreateRoomResult>((res) => {
+        resolveInner = res;
+      });
+    };
+    return { fn, calls: () => calls, resolve: (result) => resolveInner(result) };
+  }
+
+  test("a second online-start click while the first POST is pending does NOT issue a second createRoom", async () => {
+    const user = userEvent.setup();
+    const deferred = deferredCreateRoom();
+    const createOnlineDriver = (): GameDriver =>
+      makeFakeDriver({ snapshot: setupState(), roster: fixtureRoster(), controllableSeats: [0] });
+
+    render(
+      <RailContentProvider>
+        <GameScreen createRoomFn={deferred.fn} createOnlineDriver={createOnlineDriver} />
+        <RailContentOutlet placeholder={<p>rail placeholder</p>} />
+      </RailContentProvider>,
+    );
+
+    await user.selectOptions(screen.getByLabelText("Seat 2 kind"), "heuristic");
+    const online = screen.getByRole("button", { name: /play online/i });
+    await user.click(online); // first click: POST is now pending (deferred, never resolves here)
+    await user.click(online); // second click while pending must be a no-op
+
+    expect(deferred.calls()).toBe(1);
+  });
+
+  test("both Start and Play online are disabled while an online start is pending", async () => {
+    const user = userEvent.setup();
+    const deferred = deferredCreateRoom();
+    const createOnlineDriver = (): GameDriver =>
+      makeFakeDriver({ snapshot: setupState(), roster: fixtureRoster(), controllableSeats: [0] });
+
+    render(
+      <RailContentProvider>
+        <GameScreen createRoomFn={deferred.fn} createOnlineDriver={createOnlineDriver} />
+        <RailContentOutlet placeholder={<p>rail placeholder</p>} />
+      </RailContentProvider>,
+    );
+
+    await user.selectOptions(screen.getByLabelText("Seat 2 kind"), "heuristic");
+    await user.click(screen.getByRole("button", { name: /play online/i }));
+
+    // While the POST is pending, no second start can launch: BOTH actions are disabled.
+    await waitFor(() => expect(screen.getByRole("button", { name: /play online/i })).toBeDisabled());
+    expect(screen.getByRole("button", { name: /^start$/i })).toBeDisabled();
+  });
+
+  test("a stale response that resolves after the screen advanced does not mount a driver / clobber state", async () => {
+    const user = userEvent.setup();
+    const deferred = deferredCreateRoom();
+    let onlineDriverCalls = 0;
+    const createOnlineDriver = (): GameDriver => {
+      onlineDriverCalls += 1;
+      return makeFakeDriver({ snapshot: setupState(), roster: fixtureRoster(), controllableSeats: [0] });
+    };
+
+    function Harness({ inGame }: { inGame: boolean }) {
+      return (
+        <RailContentProvider>
+          {inGame ? <GameScreen createRoomFn={deferred.fn} createOnlineDriver={createOnlineDriver} /> : null}
+          <RailContentOutlet placeholder={<p>rail placeholder</p>} />
+        </RailContentProvider>
+      );
+    }
+
+    const { rerender } = render(<Harness inGame={true} />);
+    await user.selectOptions(screen.getByLabelText("Seat 2 kind"), "heuristic");
+    await user.click(screen.getByRole("button", { name: /play online/i })); // POST pending
+
+    // The screen advances away (navigation) BEFORE the POST resolves — the in-flight request is now stale.
+    rerender(<Harness inGame={false} />);
+
+    // The late response arrives. It must be ignored: no driver is mounted, no state is set on the gone tree.
+    await act(async () => {
+      deferred.resolve({ roomId: "room-stale", seatTokens: ["tok", null] });
+      await Promise.resolve();
+    });
+
+    expect(onlineDriverCalls).toBe(0);
+  });
+});
+
 describe("GameScreen — reload-guard on connection:reload-required", () => {
   /** Mount a live game with an injected store + fake driver, plus injected reloadFn + storage for the guard. */
   function renderLiveWithGuard(storage: Pick<Storage, "getItem" | "setItem" | "removeItem">, reloadFn: () => void) {
