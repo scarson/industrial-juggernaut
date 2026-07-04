@@ -74,7 +74,11 @@ _(none yet)_
   - `test/session/agent-drive.test.ts` — the "mid-setup victory" describe block. SCENARIO RESTRUCTURE (invert the turn-0/`placementsBefore`/`needsDrive` invariants to the boundary), not an assertion move.
   - `test/session/apply-command-envelope.test.ts` — the "GAME_OVER: a mutating command after victory is rejected" test. Mechanical fix: build the eliminated-player terminal state on top of the file's `completeSetup(s)` helper so it sits at turn ≥1.
 - **Audit-only (plan-review verified PASS under the guard — do NOT restructure):** `test/session/drive-vs-recordgame.test.ts`, `test/session/record.test.ts`, `test/session/part-a-integration.test.ts`, `test/session/place-first-base-command.test.ts`. These contain `GAME_OVER`/`last-standing`/`eliminated` strings but assert on post-setup states, so they stay green.
-- **Empirical confirmation deferred to Task 1.2:** the guard run will produce the ground-truth failing set; if it diverges from the above, the new file(s) get added here and treated in Task 1.3.
+- **Empirical confirmation (Task 1.2 guard run, `0e78ecb5`):** `bun run test` → 2168 passed, **3 failed across exactly 2 files** — no drift, matches the prediction:
+  - `test/session/agent-drive.test.ts` — **2** tests in the "mid-setup victory" block fail: the *drive path* test (line 679: `placementsBefore` reaches 3, not < 3 — the drive now places all 4 seats before resolving) and the *command path* test (line 736: zero `gameOver` in the human's mid-setup placement broadcast). The third test in that block (2p non-victory placement) stays GREEN. Task 1.3 must re-express BOTH failing tests + rewrite the block's obsolete header comment (lines 626-636).
+  - `test/session/apply-command-envelope.test.ts` — the "GAME_OVER after victory" test (line 150: got `SETUP_PLACEMENT_REQUIRED`, expected `GAME_OVER`).
+  - `test/version.test.ts` — already green (fixed by the Task 1.2 `REPLAY_VERSION` recompute `dadb040bd8d6546e` → `29568541c4550281`).
+  - Audit-only set confirmed green under the guard (no restructure needed).
 
 ## Merge authority (decide before executing Phase 1)
 
@@ -84,7 +88,7 @@ Phase 1 carries a `REPLAY_VERSION` bump (replay-compat blast radius) and changes
 
 ## Phase 1 — Engine: turn-0 guard, version bump, test remediation
 
-**Execution Status:** 🚧 IN PROGRESS — branch `fix/der18-setup-victory`, claimed 2026-07-04. Task 1.1 (audit) confirmed; see Discoveries.
+**Execution Status:** 🚧 IN PROGRESS — branch `fix/der18-setup-victory`, claimed 2026-07-04. Task 1.1 (audit) confirmed; Task 1.2 (guard + `REPLAY_VERSION` bump + new engine test) shipped `0e78ecb5` — suite intentionally red on the 3 breakers pending Task 1.3. See Discoveries.
 
 **Why this matters:** the Living Document Contract (above) comes from `/writing-plans-enhanced` Step 5 — keep the banners current so a follow-up dispatch reads state instead of reconstructing it.
 
