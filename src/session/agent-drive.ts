@@ -158,10 +158,12 @@ export function commitEntries(s: SessionState, entries: LogEntry[]): DriveResult
       broadcast.push({ type: "turnRollover", order: game.phase.order, ironWeights });
     }
   } else if (terminal === null && entries.some((e) => e.kind === "placeFirstBase")) {
-    // Mid-setup victory: applyEntry's placeFirstBase branch cannot report terminal (placements never close a
-    // round — no advanceRound, no status() there), so a victory decided mid-setup — reachable in 3+ player games
-    // where an early placement already controls the iron threshold — would otherwise end the game with NO gameOver
-    // ever broadcast. status() is run here on the post-application state; the cost is bounded to setup placements
+    // Setup→play boundary victory: applyEntry's placeFirstBase branch cannot report terminal (placements never
+    // close a round — no advanceRound, no status() there), so status() is run here on the post-application state.
+    // Under the DER #18 turn-0 guard status() returns ongoing throughout setup (phase.turn === 0), so this check
+    // resolves a victory only at the setup→play transition: the FINAL placement advances phase.turn to 1, at which
+    // point status() can resolve the ONE victory over the whole board (DER #14 tie-break). Without this check that
+    // boundary victory would end the game with NO gameOver ever broadcast. Cost is bounded to setup placements
     // (≤6 per game). No snapshot is written (snapshots are round-boundary artifacts; the round did NOT close).
     // Play-phase victories always surface through a closing entry above, so this check is placement-batches only.
     const setupStatus = status(game);
