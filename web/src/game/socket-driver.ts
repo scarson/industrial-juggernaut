@@ -138,6 +138,9 @@ export function makeSocketDriver(opts: SocketDriverOptions): GameDriver {
     emitConnection("closed"); // plain closed — reconnect/backoff is a later task
   };
 
+  // `error` is intentionally unhandled: a WebSocket always follows `error` with `close`, so the
+  // onclose handler above already covers every error-terminated connection.
+
   return {
     subscribe(handler: (e: DriverEvent) => void): () => void {
       if (disposed) return () => {}; // a subscribe after dispose registers nothing and delivers nothing
@@ -157,6 +160,11 @@ export function makeSocketDriver(opts: SocketDriverOptions): GameDriver {
 
     requestSync(): void {
       if (disposed) return;
+      // WebSocket.send throws InvalidStateError while CONNECTING and silently discards while
+      // CLOSING/CLOSED (WHATWG). requestSync is called from synchronous recovery paths (and on
+      // mount, possibly before open), so a not-open socket must be a silent no-op — requestSync
+      // returns void, and resyncing a re-established connection is the reconnect logic's job.
+      if (socket.readyState !== WebSocket.OPEN) return;
       sendCommand({ type: "resync" });
     },
 

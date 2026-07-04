@@ -15,7 +15,7 @@ import type { ClientCommand, ServerMessage, SeatRosterEntry } from "../../../src
 /**
  * The boundary fake (testing-pitfalls §7 "mock only the boundary"): a hand-rolled WebSocket that records every
  * `send`, records `close`, and lets a test drive `open`/`message`/`close` events synchronously. It mirrors only
- * the surface the driver touches (readyState, send, close, the four on* handlers) — nothing more.
+ * the surface the driver touches (readyState, send, close, the onopen/onmessage/onclose handlers) — nothing more.
  */
 const OPEN = 1;
 const CLOSED = 3;
@@ -26,10 +26,17 @@ class FakeSocket {
   onopen: (() => void) | null = null;
   onmessage: ((e: { data: string }) => void) | null = null;
   onclose: ((e: { code: number; reason: string }) => void) | null = null;
-  onerror: (() => void) | null = null;
+  // No onerror field: the driver intentionally leaves `error` unhandled (a real WebSocket always
+  // follows `error` with `close`, which the driver DOES handle), so the fake models no error surface.
   constructor(public url: string) {}
 
   send(data: string): void {
+    // WHATWG fidelity: a real WebSocket.send throws InvalidStateError while CONNECTING and silently
+    // discards while CLOSING/CLOSED. The fake throws in EVERY not-OPEN state so any send-state bug
+    // in the driver is loud in tests rather than silently recorded.
+    if (this.readyState !== OPEN) {
+      throw new Error(`InvalidStateError: send in readyState ${this.readyState}`);
+    }
     this.sent.push(data);
   }
   close(code?: number, reason?: string): void {
@@ -382,6 +389,22 @@ describe("subscriber contract", () => {
     socket().sent = [];
     driver.requestSync();
     expect(sentJson(socket())).toEqual([{ type: "resync" } satisfies ClientCommand]);
+  });
+
+  test("requestSync before open is a no-op (no send, no throw)", () => {
+    const { driver, socket } = makeHarness();
+    // not opened yet — a real WebSocket.send would throw InvalidStateError while CONNECTING
+    expect(() => driver.requestSync()).not.toThrow();
+    expect(socket().sent).toEqual([]);
+  });
+
+  test("requestSync after close is a no-op (no send, no throw)", () => {
+    const { driver, socket } = makeHarness();
+    socket().fireOpen();
+    socket().fireClose();
+    socket().sent = [];
+    expect(() => driver.requestSync()).not.toThrow();
+    expect(socket().sent).toEqual([]);
   });
 
   test("unsubscribe stops delivery to that handler", () => {
