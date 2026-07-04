@@ -8,7 +8,7 @@ import { defaultConfig } from "../engine-client/barrel";
 // probed (bun run against src/board/generate.ts + src/engine/turn.ts + src/engine/control.ts
 // directly): at seed 1, generate/96/ironCount-14, the max single-base iron coverage over all 32
 // legalFirstBaseHexes is exactly 10 at radius 5, 7 at radius 4, and 8 at boardSize 120 (radius 5).
-const SEED = 1;
+const SEED = 1n;
 const GENERATE_SOURCE = { kind: "generate" as const, size: 96, ironCount: 14 };
 
 describe("isSetupInstantWinnable", () => {

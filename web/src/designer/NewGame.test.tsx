@@ -165,6 +165,23 @@ describe("NewGame — balance note", () => {
   });
 });
 
+describe("NewGame — setup-degeneracy note", () => {
+  test("renders for the degenerate default config (generate 96/14, radius 5, threshold 10)", () => {
+    render(<NewGame onStart={vi.fn()} />);
+    expect(screen.getByTestId("setup-degeneracy-note")).toBeInTheDocument();
+  });
+
+  test("is absent once the victory threshold is raised above max single-base coverage", async () => {
+    const user = userEvent.setup();
+    render(<NewGame onStart={vi.fn()} />);
+    const thresholdInput = screen.getByTestId("knob-victoryThreshold").querySelector("input")!;
+    await user.clear(thresholdInput);
+    await user.type(thresholdInput, "12");
+
+    expect(screen.queryByTestId("setup-degeneracy-note")).toBeNull();
+  });
+});
+
 describe("NewGame — start", () => {
   test("Start on a valid form calls onStart with the assembled header (bigint seed)", async () => {
     const user = userEvent.setup();

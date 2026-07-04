@@ -27,9 +27,9 @@ function maxSingleBaseIronCoverage(board: Board, radius: number): number {
   return max;
 }
 
-function resolveBoard(boardSource: BoardSource, seedValue: number): Board {
+function resolveBoard(boardSource: BoardSource, seedValue: bigint): Board {
   if (boardSource.kind === "generate") {
-    const { board } = generateBoard(seed(BigInt(seedValue)), {
+    const { board } = generateBoard(seed(seedValue), {
       size: boardSource.size,
       ironCount: boardSource.ironCount,
     });
@@ -47,7 +47,7 @@ function resolveBoard(boardSource: BoardSource, seedValue: number): Board {
 export function isSetupInstantWinnable(
   config: RuleConfig,
   boardSource: BoardSource,
-  seedValue: number,
+  seedValue: bigint,
 ): boolean {
   const board = resolveBoard(boardSource, seedValue);
   const maxCoverage = maxSingleBaseIronCoverage(board, config.radius);
