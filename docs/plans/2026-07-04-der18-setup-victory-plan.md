@@ -63,7 +63,8 @@ notes and commit messages.
 | 2 — Designer degeneracy warning | 🚧 In progress (`fix/der18-designer-warning`) | — | Routine, frontend, independent of Phase 1 (branched off `origin/dev`) |
 
 ### Deviations
-_(none yet)_
+
+- **Task 1.4 test (a) runs at `victoryThreshold: 5`, not the default 10** (commit `56426ae3`). On the default 96/14/radius-5 board a 2P *agent drive* never resolves a boundary iron victory at threshold 10: `representativeFirstBase` lands on a ~5–6-iron hex and two non-allied singletons don't union iron (verified: seeds 1–60 stay ongoing at the 2P boundary). Lowering the threshold to 5 makes seat 0 provably ≥threshold *during setup* — which is a STRONGER test of the DER #18 suppression (the guard demonstrably holds while a qualifier exists) than the design's original "second placement covers ≥10" premise. The suppression mechanism is threshold-independent, so this is faithful. See the Discoveries note on why threshold 10 is unreachable by a 2P drive yet the default is still degenerate.
 
 ### Discoveries
 
@@ -80,6 +81,10 @@ _(none yet)_
   - `test/version.test.ts` — already green (fixed by the Task 1.2 `REPLAY_VERSION` recompute `dadb040bd8d6546e` → `29568541c4550281`).
   - Audit-only set confirmed green under the guard (no restructure needed).
 
+**Coverage-distribution finding (controller probe, 2026-07-04) — reconciles the "instant-win" premise with the outer-ring restriction; load-bearing for Phase 2.** First bases are OUTER-RING-restricted (`placeFirstBase` validates `ringDepthFromEdge === 0`, `src/engine/turn.ts:117`); the design's "single radius-5 disk covers ≥10 of 14 iron" and the ruling's "DER #6 free placement" language describe the free-placement *analysis* regime, not the shipped setup command. Probing the default config (96/14/radius5) over ALL 32 outer-ring hexes: **max single-base iron coverage is 10–11, with 1–3 hexes ≥10 on every seed tested (1,2,3,4,7,42).**
+  - So the instant-win IS reachable via the shipped engine — a player who *chooses* a max-coverage ring hex wins during setup — but `representativeFirstBase` (what a drive picks) usually lands on a ~5–6-iron hex, which is why a 2P drive never clinches at threshold 10 (the Task 1.4 (a) deviation) yet a 4P drive occasionally does (some seat lands on a degenerate hex). This validates DER #18's necessity: the bug is a real, human-reachable setup victory.
+  - **Phase 2 consequence:** the degeneracy predicate must enumerate `legalFirstBaseHexes` (outer-ring) and take the **MAX** coverage — which is exactly 10 = `victoryThreshold` on most default seeds → the warning fires. The `≥` comparison (not `>`) is load-bearing since max often EQUALS threshold. Clean-config test cases (threshold ≥12, radius ≤4, size ≥120) must push the max strictly below 10–11; the Phase 2 implementer MUST verify each clean case empirically rather than assume.
+
 ## Merge authority (decide before executing Phase 1)
 
 Phase 1 carries a `REPLAY_VERSION` bump (replay-compat blast radius) and changes winner semantics. The `balance-redesign-merge-authorization` memory covers the balance effort's PRs after a blind Fable-tier adversarial review; DER #18 is the *fidelity* leg, adjacent to but distinct from balance-knob tuning. **Default in this plan:** treat Phase 1 as Review-class, run the blind adversarial gate, and STOP for Sam before merge unless he confirms the balance authority extends to this version-bumping change. Phase 2 (frontend) is Routine.
@@ -88,7 +93,7 @@ Phase 1 carries a `REPLAY_VERSION` bump (replay-compat blast radius) and changes
 
 ## Phase 1 — Engine: turn-0 guard, version bump, test remediation
 
-**Execution Status:** 🚧 IN PROGRESS — branch `fix/der18-setup-victory`, claimed 2026-07-04. Task 1.1 (audit) confirmed; Task 1.2 (guard + `REPLAY_VERSION` bump + new engine test) shipped `0e78ecb5` — suite intentionally red on the 3 breakers pending Task 1.3. See Discoveries.
+**Execution Status:** 🚧 IN PROGRESS — branch `fix/der18-setup-victory`, claimed 2026-07-04. Tasks 1.1–1.4 COMPLETE; full root suite GREEN (2176 passed), typecheck clean. Commits: 1.2 guard+version `0e78ecb5`, 1.3 test re-expression `ff080e9e`, 1.4 new semantics tests `56426ae3`. Remaining: close-out review rounds + blind adversarial gate → open PR → STOP for Sam (merge authority). See Discoveries + Deviations.
 
 **Why this matters:** the Living Document Contract (above) comes from `/writing-plans-enhanced` Step 5 — keep the banners current so a follow-up dispatch reads state instead of reconstructing it.
 
