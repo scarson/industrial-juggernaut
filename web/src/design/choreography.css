@@ -1,0 +1,88 @@
+/* ABOUTME: Motion for the four earned set pieces — combat, elimination, victory, and the */
+/* ABOUTME: turn-order draw. Staged separately from the 150-250ms feedback scale (motion.ts). */
+
+/*
+ * DESIGN.md reserves choreography for combat / elimination / victory (+ the turn-order
+ * draw). These rules are ADDITIVE: each component renders its honest content
+ * unconditionally and adds its `-animated` class on top, so an animation that never
+ * fires (a background tab, a headless render) leaves the content at its fully-visible
+ * resting state. Every keyframe is transform-led and floors opacity at a readable value
+ * — motion stages the moment, it never gates whether the content is visible.
+ *
+ * Each moment gets a DISTINCT signature (settle / sink / rise / stagger), not one
+ * uniform entrance reused four times. All of it is wrapped in
+ * `prefers-reduced-motion: no-preference` as a CSS-level guarantee on top of the
+ * components' own `prefersReducedMotion()` branch.
+ */
+
+:root {
+  /* Confident ease-out curves the set pieces warrant. motion.ts notes the choreographed
+   * moments "use their own longer timings", distinct from the feedback easing scale. */
+  --choreo-ease-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --choreo-ease-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  /* A warm brass-hued stage light for victory's title (DESIGN.md: warm ambient shadow may
+   * stage the moment; never a cool SaaS card-shadow). Translucent so it blooms, not chromes. */
+  --choreo-warm-glow: oklch(66.8% 0.11 81.17 / 0.4);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Combat — tension resolving. A crisp confident settle from a hair oversized. */
+  .combat-reveal-animated {
+    animation: choreo-settle 460ms var(--choreo-ease-expo) both;
+  }
+
+  /* Elimination — a player is out. Heavier and slower; a somber downward sink, no glow. */
+  .elimination-animated {
+    animation: choreo-sink 640ms var(--choreo-ease-quint) both;
+  }
+
+  /* Victory — the game's biggest moment: a confident rise, a warm glow bloom on the
+   * title, and the winner tokens staggering in one after another. */
+  .victory-animated {
+    animation: choreo-rise 680ms var(--choreo-ease-expo) both;
+  }
+  .victory-animated .cartouche {
+    animation: choreo-title-glow 900ms var(--choreo-ease-quint) both;
+  }
+  .victory-animated [data-testid^="victory-winner-"] {
+    animation: choreo-stagger 420ms var(--choreo-ease-quint) both;
+    animation-delay: calc(var(--i, 0) * 90ms);
+  }
+
+  /* Turn-order draw — a quieter beat: each drawn seat staggers in (list rhythm). */
+  .turn-order-animated > li {
+    animation: choreo-stagger 360ms var(--choreo-ease-quint) both;
+    animation-delay: calc(var(--i, 0) * 70ms);
+  }
+}
+
+/* Keyframes. Every reveal is transform-led with an opacity floor (never 0), so a
+ * frame the animation never reaches still shows readable content. */
+
+@keyframes choreo-settle {
+  from { transform: scale(1.015); opacity: 0.72; }
+  to   { transform: none; opacity: 1; }
+}
+
+@keyframes choreo-rise {
+  from { transform: translateY(9px); opacity: 0.6; }
+  to   { transform: none; opacity: 1; }
+}
+
+@keyframes choreo-sink {
+  from { transform: translateY(-6px); opacity: 0.62; }
+  to   { transform: none; opacity: 1; }
+}
+
+@keyframes choreo-stagger {
+  from { transform: translateY(5px); opacity: 0.45; }
+  to   { transform: none; opacity: 1; }
+}
+
+/* A brief warm bloom that rises and fades — a stage light on the winner's name, not a
+ * persistent shadow. Text stays legible throughout (the glow only adds warmth). */
+@keyframes choreo-title-glow {
+  0%   { text-shadow: 0 0 0 transparent; }
+  45%  { text-shadow: 0 0 16px var(--choreo-warm-glow); }
+  100% { text-shadow: 0 0 0 transparent; }
+}

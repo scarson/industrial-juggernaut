@@ -39,8 +39,15 @@ export function Victory({ winners }: VictoryProps) {
           {title}
         </h2>
         <div role="list" aria-label="Winners" style={WINNER_ROW_STYLE}>
-          {winners.map((id) => (
-            <div key={id} role="listitem" data-testid={`victory-winner-${id}`} style={WINNER_ITEM_STYLE}>
+          {winners.map((id, i) => (
+            <div
+              key={id}
+              role="listitem"
+              data-testid={`victory-winner-${id}`}
+              // `--i` drives the CSS stagger delay (choreography.css); the winners reveal one
+              // after another for a coalition. Cast: custom properties aren't in CSSProperties.
+              style={{ ...WINNER_ITEM_STYLE, ["--i"]: i } as React.CSSProperties}
+            >
               <PlayerShapeIcon identity={playerIdentity(id)} size={14} />
               <span className="mono">Player {id + 1}</span>
             </div>
