@@ -1,15 +1,16 @@
 // ABOUTME: Pins the version-mismatch reload guard — reload at most once per page load, loop-detect after.
 // ABOUTME: Storage is injected (a fake Storage-shaped stub) so tests never touch real sessionStorage.
 import { describe, expect, test } from "vitest";
-import { handleReload, RELOAD_MARKER_KEY } from "./reload-guard";
+import { clearReloadMarker, handleReload, RELOAD_MARKER_KEY } from "./reload-guard";
 
-/** A minimal in-memory stand-in for the injected `{ getItem, setItem }` boundary — the real seam is
- *  `window.sessionStorage`. Starts empty (a fresh page load with no prior reload) unless seeded. */
-function fakeStorage(seed?: Record<string, string>): { getItem: (k: string) => string | null; setItem: (k: string, v: string) => void } {
+/** A minimal in-memory stand-in for the injected `{ getItem, setItem, removeItem }` boundary — the real
+ *  seam is `window.sessionStorage`. Starts empty (a fresh page load with no prior reload) unless seeded. */
+function fakeStorage(seed?: Record<string, string>): { getItem: (k: string) => string | null; setItem: (k: string, v: string) => void; removeItem: (k: string) => void } {
   const backing = new Map<string, string>(Object.entries(seed ?? {}));
   return {
     getItem: (k) => backing.get(k) ?? null,
     setItem: (k, v) => { backing.set(k, v); },
+    removeItem: (k) => { backing.delete(k); },
   };
 }
 
@@ -68,5 +69,30 @@ describe("handleReload", () => {
     // sessionStorage under a common name. The guard's key must be app-and-purpose scoped.
     expect(RELOAD_MARKER_KEY).toMatch(/juggernaut/);
     expect(RELOAD_MARKER_KEY).toMatch(/reload/);
+  });
+});
+
+describe("clearReloadMarker", () => {
+  test("removes the marker, so a fresh handleReload reloads again (a later genuine mismatch is not a loop)", () => {
+    const storage = fakeStorage();
+    let reloadCalls = 0;
+    const reloadFn = () => { reloadCalls += 1; };
+
+    handleReload({ reloadFn, storage });                 // first mismatch: reloads, writes marker
+    expect(storage.getItem(RELOAD_MARKER_KEY)).not.toBeNull();
+
+    clearReloadMarker(storage);                           // mismatch resolved (a healthy handshake)
+    expect(storage.getItem(RELOAD_MARKER_KEY)).toBeNull(); // marker gone
+
+    // A LATER genuine version-mismatch (a future deploy) is allowed its one reload, not loop-detected.
+    const outcome = handleReload({ reloadFn, storage });
+    expect(outcome).toBe("reloaded");
+    expect(reloadCalls).toBe(2);
+  });
+
+  test("clearing an already-clear marker is a no-op (idempotent)", () => {
+    const storage = fakeStorage();
+    clearReloadMarker(storage);
+    expect(storage.getItem(RELOAD_MARKER_KEY)).toBeNull();
   });
 });

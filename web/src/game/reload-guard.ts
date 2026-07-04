@@ -13,6 +13,12 @@
 // the marker and loop-detects) but is cleared when the tab/session ends (so a genuinely fresh tab starts
 // clean and is allowed its one reload). `localStorage` would persist across tabs and days, wrongly
 // suppressing the legitimate first reload of every later visit.
+//
+// WHY CLEAR ON RECOVERY. The marker suppresses an UNRESOLVED reload cycle only. Once a reload actually fixes
+// the mismatch — the connection reaches a healthy `open` handshake — `clearReloadMarker` removes it, so a
+// SECOND genuine mismatch later in the same long-lived tab (a later deploy) is allowed its own one reload
+// rather than being mistaken for a loop. An unresolved mismatch never reaches `open`, so its marker is
+// never cleared and the true loop case still loop-detects.
 
 /** The sessionStorage key holding the "already reloaded once this load-cycle" marker. App-and-purpose
  *  scoped so it can never collide with another feature stashing state in sessionStorage. */
@@ -25,9 +31,10 @@ const RELOAD_MARKER_VALUE = "1";
  *  loop (we already reloaded once this load) and the caller should show a manual-refresh notice instead. */
 export type ReloadOutcome = "reloaded" | "loop-detected";
 
-/** The `window.sessionStorage`-shaped slice the guard reads/writes — narrowed to the two methods it uses so
- *  tests inject a deterministic in-memory stub instead of touching real sessionStorage. */
-type MarkerStorage = Pick<Storage, "getItem" | "setItem">;
+/** The `window.sessionStorage`-shaped slice the guard reads/writes — narrowed to the three methods it uses
+ *  (`getItem`/`setItem` to set the marker, `removeItem` to clear it) so tests inject a deterministic
+ *  in-memory stub instead of touching real sessionStorage. */
+type MarkerStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 export type HandleReloadArgs = {
   /** Performs the hard reload (production wires `() => window.location.reload()`, P4.5). Called at most
@@ -52,4 +59,17 @@ export function handleReload({ reloadFn, storage = window.sessionStorage }: Hand
   storage.setItem(RELOAD_MARKER_KEY, RELOAD_MARKER_VALUE);
   reloadFn();
   return "reloaded";
+}
+
+/**
+ * Clear the load-scoped marker — call this when the connection reaches a HEALTHY state (a successful
+ * handshake), which means the prior version-mismatch RESOLVED: the `hello` returned `open`, not `reload`.
+ * The marker exists only to suppress an UNRESOLVED reload cycle (reload → still-mismatch → reload → …), so
+ * once a reload has actually fixed the mismatch it must be cleared. Otherwise a SECOND genuine mismatch
+ * later in the SAME long-lived tab (a later deploy) would be wrongly treated as a loop and refused its one
+ * legitimate reload. The true loop case is still protected: an unresolved mismatch never reaches `open`,
+ * so the marker is never cleared and the second signal still loop-detects.
+ */
+export function clearReloadMarker(storage: MarkerStorage = window.sessionStorage): void {
+  storage.removeItem(RELOAD_MARKER_KEY);
 }

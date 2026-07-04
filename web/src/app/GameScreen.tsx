@@ -20,7 +20,7 @@ import { Elimination } from "../game/choreography/Elimination";
 import { Victory } from "../game/choreography/Victory";
 import { createGameStore, useGameStore } from "../game/store";
 import { createRoom } from "../game/rooms";
-import { handleReload } from "../game/reload-guard";
+import { clearReloadMarker, handleReload } from "../game/reload-guard";
 import { useSetRailContent } from "./shell/rail-content";
 import { selectComposer } from "./select-composer";
 import type { GameStore } from "../game/store";
@@ -73,8 +73,9 @@ export type CreateRoomFn = (req: CreateRoomRequest) => Promise<CreateRoomResult>
 /** The production create-room call: `createRoom` bound to the global `fetch`. */
 const defaultCreateRoomFn: CreateRoomFn = (req) => createRoom(req, fetch);
 
-/** The reload-guard's storage slice (defaults to `window.sessionStorage`); narrowed to what the guard reads. */
-type ReloadStorage = Pick<Storage, "getItem" | "setItem">;
+/** The reload-guard's storage slice (defaults to `window.sessionStorage`); narrowed to what the guard
+ *  reads/writes (`getItem`/`setItem` to guard a reload) and clears (`removeItem` on a healthy handshake). */
+type ReloadStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 /**
  * Resolve one `connection:"reload-required"` signal into an outcome, wrapping {@link handleReload} so ANY
@@ -86,6 +87,20 @@ function guardedReload(reloadFn: () => void, storage: ReloadStorage): "reloaded"
     return handleReload({ reloadFn, storage });
   } catch {
     return "loop-detected";
+  }
+}
+
+/**
+ * Clear the reload-guard marker on a healthy handshake, wrapping {@link clearReloadMarker} so a throwing
+ * `removeItem` (Safari private-mode, storage-disabled webviews) is swallowed rather than tearing down the
+ * live connection path. Failing to clear only means a FUTURE mismatch might loop-detect once — a benign
+ * degradation, never worth crashing the connected game over.
+ */
+function guardedClearReloadMarker(storage: ReloadStorage): void {
+  try {
+    clearReloadMarker(storage);
+  } catch {
+    // Storage threw — leave the marker as-is; the connection must not fail over a bookkeeping clear.
   }
 }
 
@@ -362,6 +377,15 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
     const outcome = guardedReload(reloadFn, reloadStorage ?? window.sessionStorage);
     if (outcome === "loop-detected") setReloadLoopDetected(true);
   }, [connection, reloadFn, reloadStorage]);
+
+  // ── Reload-marker recovery: a healthy `open` handshake means the `hello` did NOT return `reload`, so
+  //    any prior version-mismatch resolved. Clear the load-scoped marker so a FUTURE genuine mismatch
+  //    (a later deploy in this same long-lived tab) is allowed its one reload instead of being mistaken
+  //    for a loop. An UNRESOLVED mismatch never reaches "open", so the true loop case stays protected. ──
+  useEffect(() => {
+    if (connection !== "open") return;
+    guardedClearReloadMarker(reloadStorage ?? window.sessionStorage);
+  }, [connection, reloadStorage]);
 
   if (reloadLoopDetected) {
     return (
