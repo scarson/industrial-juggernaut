@@ -213,7 +213,7 @@ describe("GameScreen — online-start in-flight guard", () => {
 
 describe("GameScreen — reload-guard on connection:reload-required", () => {
   /** Mount a live game with an injected store + fake driver, plus injected reloadFn + storage for the guard. */
-  function renderLiveWithGuard(storage: Pick<Storage, "getItem" | "setItem" | "removeItem">, reloadFn: () => void) {
+  function renderLiveWithGuard(storage: Pick<Storage, "getItem" | "setItem">, reloadFn: () => void) {
     const store = createGameStore();
     const fakeDriver = makeFakeDriver({ snapshot: setupState(), roster: fixtureRoster(), controllableSeats: [0] });
     const createRoomFn = async (): Promise<CreateRoomResult> => ({ roomId: "r", seatTokens: ["tok", null] });
@@ -233,16 +233,13 @@ describe("GameScreen — reload-guard on connection:reload-required", () => {
     return fakeDriver;
   }
 
-  function memoryStorage(): Pick<Storage, "getItem" | "setItem" | "removeItem"> {
+  function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
     const map = new Map<string, string>();
     return {
       getItem: (k) => (map.has(k) ? map.get(k)! : null),
       setItem: (k, v) => void map.set(k, v),
-      removeItem: (k) => void map.delete(k),
     };
   }
-
-  const RELOAD_MARKER_KEY = "industrial-juggernaut:reload-guard:reloaded";
 
   test("the first reload-required signal calls reloadFn once (a hard reload)", async () => {
     const user = userEvent.setup();
@@ -281,14 +278,11 @@ describe("GameScreen — reload-guard on connection:reload-required", () => {
   test("a storage that throws is treated as loop-detected — the notice, NEVER an unguarded reload", async () => {
     const user = userEvent.setup();
     const reloadFn = vi.fn();
-    const throwingStorage: Pick<Storage, "getItem" | "setItem" | "removeItem"> = {
+    const throwingStorage: Pick<Storage, "getItem" | "setItem"> = {
       getItem: () => {
         throw new Error("SecurityError: storage disabled");
       },
       setItem: () => {
-        throw new Error("SecurityError: storage disabled");
-      },
-      removeItem: () => {
         throw new Error("SecurityError: storage disabled");
       },
     };
@@ -302,53 +296,6 @@ describe("GameScreen — reload-guard on connection:reload-required", () => {
     });
 
     expect(await screen.findByText(/please refresh/i)).toBeInTheDocument();
-    expect(reloadFn).not.toHaveBeenCalled();
-  });
-
-  test("a healthy connection:open clears the marker (a resolved mismatch is not a future loop)", async () => {
-    const user = userEvent.setup();
-    const reloadFn = vi.fn();
-    // Simulate the post-reload page: the marker survived the reload in sessionStorage. A successful
-    // handshake this load (connection:"open") means the mismatch resolved, so the marker must be cleared.
-    const storage = memoryStorage();
-    storage.setItem(RELOAD_MARKER_KEY, "1");
-    const fakeDriver = renderLiveWithGuard(storage, reloadFn);
-
-    await startOnline(user);
-    await screen.findByRole("region", { name: /setup placement/i });
-
-    act(() => {
-      fakeDriver.pushEvent({ type: "connection", status: "open" });
-    });
-
-    // The marker is gone: a LATER genuine version-mismatch is allowed its one reload, not loop-detected.
-    await waitFor(() => expect(storage.getItem(RELOAD_MARKER_KEY)).toBeNull());
-    expect(reloadFn).not.toHaveBeenCalled();
-  });
-
-  test("a throwing removeItem on connection:open does NOT crash the connection path", async () => {
-    const user = userEvent.setup();
-    const reloadFn = vi.fn();
-    // A storage whose removeItem throws (Safari private-mode / storage-disabled webview). Clearing the
-    // marker on a healthy handshake must be guarded so a throw never tears down the live connection.
-    const throwingRemove: Pick<Storage, "getItem" | "setItem" | "removeItem"> = {
-      getItem: () => null,
-      setItem: () => {},
-      removeItem: () => {
-        throw new Error("SecurityError: storage disabled");
-      },
-    };
-    const fakeDriver = renderLiveWithGuard(throwingRemove, reloadFn);
-
-    await startOnline(user);
-    await screen.findByRole("region", { name: /setup placement/i });
-
-    act(() => {
-      fakeDriver.pushEvent({ type: "connection", status: "open" });
-    });
-
-    // The game is still mounted and interactive — the throw was swallowed, not propagated.
-    expect(await screen.findByRole("region", { name: /setup placement/i })).toBeInTheDocument();
     expect(reloadFn).not.toHaveBeenCalled();
   });
 });
