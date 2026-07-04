@@ -11,6 +11,14 @@ export const BALANCE_IN_PROGRESS_NOTE =
   "Balance is under active development — these numbers will change as playtesting continues.";
 
 /**
+ * DER #18 advisory: shown when the current knobs + board + seed let a single first-base
+ * placement already control the full iron-victory threshold, so the setup phase itself is
+ * instant-winnable. Single-sourced here so the copy can't drift between call sites.
+ */
+export const SETUP_DEGENERACY_NOTE =
+  "With these settings a single first base can win instantly — raise the board size or the iron-victory threshold, or lower the control radius.";
+
+/**
  * `current-playtest-config`'s value is `defaultConfig()` today. This is the one-line
  * swap point for adopting a balance-sweep-derived config once the sweep track produces
  * one: replace the right-hand side below with the tuned `RuleConfig` literal (Sam-gated —

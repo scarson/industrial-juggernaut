@@ -11,7 +11,8 @@ import {
   type Provenance,
 } from "./config-form";
 import { parseBoardSource, type BoardSourceValidation } from "./board-source";
-import { applyPreset, presets, BALANCE_IN_PROGRESS_NOTE, type PresetName } from "./presets";
+import { applyPreset, presets, BALANCE_IN_PROGRESS_NOTE, SETUP_DEGENERACY_NOTE, type PresetName } from "./presets";
+import { isSetupInstantWinnable } from "./degeneracy";
 import {
   GREEDY_ARCHETYPES,
   MAX_SEATS,
@@ -93,6 +94,17 @@ export function NewGame({ onStart, onStartOnline, onlineError, startPending = fa
 
   const seedResult = useMemo(() => parseSeed(seedText), [seedText]);
 
+  // Deps are the reachability-determining values ONLY (config.radius + config.victoryThreshold as
+  // primitives, plus the already-memoized boardResult/seedResult) so unrelated knob edits (e.g.
+  // killBounty, seat changes) don't retrigger board generation — the dominant cost here.
+  const instantWinnable = useMemo(
+    () =>
+      boardResult.ok && seedResult.ok
+        ? isSetupInstantWinnable(config, boardResult.source, seedResult.seed)
+        : false,
+    [config.radius, config.victoryThreshold, boardResult, seedResult],
+  );
+
   const canStart = configErrors.length === 0 && boardResult.ok && seedResult.ok;
 
   const humans = humanSeatCount(seats);
@@ -169,6 +181,11 @@ export function NewGame({ onStart, onStartOnline, onlineError, startPending = fa
       <p className="mono" style={NOTE_STYLE} data-testid="balance-note">
         {BALANCE_IN_PROGRESS_NOTE}
       </p>
+      {instantWinnable && (
+        <p className="mono" style={NOTE_STYLE} data-testid="setup-degeneracy-note">
+          {SETUP_DEGENERACY_NOTE}
+        </p>
+      )}
 
       <div style={START_ROW_STYLE}>
         <button
