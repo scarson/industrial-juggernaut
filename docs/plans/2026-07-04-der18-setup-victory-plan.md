@@ -55,11 +55,11 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** Phase 1 🚧 IN PROGRESS (branch `fix/der18-setup-victory`, claimed 2026-07-04). PR #68 (this plan) merged, so the plan is approved; Phase-1 merge authority (the `REPLAY_VERSION` bump) is still Sam's to confirm — Phase 1 executes to an open PR and STOPs for Sam at merge.
+**Overall:** DER #18 legs 1–2 COMPLETE. **Phase 2** (designer warning) MERGED to `dev` via [#72](https://github.com/scarson/industrial-juggernaut/pull/72) (`2e76cb25`). **Phase 1** (engine turn-0 guard + `REPLAY_VERSION` bump) merging to `dev` via [#71](https://github.com/scarson/industrial-juggernaut/pull/71) — Sam extended the balance-redesign auto-merge authority to this fidelity change on 2026-07-04 after the close-out review + blind gate cleared. (Ship-SHA cells reference the pre-rebase commits; #71 was rebased onto `origin/dev` post-Phase-2 to resolve the shared plan-doc edit, so its on-`dev` commits carry equivalent post-rebase SHAs.)
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
-| 1 — Engine: turn-0 guard + version bump + test remediation | 🔵 PR open — [#71](https://github.com/scarson/industrial-juggernaut/pull/71), awaiting Sam | `0e78ecb5`, `ff080e9e`, `56426ae3`, `e62209dd` | Review-class (version bump, winner semantics); close-out clean; **STOP for Sam** on merge authority |
+| 1 — Engine: turn-0 guard + version bump + test remediation | 🟢 Merging — [#71](https://github.com/scarson/industrial-juggernaut/pull/71) (Sam extended authority) | `0e78ecb5`, `ff080e9e`, `56426ae3`, `e62209dd` (pre-rebase) | Review-class (version bump, winner semantics); close-out clean; blind gate NO BLOCKER |
 | 2 — Designer degeneracy warning | ✅ Merged — [#72](https://github.com/scarson/industrial-juggernaut/pull/72) (`2e76cb25`) | `9f84bee5`, `29346903` | Routine, frontend, independent of Phase 1 |
 
 ### Deviations
