@@ -1,5 +1,5 @@
 // ABOUTME: Rollup plugin that records each output chunk's full module membership as a build
-// ABOUTME: artifact, so check-bundle.ts can verify src/agent never lands in an eager chunk.
+// ABOUTME: artifact, so check-bundle.ts can verify src/agent + src/wire never land in an eager chunk.
 // Vite compiles ES workers as a separate Rollup build, so worker chunks never appear in this
 // bundle object — this guard covers the client entry graph only; worker isolation is structural.
 import type { Plugin } from "vite";
