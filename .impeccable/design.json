@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-07-03T07:36:56Z",
+  "generatedAt": "2026-07-04T07:58:38Z",
   "title": "Design System: Industrial Juggernaut",
   "extensions": {
     "colorMeta": {
@@ -21,18 +21,33 @@
       "player-forest": { "role": "tertiary", "displayName": "Bottle-Green Forest (player 5 — six-point/checker)", "canonical": "oklch(45.08% 0.0588 151.61)", "tonalRamp": ["oklch(15% 0.0588 151.61)", "oklch(26% 0.0588 151.61)", "oklch(38% 0.0588 151.61)", "oklch(49% 0.0588 151.61)", "oklch(61% 0.0588 151.61)", "oklch(72% 0.0588 151.61)", "oklch(84% 0.0588 151.61)", "oklch(95% 0.0588 151.61)"] }
     },
     "typographyMeta": {
-      "display": { "displayName": "Fraunces (Cartouche serif)", "purpose": "Game moments only: title plate, combat resolution, elimination, victory, map cartouches. Never UI labels, buttons, or data." },
-      "body": { "displayName": "Source Sans 3", "purpose": "The working face: UI text, labels, prose." },
-      "label": { "displayName": "IBM Plex Mono", "purpose": "Numbers, seeds, odds, telemetry — tabular-nums, the honest-tension face." }
+      "display": { "displayName": "Fraunces (Cartouche serif)", "purpose": "Game moments only: title plate, combat resolution, elimination, victory, map cartouches. Never UI labels, buttons, or data (the Cartouche Rule). Self-hosted static 400/600." },
+      "body": { "displayName": "Source Sans 3", "purpose": "The working face: UI text, labels, prose. The default face; the serif and mono are opt-in. Self-hosted static 400/600." },
+      "label": { "displayName": "IBM Plex Mono", "purpose": "Numbers, seeds, odds, telemetry — via the .mono utility with tabular-nums, the honest-tension face. Self-hosted static 400/600." }
     },
-    "shadows": [],
+    "shadows": [
+      {
+        "name": "material-layering",
+        "value": "background: var(--surface-panel); border: 1px solid var(--hairline);",
+        "purpose": "The system's ONLY elevation cue, and it is not a shadow: a walnut-800 panel one material step up from the walnut-900 body, separated by a walnut-700 hairline. The Material-Layering Rule forbids drop shadows — if a panel floats, it's off the table. No cool-gray SaaS card-shadows exist anywhere; the one warm exception (victory's title glow) is an animated text-shadow carried in motion, not a resting elevation."
+      }
+    ],
     "motion": [
       { "name": "duration-fast", "value": "150ms", "purpose": "Snappy state change — hover, press, small toggles." },
       { "name": "duration-base", "value": "200ms", "purpose": "Default feedback — selection, composer open/close, tooltip." },
       { "name": "duration-slow", "value": "250ms", "purpose": "Deliberate feedback — panel/rail slide, larger reveals." },
       { "name": "ease-standard", "value": "cubic-bezier(0.2, 0, 0.2, 1)", "purpose": "Symmetric ease for in-place state changes." },
       { "name": "ease-enter", "value": "cubic-bezier(0, 0, 0.2, 1)", "purpose": "Decelerate — elements entering the scene." },
-      { "name": "ease-exit", "value": "cubic-bezier(0.4, 0, 1, 1)", "purpose": "Accelerate — elements leaving the scene." }
+      { "name": "ease-exit", "value": "cubic-bezier(0.4, 0, 1, 1)", "purpose": "Accelerate — elements leaving the scene." },
+      { "name": "choreo-ease-quint", "value": "cubic-bezier(0.22, 1, 0.36, 1)", "purpose": "Ease-out quint — the confident set-piece curve for the elimination sink, the winner/seat staggers, and the victory title glow. Distinct from the feedback easing scale (motion.ts)." },
+      { "name": "choreo-ease-expo", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Ease-out expo — the sharper curve for the two most confident set pieces: the combat settle and the victory rise." },
+      { "name": "combat-settle", "value": "choreo-settle 460ms var(--choreo-ease-expo) both", "purpose": "Combat resolving: a crisp confident SETTLE from scale(1.015)/opacity 0.72 to rest — tension letting go. Applied via .combat-reveal-animated." },
+      { "name": "elimination-sink", "value": "choreo-sink 640ms var(--choreo-ease-quint) both", "purpose": "A player is out: heavier and slower, a somber downward SINK from translateY(-6px)/opacity 0.62 to rest, no glow. Applied via .elimination-animated." },
+      { "name": "victory-rise", "value": "choreo-rise 680ms var(--choreo-ease-expo) both", "purpose": "The game's biggest moment: a confident RISE from translateY(9px)/opacity 0.6 to rest. Applied via .victory-animated." },
+      { "name": "victory-title-glow", "value": "choreo-title-glow 900ms var(--choreo-ease-quint) both — text-shadow 0 → 0 0 16px oklch(66.8% 0.11 81.17 / 0.4) → 0", "purpose": "A warm brass stage-light blooming on victory's Cartouche title, then fading (--choreo-warm-glow is brass-500 at 0.4 alpha). A bloom, not a persistent shadow; the text stays legible throughout. This is the system's single warm ambient shadow." },
+      { "name": "victory-winner-stagger", "value": "choreo-stagger 420ms var(--choreo-ease-quint) both; animation-delay: calc(var(--i, 0) * 90ms)", "purpose": "Coalition winners reveal one after another (translateY(5px)/opacity 0.45 to rest), each [data-testid^=\"victory-winner-\"] keyed by its --i index." },
+      { "name": "turn-order-stagger", "value": "choreo-stagger 360ms var(--choreo-ease-quint) both; animation-delay: calc(var(--i, 0) * 70ms)", "purpose": "Each drawn seat staggers down the turn-order draw (.turn-order-animated > li) — the quietest set piece, a list rhythm." },
+      { "name": "reduced-motion-floor", "value": "@media (prefers-reduced-motion: no-preference) wrapper; keyframe opacity floor ≥ 0.45 (never 0)", "purpose": "Every set piece renders its honest content unconditionally and adds its -animated class on top; keyframes are transform-led with an opacity floor, so an animation that never fires (a background tab, a headless render) leaves content fully visible. prefersReducedMotion() (motion.ts) gives the matching JS branch. Motion stages the moment; it never gates whether content is visible." }
     ],
     "breakpoints": [
       { "name": "compact-max", "value": "767px" },
@@ -45,7 +60,7 @@
       "name": "Chrome Button",
       "kind": "button",
       "refersTo": "chrome-button",
-      "description": "The quiet instrument default for chrome-side actions (e.g. the rail toggle). UA chrome fully reset.",
+      "description": "The quiet instrument default for chrome-side actions (e.g. the rail toggle). Square-cornered, hairline-bordered, UA chrome fully reset.",
       "html": "<button class=\"ds-chrome-button\">Show rail</button>",
       "css": ".ds-chrome-button { background-color: var(--surface-panel, #2f2114); color: var(--text-on-chrome, #e6d8b8); border: 1px solid var(--hairline, #3b2a19); font-family: inherit; font-size: inherit; padding: 0.25em 0.75em; cursor: pointer; } .ds-chrome-button:focus-visible { outline: 2px solid var(--accent, #b78d3c); outline-offset: 2px; }"
     },
@@ -53,7 +68,7 @@
       "name": "Instruments Button (brass affordance)",
       "kind": "button",
       "refersTo": "chrome-button-brass",
-      "description": "The one button per screen that earns the brass budget — brass text on the panel face.",
+      "description": "The one button per screen that earns the brass budget — brass text on the panel face, brass-400 glint on hover. Composes .chrome-button + .brass-accent.",
       "html": "<button class=\"ds-btn-instruments\">Instruments</button>",
       "css": ".ds-btn-instruments { background-color: var(--surface-panel, #2f2114); color: var(--accent, #b78d3c); border: 1px solid var(--hairline, #3b2a19); font-family: inherit; font-size: inherit; padding: 0.25em 0.75em; cursor: pointer; } .ds-btn-instruments:hover { color: var(--color-brass-400, #c9a24e); } .ds-btn-instruments:focus-visible { outline: 2px solid var(--accent, #b78d3c); outline-offset: 2px; }"
     },
@@ -61,15 +76,15 @@
       "name": "Brass Action (filled primary)",
       "kind": "button",
       "refersTo": "brass-action",
-      "description": "Reserved for primary game actions (Start, Commit) — the filled spend of the brass budget.",
+      "description": "Reserved for the ONE primary game action per screen (Start, Commit) — the filled spend of the brass budget. Reverts to quiet chrome when disabled, so no brass is spent while inert.",
       "html": "<button class=\"ds-btn-brass\">Start game</button>",
-      "css": ".ds-btn-brass { background-color: var(--accent, #b78d3c); color: var(--color-ink-900, #1a140d); border: 1px solid var(--hairline, #3b2a19); font-family: inherit; font-size: inherit; font-weight: 600; padding: 0.35em 1em; cursor: pointer; } .ds-btn-brass:hover { background-color: var(--color-brass-400, #c9a24e); } .ds-btn-brass:focus-visible { outline: 2px solid var(--color-parchment-100, #e6d8b8); outline-offset: 2px; }"
+      "css": ".ds-btn-brass { background-color: var(--accent, #b78d3c); color: var(--color-ink-900, #1a140d); border: 1px solid var(--hairline, #3b2a19); font-family: inherit; font-size: inherit; font-weight: 600; padding: 0.35em 1em; cursor: pointer; } .ds-btn-brass:hover { background-color: var(--color-brass-400, #c9a24e); } .ds-btn-brass:focus-visible { outline: 2px solid var(--color-parchment-100, #e6d8b8); outline-offset: 2px; } .ds-btn-brass:disabled { background-color: var(--surface-panel, #2f2114); color: var(--color-ink-700, #4a3d2c); cursor: not-allowed; }"
     },
     {
       "name": "Table Panel",
       "kind": "card",
       "refersTo": "table-panel",
-      "description": "The only container: an instrument laid on the table. Material layering, no shadows, no nesting.",
+      "description": "The only container: an instrument laid on the table. Material layering (walnut-800 + hairline on the walnut-900 body), no shadows, no nesting.",
       "html": "<div class=\"ds-table-panel\"><strong>Resources</strong><p>Per-player resources, the factory-supply gauge, and the event log land here.</p></div>",
       "css": ".ds-table-panel { background-color: var(--surface-panel, #2f2114); color: var(--text-on-chrome, #e6d8b8); border: 1px solid var(--hairline, #3b2a19); padding: 12px 16px; max-width: 36ch; }"
     },
@@ -77,35 +92,49 @@
       "name": "Board Surface",
       "kind": "custom",
       "refersTo": "board-surface",
-      "description": "The map's material — parchment with ink text. Legal ONLY on board surfaces (the Parchment rule).",
+      "description": "The map's material — parchment with ink text. Legal ONLY on board surfaces (the Parchment-Belongs-to-the-Board Rule); never an app-chrome tint.",
       "html": "<div class=\"ds-board-surface\">The aged map — the only parchment object on screen.</div>",
       "css": ".ds-board-surface { background-color: var(--surface-board, #d8c39c); color: var(--text-on-board, #1a140d); padding: 16px; }"
     },
     {
       "name": "Top Bar",
       "kind": "nav",
-      "description": "Slim ≤44px table-surface bar: Cartouche wordmark, turn chip, mono seed readout, the brass Instruments button.",
+      "description": "Slim ≤44px table-surface bar: Cartouche wordmark, turn/phase chip, mono seed readout, the brass Instruments button.",
       "html": "<header class=\"ds-topbar\"><span class=\"ds-topbar-wordmark\">Industrial Juggernaut</span><span class=\"ds-topbar-chip\">Turn 12 — Cobalt to move</span><span class=\"ds-topbar-seed\">seed 88410552</span><button class=\"ds-topbar-instruments\">Instruments</button></header>",
       "css": ".ds-topbar { display: flex; align-items: center; gap: 16px; height: 44px; padding: 0 12px; background-color: var(--surface-app, #241910); color: var(--text-on-chrome, #e6d8b8); border-bottom: 1px solid var(--hairline, #3b2a19); } .ds-topbar-wordmark { font-family: var(--font-display, Georgia, serif); font-weight: 600; letter-spacing: 0.01em; } .ds-topbar-chip { font-size: 0.875rem; } .ds-topbar-seed { font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; font-size: 0.8125rem; color: var(--color-parchment-100, #e6d8b8); opacity: 0.85; margin-left: auto; } .ds-topbar-instruments { background-color: var(--surface-panel, #2f2114); color: var(--accent, #b78d3c); border: 1px solid var(--hairline, #3b2a19); font-family: inherit; font-size: 0.875rem; padding: 0.25em 0.75em; cursor: pointer; } .ds-topbar-instruments:focus-visible { outline: 2px solid var(--accent, #b78d3c); outline-offset: 2px; }"
     },
     {
       "name": "Mono Readout",
       "kind": "chip",
-      "description": "The honest-tension face: odds, budgets, seeds, telemetry in tabular mono.",
+      "description": "The honest-tension face: odds, budgets, seeds, telemetry in tabular mono (the .mono utility). Shown whenever drama is on screen.",
       "html": "<span class=\"ds-mono-readout\">odds 5/6 · budget 3 · iron 7</span>",
       "css": ".ds-mono-readout { font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; font-size: 0.8125rem; color: var(--text-on-chrome, #e6d8b8); background-color: var(--surface-panel, #2f2114); border: 1px solid var(--hairline, #3b2a19); padding: 2px 8px; }"
     },
     {
       "name": "Player Identity Token",
       "kind": "custom",
-      "description": "The triple-encoded player identity (color + shape + pattern) — here, player 1: cobalt square with ring overlay.",
-      "html": "<svg class=\"ds-player-token\" width=\"48\" height=\"48\" viewBox=\"0 0 48 48\" role=\"img\" aria-label=\"Player 1 — cobalt square\"><rect x=\"10\" y=\"10\" width=\"28\" height=\"28\" fill=\"var(--color-cobalt, #2f6f9f)\" stroke=\"var(--color-ink-900, #1a140d)\" stroke-width=\"1.5\"/><circle cx=\"24\" cy=\"24\" r=\"8\" fill=\"none\" stroke=\"var(--color-parchment-100, #e6d8b8)\" stroke-width=\"2\"/></svg>",
-      "css": ".ds-player-token { display: inline-block; background-color: var(--surface-board, #d8c39c); }"
+      "description": "The triple-encoded player identity (color + shape + pattern) drawn by PlayerShapeIcon. Shown here as cobalt: a square with the ring pattern — the CVD floor-pair exemplar where shape is load-bearing, not decorative. Pattern marks are drawn in ink, over the color fill; the token sits on the parchment board.",
+      "html": "<svg class=\"ds-player-token\" width=\"48\" height=\"48\" viewBox=\"0 0 48 48\" role=\"img\" aria-label=\"Cobalt player — square with ring pattern\"><rect x=\"11\" y=\"11\" width=\"26\" height=\"26\" fill=\"var(--color-cobalt, #2f6f9f)\" stroke=\"var(--color-cobalt, #2f6f9f)\" stroke-width=\"1\"/><circle cx=\"24\" cy=\"24\" r=\"7\" fill=\"none\" stroke=\"var(--color-ink-900, #1a140d)\" stroke-width=\"1.5\"/></svg>",
+      "css": ".ds-player-token { display: inline-block; background-color: var(--surface-board, #d8c39c); padding: 4px; }"
+    },
+    {
+      "name": "Contextual Composer",
+      "kind": "custom",
+      "description": "The action surface beside the board — ONE composer at a time (build/attack/defender/setup/…), resolved from game state. A .table-panel section, a mono RuleLine note (hairline-framed and recessed, never a colored side-stripe), and a role=group grid of real keyboard-reachable hex buttons — the a11y action path (the SVG board only reads/points). Rejected commands teach the rule they broke.",
+      "html": "<section class=\"ds-composer\" aria-label=\"Build\"><p class=\"ds-composer-note\" role=\"note\">Build one piece for every two resources you control (rounded down).</p><div class=\"ds-composer-hexes\" role=\"group\" aria-label=\"Legal build hexes\"><button class=\"ds-composer-hex\" type=\"button\">3,-1</button><button class=\"ds-composer-hex\" type=\"button\">3,0</button><button class=\"ds-composer-hex\" type=\"button\" aria-disabled=\"true\">2,1</button></div></section>",
+      "css": ".ds-composer { display: flex; flex-direction: column; gap: 0.75rem; padding: 0.75rem; background-color: var(--surface-panel, #2f2114); color: var(--text-on-chrome, #e6d8b8); border: 1px solid var(--hairline, #3b2a19); } .ds-composer-note { margin: 0; font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; font-size: 0.8rem; color: var(--color-parchment-300, #d8c39c); border: 1px solid var(--hairline, #3b2a19); background-color: var(--surface-app, #241910); padding: 0.3rem 0.55rem; } .ds-composer-hexes { display: flex; flex-wrap: wrap; gap: 0.35rem; } .ds-composer-hex { font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; background-color: var(--surface-panel, #2f2114); color: var(--text-on-chrome, #e6d8b8); border: 1px solid var(--hairline, #3b2a19); padding: 0.25em 0.75em; cursor: pointer; } .ds-composer-hex:focus-visible { outline: 2px solid var(--accent, #b78d3c); outline-offset: 2px; } .ds-composer-hex[aria-disabled=\"true\"] { color: var(--color-ink-700, #4a3d2c); }"
+    },
+    {
+      "name": "Victory Set Piece",
+      "kind": "custom",
+      "description": "The terminal, persistent victory moment — a .table-panel with a Cartouche display-serif title (the one place the serif is legal: the Cartouche Rule) that gets the warm brass glow bloom, plus the shape-tagged winner(s) with mono names. Honest content renders unconditionally; the glow has a prefers-reduced-motion off-branch. Winner shown is oxide (player 0 — circle/solid).",
+      "html": "<section class=\"ds-victory\" aria-label=\"Victory\"><h2 class=\"ds-victory-title\">Victory</h2><div class=\"ds-victory-winner\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 28 28\" role=\"img\" aria-label=\"Player 1 — oxide circle\"><circle cx=\"14\" cy=\"14\" r=\"9\" fill=\"var(--color-oxide, #c0492f)\" stroke=\"var(--color-oxide, #c0492f)\" stroke-width=\"1\"/></svg><span class=\"ds-victory-name\">Player 1</span></div></section>",
+      "css": ".ds-victory { display: flex; flex-direction: column; gap: 0.75rem; padding: 0.75rem; background-color: var(--surface-panel, #2f2114); color: var(--text-on-chrome, #e6d8b8); border: 1px solid var(--hairline, #3b2a19); } .ds-victory-title { margin: 0; font-family: var(--font-display, Georgia, serif); font-weight: 600; letter-spacing: 0.01em; font-size: 1.6rem; animation: ds-victory-glow 900ms cubic-bezier(0.22, 1, 0.36, 1) both; } .ds-victory-winner { display: flex; align-items: center; gap: 0.3rem; } .ds-victory-name { font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; } @keyframes ds-victory-glow { 0% { text-shadow: 0 0 0 transparent; } 45% { text-shadow: 0 0 16px oklch(66.8% 0.11 81.17 / 0.4); } 100% { text-shadow: 0 0 0 transparent; } } @media (prefers-reduced-motion: reduce) { .ds-victory-title { animation: none; } }"
     }
   ],
   "narrative": {
     "northStar": "The Map Table",
-    "overview": "The interface is a map table: a dark wooden surface where a beautiful aged map lies open, instruments and counters arranged around it, a game in progress between people who know each other. Everything on screen belongs to that scene. The hex board is a parchment-and-ink illustrated map — the hero, glowing at center. The app chrome is the table around it: dark walnut and iron, brass fittings, quiet and warm. Designer tooling (balance knobs, agent telemetry) is part of the same scene — the designer's instruments laid on the table, not a separate software product bolted alongside. The color strategy is Committed: the dark walnut table carries 30–60% of every screen, and the parchment board provides the light.",
+    "overview": "The interface is a map table: a dark wooden surface where a beautiful aged map lies open, instruments and counters arranged around it, a game in progress between people who know each other. Everything on screen belongs to that scene. The hex board is a parchment-and-ink illustrated map — the hero, glowing at center. The app chrome is the table around it: dark walnut and iron, brass fittings, quiet and warm. Designer tooling (balance knobs, agent telemetry) is part of the same scene — the designer's instruments laid on the table, not a separate software product bolted alongside.\n\nThe references are Tony's board-art mockup (repo root: IJ board art ChatGPT 2026-05-17.png), the digital adaptation of Brass: Birmingham, and 19th-century antique atlas plates — engraved cartography, cartouches, coastal hatching, plate borders. The system explicitly rejects all four PRODUCT.md anti-references: mobile-game gloss (Clash of Clans candy buttons, juice popups, reward sparkle), generic SaaS dashboard, grimdark wargame chrome, and retro pixel/8-bit.\n\nThe color strategy is Committed: the dark walnut table carries 30–60% of every screen, and the parchment board provides the light. This is deliberately NOT the cream/paper near-white default — parchment exists on screen only as the board's own material, framed by dark chrome.",
     "keyCharacteristics": [
       "Committed color: the dark table surface carries 30–60% of the screen; the parchment map provides the light.",
       "The board is the hero; chrome recedes and panels earn their pixels.",
@@ -114,12 +143,12 @@
       "Layout is structural-responsive (the right rail collapses below 1100px; below 768px is a check-in tier), never fluid-typography-responsive."
     ],
     "rules": [
-      { "name": "The Table Rule", "body": "The dark walnut/iron surface is the app's body. Panels, nav, and tooling sit on the table, in the table's palette.", "section": "colors" },
-      { "name": "The Parchment Belongs to the Board Rule", "body": "Aged parchment is the board's material, not a UI tint. App chrome, panels, cards, and page backgrounds are never near-white warm-tinted paper. If a panel looks like parchment, it had better be a map.", "section": "colors" },
+      { "name": "The Table Rule", "body": "The dark walnut/iron surface is the app's body. Panels, nav, and tooling sit on the table, in the table's palette (.table-surface, .table-panel).", "section": "colors" },
+      { "name": "The Parchment Belongs to the Board Rule", "body": "Aged parchment is the board's material, not a UI tint. App chrome, panels, cards, and page backgrounds are never near-white warm-tinted \"paper\" — that is the generic AI default, and here it would also dissolve the board's figure-ground. If a panel looks like parchment, it had better be a map (.board-surface is legal only on board surfaces).", "section": "colors" },
       { "name": "The Brass Budget Rule", "body": "The brass/ember accent appears on at most ~10% of any screen. Its scarcity is what makes selected states and primary actions read instantly.", "section": "colors" },
-      { "name": "The Cobalt–Violet Shape Rule", "body": "The brief-committed cobalt and violet collapse to ΔE ≈ 9.4 under deuteranopia — the palette's one inherent floor. For that pair, shape redundancy is load-bearing: they carry the two most orientation-distinct hard-edged shapes (square vs triangle) and must never be reassigned to the round-ish shape cluster.", "section": "colors" },
-      { "name": "The Cartouche Rule", "body": "The display serif is reserved for game moments — the title plate, combat resolution, elimination, victory, and map cartouches. It never appears in UI labels, buttons, form controls, or data.", "section": "typography" },
-      { "name": "The Honest Numbers Rule", "body": "Combat odds, budgets, seeds, and telemetry are always set in the mono face with tabular-nums — the numbers stay legible and honest whenever drama is on screen.", "section": "typography" },
+      { "name": "The Cobalt–Violet Shape Rule", "body": "The brief-committed cobalt and violet collapse to ΔE ≈ 9.4 under deuteranopia — the palette's one inherent floor. For that pair, shape redundancy is load-bearing, not decorative: they carry the two most orientation-distinct hard-edged shapes (square vs triangle) and must never be reassigned to the round-ish shape cluster (circle/pentagon/six-point).", "section": "colors" },
+      { "name": "The Cartouche Rule", "body": "The display serif is reserved for game moments — the title plate, combat resolution, elimination, victory, and map cartouches (.cartouche). It never appears in UI labels, buttons, form controls, or data. If a settings panel is set in the display face, it's wrong.", "section": "typography" },
+      { "name": "The Honest Numbers Rule", "body": "Combat odds, budgets, seeds, and telemetry are always set in the mono face with tabular-nums (.mono) — the numbers stay legible and honest whenever drama is on screen.", "section": "typography" },
       { "name": "The Material-Layering Rule", "body": "Elevation is a change of material (a lighter walnut + a hairline), never a drop shadow. If a panel floats, it's off the table.", "section": "elevation" }
     ],
     "dos": [
