@@ -19,8 +19,9 @@
 // opens a single-flight reconnect loop: it waits out a capped exponential backoff, then creates a FRESH socket from
 // the same factory + URL (seat token unchanged) and re-runs the whole per-socket lifecycle — handshake, keepalive,
 // pump. The `hello` of that handshake IS the recovery request: the server answers it with a full `resync`, which the
-// pump maps to a `sync` DriverEvent, so recovery needs no extra round-trip. The backoff resets to the base once a new
-// socket opens and re-handshakes. The loop retries indefinitely (there is no give-up state): terminal UX belongs to
+// pump maps to a `sync` DriverEvent, so recovery needs no extra round-trip. The backoff resets to the base when that
+// recovery `sync` arrives — the first proof the reconnect did useful work, so an accept-then-drop server (open → close
+// → open → close, never a frame) keeps escalating to the cap. The loop retries indefinitely (there is no give-up state): terminal UX belongs to
 // the reload-guard, and a player who leaves simply unmounts, which calls `dispose` and silences everything. Only the
 // CURRENT socket's close drives the loop — a stale pre-reconnect socket firing close cannot spawn a parallel loop.
 import { PROTOCOL_VERSION } from "../../../src/wire/protocol";
@@ -34,7 +35,9 @@ const DEFAULT_KEEPALIVE_MS = 25_000;
 
 /** The first reconnect delay after an outage. The wait doubles per failed attempt up to {@link RECONNECT_MAX_MS}. */
 const RECONNECT_BASE_MS = 1_000;
-/** The reconnect backoff cap. Delays double from the base — 1s, 2s, 4s, … — then pin here, retried until dispose. */
+/** The reconnect backoff cap. Delays double from the base — 1s, 2s, 4s, … — then pin here, retried until dispose.
+ *  Jitter is deliberately omitted: Phase 1 is one creator, one DO, and bounded multi-tab per seat, so there is no
+ *  thundering-herd to spread. Revisit if a second client class arrives. */
 const RECONNECT_MAX_MS = 30_000;
 
 /** The minimal `window.location` surface the driver reads to build the ws(s) origin (protocol + host). */
@@ -93,7 +96,8 @@ export function makeSocketDriver(opts: SocketDriverOptions): GameDriver {
   /** True from the moment a healthy connection drops until a fresh socket successfully opens. Gates the
    *  `connection:"reconnecting"` emit to once per outage (a failed retry mid-outage does not re-signal). */
   let reconnecting = false;
-  /** The next backoff delay. Starts at the base, doubles per failed attempt to the cap, resets on a successful open. */
+  /** The next backoff delay. Starts at the base, doubles per failed attempt to the cap, resets to the base when the
+   *  connection does useful work (a `sync` frame arrives) — NOT on a bare open, so an accept-then-drop server escalates. */
   let reconnectDelay = RECONNECT_BASE_MS;
 
   function emit(event: DriverEvent): void {
@@ -125,18 +129,21 @@ export function makeSocketDriver(opts: SocketDriverOptions): GameDriver {
 
     sock.onopen = (): void => {
       if (disposed || handshaken) return; // a spurious duplicate open (or a late open after dispose) must not handshake
+      if (sock !== socket) return; // a superseded socket must be inert: its open must not handshake or clobber reconnecting
       handshaken = true;
       reconnecting = false; // this open ends the outage — the next drop starts a fresh one and re-signals
-      reconnectDelay = RECONNECT_BASE_MS; // a socket that opened + handshakes is a successful (re)connect — reset backoff
       // The handshake: hello (initial-sync/recovery trigger) THEN claimSeat (roster ack). No token in either body.
       sendCommand({ type: "hello", protocolVersion: PROTOCOL_VERSION, replayVersion: REPLAY_VERSION });
       sendCommand({ type: "claimSeat", requestId: nextRequestId(), seat: opts.seat });
       keepaliveTimer = setInterval(() => sock.send("ping"), keepaliveMs);
+      // "open" implies submit-usable: readyState is OPEN at onopen and WebSocket.send is synchronous, so the handshake
+      // frames are already flushed and a submit fired on observing "open" lands after them on a live socket.
       emitConnection("open"); // after the handshake sends, per the driver contract
     };
 
     sock.onmessage = (event: MessageEvent): void => {
       if (disposed) return;
+      if (sock !== socket) return; // a superseded socket must be inert: it must not pump a mis-indexed event to the store
       const data = event.data;
       if (typeof data !== "string") return; // the protocol is text-only; ignore any binary frame
       if (data === "pong") return; // the runtime's keepalive answer — NOT JSON; ignore before parsing
@@ -157,6 +164,10 @@ export function makeSocketDriver(opts: SocketDriverOptions): GameDriver {
       if (driverEvent.type === "sync") {
         logLength = driverEvent.logLength;
         lastSync = driverEvent; // cache for late-subscriber replay
+        // A sync is the server's answer to hello — the first proof the connection does useful work; resetting here,
+        // not on raw open, means an accept-then-drop server escalates to the cap instead of being hammered at the base
+        // delay. Resetting on every sync is correct: a healthy connection's resyncs are harmless re-resets to base.
+        reconnectDelay = RECONNECT_BASE_MS;
       } else if (driverEvent.type === "applied") {
         logLength = driverEvent.logIndex + 1;
       }
@@ -185,7 +196,7 @@ export function makeSocketDriver(opts: SocketDriverOptions): GameDriver {
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
       if (disposed) return; // dispose during the wait cancels the attempt (belt-and-braces beside clearTimeout)
-      reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS); // escalate; a successful open resets to base
+      reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS); // escalate; a recovery `sync` resets to base
       socket = connect(); // a fresh socket becomes the live one; its open re-handshakes and resyncs via hello
     }, reconnectDelay);
   }

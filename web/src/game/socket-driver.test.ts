@@ -566,15 +566,16 @@ describe("reconnect backoff schedule", () => {
     h.driver.dispose();
   });
 
-  test("a successful reconnect resets the backoff to the base delay", () => {
+  test("a genuine recovery (open + sync frame) resets the backoff to the base delay", () => {
     const h = makeReconnectHarness();
     h.latest().fireOpen();
     h.latest().fireClose(); // outage 1 starts
 
-    // First attempt after base delay, and let it SUCCEED (open + handshake).
+    // First attempt after base delay, and let it SUCCEED: open, then the recovery sync arrives (useful work).
     vi.advanceTimersByTime(RECONNECT_BASE_MS);
     expect(h.factoryCalls()).toBe(2);
-    h.latest().fireOpen(); // successful reconnect → backoff resets
+    h.latest().fireOpen();
+    h.latest().fireMessage(JSON.stringify(resyncMsg(freshGame(), 1))); // THIS is success — the backoff resets here
 
     // A second outage must again wait only the BASE delay (not the doubled 2s), proving the reset.
     h.latest().fireClose();
@@ -582,6 +583,29 @@ describe("reconnect backoff schedule", () => {
     expect(h.factoryCalls()).toBe(2); // still waiting the base delay
     vi.advanceTimersByTime(1);
     expect(h.factoryCalls()).toBe(3); // reconnected again after exactly the base delay
+    h.driver.dispose();
+  });
+
+  test("an accept-then-drop crash loop still escalates to the cap (open without a sync is not success)", () => {
+    const h = makeReconnectHarness();
+    h.latest().fireOpen();
+    h.latest().fireMessage(JSON.stringify(resyncMsg(freshGame(), 1))); // the healthy session did useful work
+    h.latest().fireClose(); // outage starts
+
+    // Each attempt OPENS (the server accepts the socket) but drops it before ANY frame arrives — a
+    // crash-looping server. An open alone must not reset the backoff, or the client hammers the server at
+    // the base delay forever; the schedule must keep doubling to the cap exactly as if no open ever fired.
+    const expectedDelays = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000];
+    let created = 1; // the initial socket
+    for (const delay of expectedDelays) {
+      vi.advanceTimersByTime(delay - 1);
+      expect(h.factoryCalls()).toBe(created); // the wait hasn't elapsed yet
+      vi.advanceTimersByTime(1);
+      created += 1;
+      expect(h.factoryCalls()).toBe(created);
+      h.latest().fireOpen(); // the server accepts…
+      h.latest().fireClose(); // …then kills the socket before a single frame
+    }
     h.driver.dispose();
   });
 
@@ -681,6 +705,25 @@ describe("reconnect single-flight", () => {
     vi.advanceTimersByTime(RECONNECT_MAX_MS);
     expect(h.factoryCalls()).toBe(2); // no new socket
     expect(events.filter((e) => e.type === "connection")).toEqual([]); // no connection churn
+    h.driver.dispose();
+  });
+
+  test("a stale socket's message after the reconnect socket is live emits nothing to subscribers", () => {
+    // Invariant: a superseded socket is inert — its onmessage identity guard drops the frame, so a stale socket
+    // cannot pump a mis-indexed event to the store. (Today a stale socket is always already-closed, so this is
+    // latent defense against a future proactive-reconnect trigger that supersedes a still-live socket.)
+    const h = makeReconnectHarness();
+    h.latest().fireOpen();
+    h.latest().fireClose(); // outage
+    vi.advanceTimersByTime(RECONNECT_BASE_MS);
+    expect(h.factoryCalls()).toBe(2);
+    h.latest().fireOpen(); // reconnect succeeds; sockets[0] is now superseded
+
+    const events: DriverEvent[] = [];
+    h.driver.subscribe((e) => events.push(e));
+    events.length = 0;
+    h.sockets[0]!.fireMessage(JSON.stringify(resyncMsg(freshGame(), 42))); // stale socket pumps a frame
+    expect(events).toEqual([]); // the identity guard drops it — nothing reaches subscribers
     h.driver.dispose();
   });
 });
