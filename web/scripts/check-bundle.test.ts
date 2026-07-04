@@ -143,4 +143,20 @@ describe("assertNoLazyOnlyModulesInEager", () => {
 
     expect(() => assertNoLazyOnlyModulesInEager(moduleMap)).toThrow(/src\/wire\/codec\.ts/);
   });
+
+  test("throws on a module map with NO entry chunks (a degenerate/malformed build artifact)", () => {
+    // A build with no entry chunk cannot be a clean bundle — every real client build has at least one
+    // entry. With zero entries the eager set would be empty and a lazy-only leak could never be flagged,
+    // so the fail-closed gate would pass OPEN on a broken artifact. Reject the input instead.
+    const moduleMap = {
+      "orphan-chunk.js": {
+        isEntry: false,
+        dynamicallyImported: true,
+        staticImports: [],
+        moduleIds: ["/repo/src/wire/codec.ts"],
+      },
+    };
+
+    expect(() => assertNoLazyOnlyModulesInEager(moduleMap)).toThrow(/no entry chunk/i);
+  });
 });

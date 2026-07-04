@@ -39,6 +39,16 @@ function eagerChunks(moduleMap: BundleModuleMap): Set<string> {
     .filter(([, chunk]) => chunk.isEntry)
     .map(([fileName]) => fileName);
 
+  // Fail CLOSED on a degenerate artifact: a build with no entry chunk is malformed (every real client
+  // build has one). With zero entries the eager set is empty, so a lazy-only leak could never be flagged
+  // — the gate would pass OPEN on broken input. Reject it instead of silently vouching for it.
+  if (stack.length === 0) {
+    throw new Error(
+      "check-bundle: the bundle module map has no entry chunk — a build with no entry point is a " +
+        'malformed artifact. Re-run "bun run build:client" and inspect dist/client/.bundle-modules.json.',
+    );
+  }
+
   while (stack.length > 0) {
     const fileName = stack.pop()!;
     if (eager.has(fileName)) continue; // visited-guard: tolerates static-import cycles
