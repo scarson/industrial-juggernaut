@@ -79,8 +79,14 @@ function freshGame(): GameState {
   return openSession(realHeader(), { defenderTimeout: { enabled: false, seconds: 120 } }).game;
 }
 
-/** A full `resync` ServerMessage wrapping the given game + logLength (the shape `hello` triggers as initial sync). */
-function resyncMsg(game: GameState, logLength: number, seats: SeatRosterEntry[] = []): ServerMessage {
+/** A full `resync` ServerMessage wrapping the given game + logLength (the shape `hello` triggers as initial sync).
+ *  `reason` defaults to null (a hello/mount resync); pass "STALE_INDEX" to model the pushed envelope-reject resync. */
+function resyncMsg(
+  game: GameState,
+  logLength: number,
+  seats: SeatRosterEntry[] = [],
+  reason: string | null = null,
+): ServerMessage {
   return {
     type: "resync",
     snapshot: encodeState(game),
@@ -89,12 +95,16 @@ function resyncMsg(game: GameState, logLength: number, seats: SeatRosterEntry[] 
     seats,
     protocolVersion: PROTOCOL_VERSION,
     replayVersion: REPLAY_VERSION,
-    reason: null,
+    reason,
   };
 }
 
 const KEEPALIVE_MS = 25_000;
 const TOKEN = "super-secret-seat-token";
+// The reconnect backoff schedule, mirrored from socket-driver.ts for exact fake-timer assertions:
+// 1s base doubling to a 30s cap, retried indefinitely until dispose.
+const RECONNECT_BASE_MS = 1_000;
+const RECONNECT_MAX_MS = 30_000;
 
 /**
  * Build a SocketDriver over a fresh FakeSocket, returning both. `requestId` is a deterministic counter and
@@ -122,6 +132,42 @@ function makeHarness(overrides: Partial<Parameters<typeof makeSocketDriver>[0]> 
       if (sock === null) throw new Error("socket not created");
       return sock;
     },
+  };
+}
+
+/**
+ * A reconnect-aware harness: unlike {@link makeHarness}, it retains EVERY socket the factory produces (not just the
+ * latest) and exposes the factory call count, so a test can assert the backoff schedule (advance exact durations,
+ * check how many sockets were created), single-flight (a stale socket's close must not spawn a parallel loop), and
+ * dispose-wins races (no socket created after dispose).
+ */
+function makeReconnectHarness(overrides: Partial<Parameters<typeof makeSocketDriver>[0]> = {}) {
+  const sockets: FakeSocket[] = [];
+  let idCounter = 0;
+  const driver = makeSocketDriver({
+    roomId: "room-abc",
+    seat: 1,
+    token: TOKEN,
+    socketFactory: (url: string) => {
+      const s = new FakeSocket(url);
+      sockets.push(s);
+      return s as unknown as WebSocket;
+    },
+    nextRequestId: () => `req-${++idCounter}`,
+    keepaliveMs: KEEPALIVE_MS,
+    location: { protocol: "https:", host: "play.example.com" },
+    ...overrides,
+  });
+  return {
+    driver,
+    sockets,
+    /** The most recently created socket (the live one after a reconnect). */
+    latest: () => {
+      if (sockets.length === 0) throw new Error("no socket created");
+      return sockets[sockets.length - 1]!;
+    },
+    /** How many sockets the factory has produced — the reconnect-attempt counter (includes the first connect). */
+    factoryCalls: () => sockets.length,
   };
 }
 
@@ -431,14 +477,16 @@ describe("connection status", () => {
     expect(sentJson(socket()).map((m) => (m as { type: string }).type)).toEqual(["hello", "claimSeat"]);
   });
 
-  test("emits connection closed on an unexpected socket close", () => {
+  test("emits connection reconnecting (not closed) on an unexpected socket close", () => {
     const { driver, socket } = makeHarness();
     const events: DriverEvent[] = [];
     driver.subscribe((e) => events.push(e));
     socket().fireOpen();
     events.length = 0;
     socket().fireClose(1006, "gone");
-    expect(events).toEqual([{ type: "connection", status: "closed" }]);
+    // The outage opens a reconnect loop, so the driver signals "reconnecting", never a terminal "closed".
+    expect(events).toEqual([{ type: "connection", status: "reconnecting" }]);
+    driver.dispose(); // cancel the pending backoff so no timer leaks into the next test
   });
 
   test("dispose closes the socket and emits nothing further", () => {
@@ -479,5 +527,288 @@ describe("token safety", () => {
     socket().fireClose();
     const haystack = JSON.stringify(events) + String((thrown as Error)?.message ?? "") + String((thrown as Error)?.stack ?? "");
     expect(haystack).not.toContain(TOKEN);
+    driver.dispose(); // cancel the reconnect the close opened
+  });
+});
+
+// ── 10. Reconnect: backoff schedule ───────────────────────────────────────────────────────────────────────────
+describe("reconnect backoff schedule", () => {
+  test("an unexpected close schedules a fresh socket after the base delay", () => {
+    const h = makeReconnectHarness();
+    h.latest().fireOpen();
+    expect(h.factoryCalls()).toBe(1); // only the initial connect so far
+    h.latest().fireClose();
+    // No new socket the instant the close fires — the reconnect waits out the backoff delay.
+    expect(h.factoryCalls()).toBe(1);
+    vi.advanceTimersByTime(RECONNECT_BASE_MS - 1);
+    expect(h.factoryCalls()).toBe(1); // still waiting
+    vi.advanceTimersByTime(1); // now at exactly RECONNECT_BASE_MS
+    expect(h.factoryCalls()).toBe(2); // a fresh socket was created
+    h.driver.dispose();
+  });
+
+  test("backoff doubles from base to the cap across successive failed attempts", () => {
+    const h = makeReconnectHarness();
+    h.latest().fireOpen();
+    h.latest().fireClose(); // outage starts
+
+    // Each attempt's socket is created, then closes WITHOUT ever opening (attempt failed) → the next wait doubles.
+    const expectedDelays = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000]; // doubles, then pins at the 30s cap
+    let created = 1; // the initial socket
+    for (const delay of expectedDelays) {
+      vi.advanceTimersByTime(delay - 1);
+      expect(h.factoryCalls()).toBe(created); // the wait hasn't elapsed yet
+      vi.advanceTimersByTime(1); // delay fully elapsed
+      created += 1;
+      expect(h.factoryCalls()).toBe(created); // a fresh socket for this attempt
+      h.latest().fireClose(); // this attempt's socket dies before opening → escalate the backoff
+    }
+    h.driver.dispose();
+  });
+
+  test("a successful reconnect resets the backoff to the base delay", () => {
+    const h = makeReconnectHarness();
+    h.latest().fireOpen();
+    h.latest().fireClose(); // outage 1 starts
+
+    // First attempt after base delay, and let it SUCCEED (open + handshake).
+    vi.advanceTimersByTime(RECONNECT_BASE_MS);
+    expect(h.factoryCalls()).toBe(2);
+    h.latest().fireOpen(); // successful reconnect → backoff resets
+
+    // A second outage must again wait only the BASE delay (not the doubled 2s), proving the reset.
+    h.latest().fireClose();
+    vi.advanceTimersByTime(RECONNECT_BASE_MS - 1);
+    expect(h.factoryCalls()).toBe(2); // still waiting the base delay
+    vi.advanceTimersByTime(1);
+    expect(h.factoryCalls()).toBe(3); // reconnected again after exactly the base delay
+    h.driver.dispose();
+  });
+
+  test("emits reconnecting exactly once per outage, not once per attempt", () => {
+    const h = makeReconnectHarness();
+    const events: DriverEvent[] = [];
+    h.driver.subscribe((e) => events.push(e));
+    h.latest().fireOpen();
+    events.length = 0;
+    h.latest().fireClose(); // outage starts
+
+    const reconnectingCount = () =>
+      events.filter((e) => e.type === "connection" && e.status === "reconnecting").length;
+    expect(reconnectingCount()).toBe(1); // signalled once at outage start
+
+    // Two failed attempts within the SAME outage must not re-emit "reconnecting".
+    vi.advanceTimersByTime(RECONNECT_BASE_MS);
+    h.latest().fireClose();
+    vi.advanceTimersByTime(2 * RECONNECT_BASE_MS);
+    h.latest().fireClose();
+    expect(reconnectingCount()).toBe(1); // still exactly one for this outage
+    h.driver.dispose();
+  });
+});
+
+// ── 11. Reconnect: dispose-wins races ──────────────────────────────────────────────────────────────────────────
+describe("reconnect races with dispose", () => {
+  test("dispose during the backoff wait cancels the pending attempt (no new socket)", () => {
+    const h = makeReconnectHarness();
+    h.latest().fireOpen();
+    h.latest().fireClose(); // schedule a reconnect
+    expect(h.factoryCalls()).toBe(1);
+    h.driver.dispose(); // dispose BEFORE the backoff timer fires
+    vi.advanceTimersByTime(RECONNECT_MAX_MS * 10); // let any pending timer fire
+    expect(h.factoryCalls()).toBe(1); // no socket was ever created post-dispose
+  });
+
+  test("dispose during an in-flight attempt closes that socket and suppresses its late open", () => {
+    const h = makeReconnectHarness();
+    const events: DriverEvent[] = [];
+    h.driver.subscribe((e) => events.push(e));
+    h.latest().fireOpen();
+    h.latest().fireClose();
+    vi.advanceTimersByTime(RECONNECT_BASE_MS); // a fresh socket is created (attempt in flight), open not yet fired
+    expect(h.factoryCalls()).toBe(2);
+    const inflight = h.latest();
+    events.length = 0;
+    h.driver.dispose(); // dispose while the new socket is connecting
+    expect(inflight.closed).not.toBeNull(); // the in-flight socket was closed
+    inflight.fireOpen(); // a late open from that socket must be suppressed (disposed guard)
+    expect(inflight.sent).toEqual([]); // no handshake sent post-dispose
+    expect(events).toEqual([]); // no "open" event post-dispose
+  });
+
+  test("submit + requestSync after dispose behave as before across a reconnect", async () => {
+    const h = makeReconnectHarness();
+    h.latest().fireOpen();
+    h.latest().fireClose();
+    h.driver.dispose();
+    await expect(h.driver.submit({ type: "endRound" })).rejects.toThrow();
+    expect(() => h.driver.requestSync()).not.toThrow();
+  });
+});
+
+// ── 12. Reconnect: single-flight ───────────────────────────────────────────────────────────────────────────────
+describe("reconnect single-flight", () => {
+  test("a stale socket's close does not spawn a second parallel reconnect loop", () => {
+    const h = makeReconnectHarness();
+    h.latest().fireOpen();
+    const stale = h.sockets[0]!; // the original socket
+    stale.fireClose(); // outage starts → one reconnect scheduled
+
+    vi.advanceTimersByTime(RECONNECT_BASE_MS);
+    expect(h.factoryCalls()).toBe(2); // exactly one new socket
+
+    // The STALE (original) socket now fires close AGAIN, after the new socket already exists.
+    // A single-flight driver must ignore it — no second parallel backoff loop.
+    stale.fireClose();
+    vi.advanceTimersByTime(RECONNECT_MAX_MS * 5);
+    expect(h.factoryCalls()).toBe(2); // still just the one reconnect socket — no parallel loop
+    h.driver.dispose();
+  });
+
+  test("only the CURRENT socket's close drives the loop; a superseded socket is inert", () => {
+    const h = makeReconnectHarness();
+    h.latest().fireOpen();
+    h.latest().fireClose(); // outage
+    vi.advanceTimersByTime(RECONNECT_BASE_MS);
+    expect(h.factoryCalls()).toBe(2);
+    h.latest().fireOpen(); // reconnect succeeds; sockets[0] is now fully superseded
+
+    // sockets[0] (long dead) fires a stray close — must not reopen an outage on the healthy connection.
+    const events: DriverEvent[] = [];
+    h.driver.subscribe((e) => events.push(e));
+    events.length = 0;
+    h.sockets[0]!.fireClose();
+    vi.advanceTimersByTime(RECONNECT_MAX_MS);
+    expect(h.factoryCalls()).toBe(2); // no new socket
+    expect(events.filter((e) => e.type === "connection")).toEqual([]); // no connection churn
+    h.driver.dispose();
+  });
+});
+
+// ── 13. Reconnect: recovery + resync ───────────────────────────────────────────────────────────────────────────
+describe("reconnect recovery", () => {
+  test("full sequence for a subscriber present across the outage: reconnecting → open → sync", () => {
+    const h = makeReconnectHarness();
+    const events: DriverEvent[] = [];
+    h.driver.subscribe((e) => events.push(e));
+    h.latest().fireOpen(); // initial open
+    h.latest().fireMessage(JSON.stringify(resyncMsg(freshGame(), 5))); // initial sync
+    events.length = 0;
+
+    h.latest().fireClose(); // outage
+    vi.advanceTimersByTime(RECONNECT_BASE_MS);
+    h.latest().fireOpen(); // reconnect: re-handshake fires, connection "open" re-emitted
+    // The new socket's hello reply is a resync ServerMessage → flows through the pump as a "sync".
+    h.latest().fireMessage(JSON.stringify(resyncMsg(freshGame(), 8)));
+
+    const statuses = events
+      .filter((e) => e.type === "connection")
+      .map((e) => (e as Extract<DriverEvent, { type: "connection" }>).status);
+    expect(statuses).toEqual(["reconnecting", "open"]);
+    // ...and the recovery sync arrives AFTER the "open", in order.
+    const openIdx = events.findIndex((e) => e.type === "connection" && e.status === "open");
+    const syncIdx = events.findIndex((e) => e.type === "sync");
+    expect(openIdx).toBeGreaterThanOrEqual(0);
+    expect(syncIdx).toBeGreaterThan(openIdx);
+    h.driver.dispose();
+  });
+
+  test("the reconnected socket re-runs the full hello+claimSeat handshake", () => {
+    const h = makeReconnectHarness();
+    h.latest().fireOpen();
+    h.latest().fireClose();
+    vi.advanceTimersByTime(RECONNECT_BASE_MS);
+    const reconnected = h.latest();
+    reconnected.fireOpen();
+    const msgs = sentJson(reconnected);
+    expect(msgs).toEqual([
+      { type: "hello", protocolVersion: PROTOCOL_VERSION, replayVersion: REPLAY_VERSION },
+      { type: "claimSeat", requestId: "req-2", seat: 1 }, // req-1 was the first connect's claim
+    ]);
+    h.driver.dispose();
+  });
+
+  test("a late subscriber attaching after recovery gets the POST-reconnect sync replayed", () => {
+    const h = makeReconnectHarness();
+    h.latest().fireOpen();
+    h.latest().fireMessage(JSON.stringify(resyncMsg(freshGame(), 5)));
+    h.latest().fireClose();
+    vi.advanceTimersByTime(RECONNECT_BASE_MS);
+    h.latest().fireOpen();
+    h.latest().fireMessage(JSON.stringify(resyncMsg(freshGame(), 8))); // recovery sync supersedes the pre-outage one
+
+    const late: DriverEvent[] = [];
+    h.driver.subscribe((e) => late.push(e));
+    expect(late).toHaveLength(1);
+    expect((late[0] as Extract<DriverEvent, { type: "sync" }>).logLength).toBe(8);
+    h.driver.dispose();
+  });
+});
+
+// ── 14. Optimistic concurrency across the outage ───────────────────────────────────────────────────────────────
+describe("optimistic concurrency across reconnect", () => {
+  test("a submit after recovery stamps expectedLogIndex from the POST-reconnect logLength (rewind case)", async () => {
+    const h = makeReconnectHarness();
+    h.latest().fireOpen();
+    h.latest().fireMessage(JSON.stringify(resyncMsg(freshGame(), 5))); // pre-outage logLength := 5
+    h.latest().fireClose();
+    vi.advanceTimersByTime(RECONNECT_BASE_MS);
+    h.latest().fireOpen();
+    h.latest().fireMessage(JSON.stringify(resyncMsg(freshGame(), 3))); // recovery says logLength 3 (client was ahead)
+    h.latest().sent = [];
+    await h.driver.submit({ type: "endRound" });
+    expect(sentJson(h.latest())).toEqual([{ type: "endRound", expectedLogIndex: 3 } satisfies ClientCommand]);
+    h.driver.dispose();
+  });
+
+  test("a submit after recovery stamps the POST-reconnect logLength (advance case)", async () => {
+    const h = makeReconnectHarness();
+    h.latest().fireOpen();
+    h.latest().fireMessage(JSON.stringify(resyncMsg(freshGame(), 5))); // pre-outage logLength := 5
+    h.latest().fireClose();
+    vi.advanceTimersByTime(RECONNECT_BASE_MS);
+    h.latest().fireOpen();
+    h.latest().fireMessage(JSON.stringify(resyncMsg(freshGame(), 9))); // recovery says logLength 9 (server moved ahead)
+    h.latest().sent = [];
+    await h.driver.submit({ type: "pass" });
+    expect(sentJson(h.latest())).toEqual([{ type: "pass", expectedLogIndex: 9 } satisfies ClientCommand]);
+    h.driver.dispose();
+  });
+
+  test("an in-session STALE_INDEX resync retracks logLength for the next submit", async () => {
+    const { driver, socket } = makeHarness();
+    socket().fireOpen();
+    socket().fireMessage(JSON.stringify(resyncMsg(freshGame(), 7))); // logLength := 7
+    // The server answers a stale-indexed command with a pushed resync{reason:"STALE_INDEX"}; wire-map drops the
+    // reason and maps it to a plain sync. It must retrack logLength so the NEXT submit stamps the corrected index.
+    socket().fireMessage(JSON.stringify(resyncMsg(freshGame(), 4, [], "STALE_INDEX")));
+    socket().sent = [];
+    await driver.submit({ type: "pass" });
+    expect(sentJson(socket())).toEqual([{ type: "pass", expectedLogIndex: 4 } satisfies ClientCommand]);
+    driver.dispose();
+  });
+});
+
+// ── 15. Keepalive across reconnect ─────────────────────────────────────────────────────────────────────────────
+describe("keepalive across reconnect", () => {
+  test("no ping is sent during the outage (the strict fake would throw), and pings resume on the new socket", () => {
+    const h = makeReconnectHarness();
+    h.latest().fireOpen();
+    const original = h.sockets[0]!;
+    original.sent = []; // discard the handshake frames
+    original.fireClose(); // outage
+
+    // While reconnecting, no timer may fire a ping (the strict FakeSocket throws when not OPEN — that's the proof).
+    expect(() => vi.advanceTimersByTime(KEEPALIVE_MS * 3)).not.toThrow();
+    expect(original.sent).toEqual([]); // the old socket's keepalive stopped at close
+
+    // Reconnect and open the new socket; its keepalive is a fresh interval.
+    vi.advanceTimersByTime(RECONNECT_BASE_MS);
+    const reconnected = h.latest();
+    reconnected.fireOpen();
+    reconnected.sent = []; // discard the re-handshake frames
+    vi.advanceTimersByTime(KEEPALIVE_MS);
+    expect(reconnected.sent).toEqual(["ping"]); // pings resume on the new socket
+    h.driver.dispose();
   });
 });

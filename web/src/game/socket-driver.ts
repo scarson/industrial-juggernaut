@@ -1,5 +1,5 @@
 // ABOUTME: SocketDriver — a GameDriver over the DO host's WebSocket: connect, hello/claimSeat handshake,
-// ABOUTME: app-level keepalive, and the incoming-message pump. Reconnect + resync is a later task, not here.
+// ABOUTME: app-level keepalive, the incoming-message pump, and reconnect-with-backoff after an unexpected close.
 //
 // DYNAMIC-IMPORT CONTRACT. This module value-imports the wire version constant (src/wire/protocol), the host's
 // replay version (src/host/version — the ONE src/host import the client makes), and `./wire-map` (which value-imports
@@ -14,6 +14,15 @@
 // the DO runtime without waking it) or a JSON `ServerMessage` mapped through the shared wire-map seam to a
 // DriverEvent and fanned out to subscribers. The driver sends ONLY well-formed JSON ClientCommands plus the literal
 // `"ping"` — nothing else — so it never trips the host's per-socket malformed budget.
+//
+// RECONNECT. An unexpected close (any close the driver didn't initiate) emits `connection:"reconnecting"` once and
+// opens a single-flight reconnect loop: it waits out a capped exponential backoff, then creates a FRESH socket from
+// the same factory + URL (seat token unchanged) and re-runs the whole per-socket lifecycle — handshake, keepalive,
+// pump. The `hello` of that handshake IS the recovery request: the server answers it with a full `resync`, which the
+// pump maps to a `sync` DriverEvent, so recovery needs no extra round-trip. The backoff resets to the base once a new
+// socket opens and re-handshakes. The loop retries indefinitely (there is no give-up state): terminal UX belongs to
+// the reload-guard, and a player who leaves simply unmounts, which calls `dispose` and silences everything. Only the
+// CURRENT socket's close drives the loop — a stale pre-reconnect socket firing close cannot spawn a parallel loop.
 import { PROTOCOL_VERSION } from "../../../src/wire/protocol";
 import { REPLAY_VERSION } from "../../../src/host/version";
 import { toClientCommand, toDriverEvent } from "./wire-map";
@@ -22,6 +31,11 @@ import type { ConnectionStatus, DriverCommand, DriverEvent, GameDriver } from ".
 
 /** The app-level keepalive period. The DO runtime auto-answers `"ping"` with `"pong"` WITHOUT waking the DO. */
 const DEFAULT_KEEPALIVE_MS = 25_000;
+
+/** The first reconnect delay after an outage. The wait doubles per failed attempt up to {@link RECONNECT_MAX_MS}. */
+const RECONNECT_BASE_MS = 1_000;
+/** The reconnect backoff cap. Delays double from the base — 1s, 2s, 4s, … — then pin here, retried until dispose. */
+const RECONNECT_MAX_MS = 30_000;
 
 /** The minimal `window.location` surface the driver reads to build the ws(s) origin (protocol + host). */
 export type SocketLocation = { protocol: string; host: string };
@@ -62,7 +76,6 @@ export function makeSocketDriver(opts: SocketDriverOptions): GameDriver {
   const location = opts.location ?? window.location;
 
   const url = buildUrl(location, opts.roomId, opts.seat, opts.token);
-  const socket = socketFactory(url);
 
   const handlers = new Set<(e: DriverEvent) => void>();
   /** The latest mapped `sync` DriverEvent, replayed to any subscriber that attaches after it arrived. */
@@ -70,9 +83,18 @@ export function makeSocketDriver(opts: SocketDriverOptions): GameDriver {
   /** The client's view of the authoritative log length — stamped onto every mutating command as expectedLogIndex.
    *  Set from a `sync` (the resync's logLength) and advanced by an `applied` (logIndex + 1). Starts at 0. */
   let logLength = 0;
-  let handshaken = false;
   let disposed = false;
   let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+  /** The live socket. Reassigned on each reconnect; only THIS socket's close drives the reconnect loop
+   *  (single-flight — a stale socket firing close after a reconnect must be inert). */
+  let socket: WebSocket = connect();
+  /** The pending backoff timer while an outage's reconnect is scheduled, or null when none is scheduled. */
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  /** True from the moment a healthy connection drops until a fresh socket successfully opens. Gates the
+   *  `connection:"reconnecting"` emit to once per outage (a failed retry mid-outage does not re-signal). */
+  let reconnecting = false;
+  /** The next backoff delay. Starts at the base, doubles per failed attempt to the cap, resets on a successful open. */
+  let reconnectDelay = RECONNECT_BASE_MS;
 
   function emit(event: DriverEvent): void {
     for (const handler of handlers) handler(event);
@@ -89,57 +111,84 @@ export function makeSocketDriver(opts: SocketDriverOptions): GameDriver {
     }
   }
 
-  /** Send one well-formed ClientCommand as a JSON text frame. The ONLY JSON the driver ever sends. */
+  /** Send one well-formed ClientCommand as a JSON text frame on the live socket. The ONLY JSON the driver ever sends. */
   function sendCommand(command: ClientCommand): void {
     socket.send(JSON.stringify(command));
   }
 
-  socket.onopen = (): void => {
-    if (disposed || handshaken) return; // a spurious duplicate open must not re-handshake
-    handshaken = true;
-    // The handshake: hello (initial-sync trigger) THEN claimSeat (roster ack). No token in either body.
-    sendCommand({ type: "hello", protocolVersion: PROTOCOL_VERSION, replayVersion: REPLAY_VERSION });
-    sendCommand({ type: "claimSeat", requestId: nextRequestId(), seat: opts.seat });
-    keepaliveTimer = setInterval(() => socket.send("ping"), keepaliveMs);
-    emitConnection("open"); // after the handshake sends, per the driver contract
-  };
+  /** Create a fresh socket, wire its lifecycle handlers, and return it. Used for the initial connect AND each reconnect. */
+  function connect(): WebSocket {
+    const sock = socketFactory(url);
+    // Each fresh socket handshakes exactly once on its own open. `handshaken` is per-socket (closure-local here),
+    // so a spurious duplicate open on the SAME socket won't re-handshake, while a genuine reconnect socket does.
+    let handshaken = false;
 
-  socket.onmessage = (event: MessageEvent): void => {
-    if (disposed) return;
-    const data = event.data;
-    if (typeof data !== "string") return; // the protocol is text-only; ignore any binary frame
-    if (data === "pong") return; // the runtime's keepalive answer — NOT JSON; ignore before parsing
+    sock.onopen = (): void => {
+      if (disposed || handshaken) return; // a spurious duplicate open (or a late open after dispose) must not handshake
+      handshaken = true;
+      reconnecting = false; // this open ends the outage — the next drop starts a fresh one and re-signals
+      reconnectDelay = RECONNECT_BASE_MS; // a socket that opened + handshakes is a successful (re)connect — reset backoff
+      // The handshake: hello (initial-sync/recovery trigger) THEN claimSeat (roster ack). No token in either body.
+      sendCommand({ type: "hello", protocolVersion: PROTOCOL_VERSION, replayVersion: REPLAY_VERSION });
+      sendCommand({ type: "claimSeat", requestId: nextRequestId(), seat: opts.seat });
+      keepaliveTimer = setInterval(() => sock.send("ping"), keepaliveMs);
+      emitConnection("open"); // after the handshake sends, per the driver contract
+    };
 
-    let msg: ServerMessage;
-    try {
-      msg = JSON.parse(data) as ServerMessage;
-    } catch {
-      // The server never sends malformed frames, but the pump must not die on one — ignore and keep the connection.
-      return;
-    }
+    sock.onmessage = (event: MessageEvent): void => {
+      if (disposed) return;
+      const data = event.data;
+      if (typeof data !== "string") return; // the protocol is text-only; ignore any binary frame
+      if (data === "pong") return; // the runtime's keepalive answer — NOT JSON; ignore before parsing
 
-    const driverEvent = toDriverEvent(msg);
-    if (driverEvent === null) return; // seatClaimed and other no-driver-counterpart messages map to nothing
+      let msg: ServerMessage;
+      try {
+        msg = JSON.parse(data) as ServerMessage;
+      } catch {
+        // The server never sends malformed frames, but the pump must not die on one — ignore and keep the connection.
+        return;
+      }
 
-    // Track the client's authoritative log length from the two events that move it.
-    if (driverEvent.type === "sync") {
-      logLength = driverEvent.logLength;
-      lastSync = driverEvent; // cache for late-subscriber replay
-    } else if (driverEvent.type === "applied") {
-      logLength = driverEvent.logIndex + 1;
-    }
+      const driverEvent = toDriverEvent(msg);
+      if (driverEvent === null) return; // seatClaimed and other no-driver-counterpart messages map to nothing
 
-    emit(driverEvent);
-  };
+      // Track the client's authoritative log length from the two events that move it. A recovery/STALE_INDEX resync
+      // arrives as a `sync` too, so this retracks logLength after reconnect and the next submit stamps the fresh index.
+      if (driverEvent.type === "sync") {
+        logLength = driverEvent.logLength;
+        lastSync = driverEvent; // cache for late-subscriber replay
+      } else if (driverEvent.type === "applied") {
+        logLength = driverEvent.logIndex + 1;
+      }
 
-  socket.onclose = (): void => {
-    if (disposed) return; // a dispose-initiated close is silent (subscribers are told nothing after dispose)
-    stopKeepalive();
-    emitConnection("closed"); // plain closed — reconnect/backoff is a later task
-  };
+      emit(driverEvent);
+    };
 
-  // `error` is intentionally unhandled: a WebSocket always follows `error` with `close`, so the
-  // onclose handler above already covers every error-terminated connection.
+    sock.onclose = (): void => {
+      if (disposed) return; // a dispose-initiated close is silent (subscribers are told nothing after dispose)
+      if (sock !== socket) return; // single-flight: a stale (superseded) socket's close never drives the loop
+      stopKeepalive();
+      if (!reconnecting) { // first drop of this outage → signal once; a failed retry mid-outage stays silent
+        reconnecting = true;
+        emitConnection("reconnecting");
+      }
+      scheduleReconnect();
+    };
+
+    // `error` is intentionally unhandled: a WebSocket always follows `error` with `close`, so the
+    // onclose handler above already covers every error-terminated connection.
+    return sock;
+  }
+
+  /** Wait out the current backoff delay, then replace the socket and escalate the delay for the next attempt. */
+  function scheduleReconnect(): void {
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      if (disposed) return; // dispose during the wait cancels the attempt (belt-and-braces beside clearTimeout)
+      reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS); // escalate; a successful open resets to base
+      socket = connect(); // a fresh socket becomes the live one; its open re-handshakes and resyncs via hello
+    }, reconnectDelay);
+  }
 
   return {
     subscribe(handler: (e: DriverEvent) => void): () => void {
@@ -152,7 +201,8 @@ export function makeSocketDriver(opts: SocketDriverOptions): GameDriver {
     async submit(cmd: DriverCommand): Promise<void> {
       if (disposed) throw new Error("cannot submit on a disposed driver");
       if (socket.readyState !== WebSocket.OPEN) {
-        // No request queueing while closed (YAGNI — a later task owns reconnect). Reject honestly.
+        // No request queueing across an outage — a submit while reconnecting rejects honestly, and the caller
+        // retries once `connection:"open"` re-fires. (Queueing is a separate, unshipped concern.)
         throw new Error("cannot submit before the connection is open");
       }
       sendCommand(toClientCommand(cmd, logLength));
@@ -163,7 +213,8 @@ export function makeSocketDriver(opts: SocketDriverOptions): GameDriver {
       // WebSocket.send throws InvalidStateError while CONNECTING and silently discards while
       // CLOSING/CLOSED (WHATWG). requestSync is called from synchronous recovery paths (and on
       // mount, possibly before open), so a not-open socket must be a silent no-op — requestSync
-      // returns void, and resyncing a re-established connection is the reconnect logic's job.
+      // returns void, and a mid-outage resync is unnecessary anyway: the reconnect's own hello
+      // re-triggers a full resync the moment the new socket opens.
       if (socket.readyState !== WebSocket.OPEN) return;
       sendCommand({ type: "resync" });
     },
@@ -176,7 +227,12 @@ export function makeSocketDriver(opts: SocketDriverOptions): GameDriver {
       if (disposed) return;
       disposed = true;
       stopKeepalive();
-      socket.close();
+      if (reconnectTimer !== null) { // cancel a pending backoff so no socket is created after dispose
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      socket.close(); // closes the live socket (whether established or an in-flight reconnect attempt); its late
+      // open is suppressed by the disposed guard, and its close is silent (disposed short-circuits onclose)
       handlers.clear();
     },
   };
