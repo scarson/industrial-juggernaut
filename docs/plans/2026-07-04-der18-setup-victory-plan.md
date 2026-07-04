@@ -55,18 +55,26 @@ notes and commit messages.
 
 ## Execution Status
 
-**Overall:** Not started. Awaiting Sam's confirmation on Phase-1 merge authority (the `REPLAY_VERSION` bump) before execution.
+**Overall:** Phase 1 🚧 IN PROGRESS (branch `fix/der18-setup-victory`, claimed 2026-07-04). PR #68 (this plan) merged, so the plan is approved; Phase-1 merge authority (the `REPLAY_VERSION` bump) is still Sam's to confirm — Phase 1 executes to an open PR and STOPs for Sam at merge.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
-| 1 — Engine: turn-0 guard + version bump + test remediation | ⬜ Not started | — | Review-class (version bump, winner semantics); Sam-merge-authority decision pending |
+| 1 — Engine: turn-0 guard + version bump + test remediation | 🚧 In progress (`fix/der18-setup-victory`) | — | Review-class (version bump, winner semantics); STOP for Sam at merge |
 | 2 — Designer degeneracy warning | 🚧 In progress (`fix/der18-designer-warning`) | — | Routine, frontend, independent of Phase 1 (branched off `origin/dev`) |
 
 ### Deviations
 _(none yet)_
 
 ### Discoveries
-_(none yet)_
+
+**Task 1.1 — old-timing test audit (confirmed 2026-07-04, branch `fix/der18-setup-victory`).** Re-grepped for drift per Task 1.1 (`reason:`/`cause:`, bare `GAME_OVER`/`last-standing`, and `test/session/` for `freshSession`/`openSession` + `eliminated`). No drift from the plan-review's known set.
+
+- **Confirmed breaker set (guard-driven; to re-express in Task 1.3):**
+  - `test/version.test.ts` — expected; fixed by the Task 1.2 `REPLAY_VERSION` recompute, not by test edits.
+  - `test/session/agent-drive.test.ts` — the "mid-setup victory" describe block. SCENARIO RESTRUCTURE (invert the turn-0/`placementsBefore`/`needsDrive` invariants to the boundary), not an assertion move.
+  - `test/session/apply-command-envelope.test.ts` — the "GAME_OVER: a mutating command after victory is rejected" test. Mechanical fix: build the eliminated-player terminal state on top of the file's `completeSetup(s)` helper so it sits at turn ≥1.
+- **Audit-only (plan-review verified PASS under the guard — do NOT restructure):** `test/session/drive-vs-recordgame.test.ts`, `test/session/record.test.ts`, `test/session/part-a-integration.test.ts`, `test/session/place-first-base-command.test.ts`. These contain `GAME_OVER`/`last-standing`/`eliminated` strings but assert on post-setup states, so they stay green.
+- **Empirical confirmation deferred to Task 1.2:** the guard run will produce the ground-truth failing set; if it diverges from the above, the new file(s) get added here and treated in Task 1.3.
 
 ## Merge authority (decide before executing Phase 1)
 
@@ -76,7 +84,7 @@ Phase 1 carries a `REPLAY_VERSION` bump (replay-compat blast radius) and changes
 
 ## Phase 1 — Engine: turn-0 guard, version bump, test remediation
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** 🚧 IN PROGRESS — branch `fix/der18-setup-victory`, claimed 2026-07-04. Task 1.1 (audit) confirmed; see Discoveries.
 
 **Why this matters:** the Living Document Contract (above) comes from `/writing-plans-enhanced` Step 5 — keep the banners current so a follow-up dispatch reads state instead of reconstructing it.
 
