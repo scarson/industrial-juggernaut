@@ -106,4 +106,41 @@ describe("createRoom", () => {
     expect((err as CreateRoomError).field).toBeNull();
     expect((err as CreateRoomError).message).toMatch(/create.*failed|500/i);
   });
+
+  // The 200 body is an UNTRUSTED boundary — validate its shape before returning (same class + precedent
+  // as P3's validateBoardSource). A malformed 200 must land in the SAME catch path as a non-2xx (a typed
+  // CreateRoomError surfaced on the designer), never a corrupt token / undefined roomId that strands the
+  // UI in an unrecoverable "Loading game…".
+  test("throws when seatTokens is a bare string (JS string-indexing would forge per-seat tokens)", async () => {
+    // seatTokens "tok" → seatTokens[0] === "t" passes a naive `!= null` guard → doomed PlayView.
+    const { fetchFn } = stubFetch(200, { roomId: "room-1", seatTokens: "tok" });
+
+    const err = await createRoom(request(), fetchFn).catch((e) => e);
+    expect(err).toBeInstanceOf(CreateRoomError);
+    expect((err as CreateRoomError).message).toMatch(/malformed room-creation response/i);
+    expect((err as CreateRoomError).status).toBe(200);
+  });
+
+  test("throws when roomId is missing/non-string (would connect to /api/games/undefined/ws)", async () => {
+    const { fetchFn } = stubFetch(200, { seatTokens: ["tok-0", null] });
+
+    const err = await createRoom(request(), fetchFn).catch((e) => e);
+    expect(err).toBeInstanceOf(CreateRoomError);
+    expect((err as CreateRoomError).message).toMatch(/malformed room-creation response/i);
+  });
+
+  test("throws when a seatTokens element is neither string nor null", async () => {
+    const { fetchFn } = stubFetch(200, { roomId: "room-1", seatTokens: ["tok-0", 42] });
+
+    await expect(createRoom(request(), fetchFn)).rejects.toThrow(/malformed room-creation response/i);
+  });
+
+  test("returns the parsed result for a well-shaped 200 body (happy path unchanged)", async () => {
+    const { fetchFn } = stubFetch(200, { roomId: "room-ok", seatTokens: ["tok-human", null] });
+
+    await expect(createRoom(request(), fetchFn)).resolves.toEqual({
+      roomId: "room-ok",
+      seatTokens: ["tok-human", null],
+    });
+  });
 });

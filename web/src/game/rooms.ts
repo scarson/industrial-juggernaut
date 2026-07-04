@@ -71,7 +71,30 @@ export async function createRoom(req: CreateRoomRequest, fetchFn: typeof fetch):
     throw await createErrorFrom(response);
   }
 
-  return (await response.json()) as CreateRoomResult;
+  // The 200 body is UNTRUSTED — validate its shape before returning so a malformed response fails into
+  // the SAME catch path as a non-2xx (a typed error surfaced on the designer), never a corrupt token or
+  // an `undefined` roomId that strands the UI in an unrecoverable "Loading game…". A bare-string
+  // `seatTokens` is the sharp edge: JS string-indexing (`"tok"[0] === "t"`) would forge a per-seat token
+  // that slips past a downstream `!= null` guard.
+  let parsed: unknown;
+  try {
+    parsed = await response.json();
+  } catch {
+    throw new CreateRoomError("malformed room-creation response (not JSON)", response.status, null);
+  }
+  return validateResult(parsed, response.status);
+}
+
+/** Validate an untrusted 200 body into a {@link CreateRoomResult}, throwing a typed error on any
+ *  shape mismatch: `roomId` a non-empty string, `seatTokens` an array of `string | null`. */
+function validateResult(body: unknown, status: number): CreateRoomResult {
+  const reject = () => new CreateRoomError("malformed room-creation response", status, null);
+  if (typeof body !== "object" || body === null) throw reject();
+  const record = body as Record<string, unknown>;
+  if (typeof record.roomId !== "string" || record.roomId.length === 0) throw reject();
+  if (!Array.isArray(record.seatTokens)) throw reject();
+  if (!record.seatTokens.every((t) => t === null || typeof t === "string")) throw reject();
+  return { roomId: record.roomId, seatTokens: record.seatTokens as (string | null)[] };
 }
 
 /** Read a non-2xx response into a {@link CreateRoomError}, tolerating a missing/non-JSON error body. */
