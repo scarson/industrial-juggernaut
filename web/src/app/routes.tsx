@@ -32,8 +32,8 @@ function isRoutePath(path: string): path is RoutePath {
   return (ROUTES as readonly string[]).includes(path);
 }
 
-/** The current URL path, live-updating on navigate()/back/forward. Shared by the Router and
- *  the app shell (which suppresses its placeholder rail on routes that own their layout). */
+/** The current URL path, live-updating on navigate()/back/forward. The Router matches on it to
+ *  render the screen for the active route. */
 export function useCurrentPath(): string {
   const [path, setPath] = useState(() => window.location.pathname);
   useEffect(() => {

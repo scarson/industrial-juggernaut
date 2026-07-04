@@ -47,3 +47,18 @@ export function useRailContent(): ReactNode {
 export function useSetRailContent(): SetRailContent {
   return useContext(SetRailContentContext);
 }
+
+export interface RailContentOutletProps {
+  /** Shown when no screen has published rail content — the rail's resting state. */
+  readonly placeholder: ReactNode;
+}
+
+/**
+ * Resolves what the rail shows: the published content when a screen has set it, else the placeholder.
+ * As a consumer of the content context it re-renders on a publish, so hosting it here (rather than in
+ * the shell's render body) keeps a content change from re-rendering the routed screen alongside it.
+ */
+export function RailContentOutlet({ placeholder }: RailContentOutletProps) {
+  const content = useRailContent();
+  return <>{content ?? placeholder}</>;
+}

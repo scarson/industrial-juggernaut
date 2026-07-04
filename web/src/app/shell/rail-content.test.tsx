@@ -3,7 +3,12 @@
 import { describe, expect, test, vi } from "vitest";
 import { useEffect } from "react";
 import { act, render, screen } from "@testing-library/react";
-import { RailContentProvider, useRailContent, useSetRailContent } from "./rail-content";
+import {
+  RailContentOutlet,
+  RailContentProvider,
+  useRailContent,
+  useSetRailContent,
+} from "./rail-content";
 
 /** A consumer that renders whatever content the rail context currently holds, or a fallback. */
 function ContentReadout() {
@@ -89,6 +94,63 @@ describe("rail-content", () => {
     });
     // Every render observed the same setter reference — a stable identity a publisher can depend on.
     expect(new Set(seen).size).toBe(1);
+  });
+
+  test("RailContentOutlet shows its placeholder when no content is published", () => {
+    render(
+      <RailContentProvider>
+        <RailContentOutlet placeholder={<p>placeholder</p>} />
+      </RailContentProvider>,
+    );
+    expect(screen.getByText("placeholder")).toBeInTheDocument();
+  });
+
+  test("RailContentOutlet shows published content instead of the placeholder", () => {
+    function Publisher() {
+      const setContent = useSetRailContent();
+      useEffect(() => {
+        setContent(<span>published</span>);
+        return () => setContent(null);
+      }, [setContent]);
+      return null;
+    }
+
+    render(
+      <RailContentProvider>
+        <Publisher />
+        <RailContentOutlet placeholder={<p>placeholder</p>} />
+      </RailContentProvider>,
+    );
+    expect(screen.getByText("published")).toBeInTheDocument();
+    expect(screen.queryByText("placeholder")).not.toBeInTheDocument();
+  });
+
+  test("RailContentOutlet returns to the placeholder when content is cleared", () => {
+    function Publisher({ publish }: { publish: boolean }) {
+      const setContent = useSetRailContent();
+      useEffect(() => {
+        if (publish) setContent(<span>published</span>);
+        return () => setContent(null);
+      }, [setContent, publish]);
+      return null;
+    }
+
+    const { rerender } = render(
+      <RailContentProvider>
+        <Publisher publish={true} />
+        <RailContentOutlet placeholder={<p>placeholder</p>} />
+      </RailContentProvider>,
+    );
+    expect(screen.getByText("published")).toBeInTheDocument();
+
+    rerender(
+      <RailContentProvider>
+        <Publisher publish={false} />
+        <RailContentOutlet placeholder={<p>placeholder</p>} />
+      </RailContentProvider>,
+    );
+    expect(screen.getByText("placeholder")).toBeInTheDocument();
+    expect(screen.queryByText("published")).not.toBeInTheDocument();
   });
 
   test("useSetRailContent defaults to a no-op outside any provider", () => {

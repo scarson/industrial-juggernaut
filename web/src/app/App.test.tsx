@@ -64,11 +64,21 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: /rules/i })).toBeInTheDocument();
   });
 
-  test("suppresses the shell's placeholder rail on /game (the game screen owns its own rail)", () => {
+  test("the shell rail renders on /game too, showing the placeholder before a game starts", () => {
     stubMatchMediaForWidth(1200);
     window.history.pushState({}, "", "/game");
     render(<App />);
-    // The shell's "Rail"-labelled aside must not render on /game; only GameScreen's own layout shows.
-    expect(screen.queryByRole("complementary", { name: /rail/i })).toBeNull();
+    // The shell rail is present on every route; before a game starts (the NewGame designer) it shows
+    // the placeholder, consistent with the other routes.
+    expect(screen.getByRole("complementary", { name: "Rail" })).toBeInTheDocument();
+    expect(screen.getByText(/per-player resources/i)).toBeInTheDocument();
+  });
+
+  test("the shell rail shows the placeholder on a non-game route", () => {
+    stubMatchMediaForWidth(1200);
+    window.history.pushState({}, "", "/");
+    render(<App />);
+    expect(screen.getByRole("complementary", { name: "Rail" })).toBeInTheDocument();
+    expect(screen.getByText(/per-player resources/i)).toBeInTheDocument();
   });
 });
