@@ -49,6 +49,18 @@ function assert(cond: unknown, message: string): asserts cond {
   if (!cond) throw new AssertionError(message);
 }
 
+/**
+ * Redact a seat-token array for logging: a token is a LIVE bearer credential (it authenticates a WebSocket
+ * to a human seat until the room expires), so its VALUE must never reach stdout (a CI/shared-terminal log)
+ * — only its presence and length, enough to prove the host minted the right shape. Each element becomes a
+ * `<N-char token>` marker for a string or `null` for an agent seat (the host mints tokens for human seats
+ * only), so a reader sees `[<26-char token>, null]` instead of the credential itself.
+ */
+function redactSeatTokens(seatTokens: readonly (string | null)[]): string {
+  const marks = seatTokens.map((t) => (t === null ? "null" : `<${String(t.length)}-char token>`));
+  return `[${marks.join(", ")}]`;
+}
+
 /** The ws(s) URL for a room+seat+token (token URL-encoded, exactly as the SocketDriver builds it). */
 function wsUrl(host: string, roomId: string, seat: number, token: string): string {
   const scheme = host.startsWith("https:") ? "wss:" : "ws:";
@@ -173,7 +185,7 @@ async function main(): Promise<void> {
     throw new InfraError(`createRoom failed: ${(err as Error).message}`);
   }
 
-  console.log(`staging-e2e: created room ${created.roomId}, seatTokens=${JSON.stringify(created.seatTokens)}`);
+  console.log(`staging-e2e: created room ${created.roomId}, seatTokens=${redactSeatTokens(created.seatTokens)}`);
   assert(typeof created.roomId === "string" && created.roomId.length > 0, "roomId must be a non-empty string");
   assert(Array.isArray(created.seatTokens) && created.seatTokens.length === 2, "expected 2 seat tokens");
   const token = created.seatTokens[0];
