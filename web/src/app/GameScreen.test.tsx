@@ -150,7 +150,7 @@ describe("GameScreen — HUD + event log", () => {
   test("GameScreen does not render its own Instruments rail lane — the HUD lives in the shell rail", async () => {
     renderGame(setupState(), [0, 1]);
     await screen.findByLabelText("HUD");
-    // The only landmark carrying the HUD is the shell rail's outlet; GameScreen no longer owns an aside.
+    // The HUD's only landmark is the shell rail's outlet; GameScreen renders no aside of its own.
     expect(screen.queryByRole("complementary", { name: "Instruments" })).toBeNull();
   });
 
