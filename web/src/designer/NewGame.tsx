@@ -24,6 +24,7 @@ import {
   type SeatAction,
 } from "./new-game-form";
 import { defaultConfig } from "../engine-client/barrel";
+import type { CreateRoomRequest } from "../game/rooms";
 import type { RuleConfig, SeatConfig, SessionHeader, PlayerId } from "../engine-client/barrel";
 // Type-only (erased): Archetype for the seat picker's typing. The runtime option list is
 // GREEDY_ARCHETYPES (declared in new-game-form.ts) — src/agent never enters the value graph.
@@ -31,14 +32,32 @@ import type { Archetype } from "../../../src/agent/archetypes";
 import { playerIdentity } from "../identity/player-identity";
 import { PlayerShapeIcon } from "../identity/shapes";
 
+/** What the online action hands up: the create-room body (the designer config) plus the decoded header
+ *  that identifies the started game (PlayView's remount identity + loading). The two carry the SAME
+ *  config; the request's `seed` is the decimal string, the header's is the bigint. */
+export type StartOnlinePayload = { request: CreateRoomRequest; header: SessionHeader };
+
 export interface NewGameProps {
-  /** Receives the assembled, decoded `SessionHeader` (bigint seed) when the designer starts a game. */
+  /** Receives the assembled, decoded `SessionHeader` (bigint seed) when the designer starts a LOCAL game. */
   readonly onStart: (header: SessionHeader) => void;
+  /** Receives the create-room request + header when the designer starts an ONLINE game. Absent → the
+   *  online action is not offered (the local-only entry, e.g. the viewer's fork path). */
+  readonly onStartOnline?: (payload: StartOnlinePayload) => void;
+  /** A create-room failure to surface on the online action (e.g. the host's 400 message). */
+  readonly onlineError?: string | null;
   /** Fork entry point (UI brief §7): pre-fills the knobs from a running game's config. */
   readonly initialConfig?: RuleConfig;
 }
 
 const DEFAULT_SEED = "1";
+
+/** Phase-1 online play binds ONE human seat (the creator) plus agents; cross-device multi-human join is
+ *  Phase 2. So the online action is offered only when the roster has exactly one human seat. */
+function humanSeatCount(seats: readonly SeatConfig[]): number {
+  return seats.filter((s) => s.kind === "human").length;
+}
+
+const MULTI_HUMAN_ONLINE_NOTE = "Online play supports one human seat plus agents; multi-human is coming.";
 
 /** The board-source picker's two modes: generate a fresh board, or paste a fixed one. */
 type BoardMode = "generate" | "fixed";
@@ -48,7 +67,7 @@ type BoardMode = "generate" | "fixed";
  * hairline-separated knob clusters, and the ONE brass-filled Start (the Brass Budget). Emphatically
  * not a SaaS settings form — knob groups read as instrument clusters, never a card grid.
  */
-export function NewGame({ onStart, initialConfig }: NewGameProps) {
+export function NewGame({ onStart, onStartOnline, onlineError, initialConfig }: NewGameProps) {
   const [config, setConfig] = useState<RuleConfig>(() =>
     initialConfig ? cloneConfig(initialConfig) : defaultConfig(),
   );
@@ -73,6 +92,11 @@ export function NewGame({ onStart, initialConfig }: NewGameProps) {
 
   const canStart = configErrors.length === 0 && boardResult.ok && seedResult.ok;
 
+  const humans = humanSeatCount(seats);
+  // The online action is offered only when `onStartOnline` is wired AND the roster is exactly one human
+  // seat (Phase-1 online = the creator's one human seat + agents). >1 human → disabled with the note below.
+  const canStartOnline = canStart && humans === 1;
+
   function handleStart() {
     if (!boardResult.ok || !seedResult.ok || configErrors.length > 0) return;
     const header: SessionHeader = assembleHeader({
@@ -82,6 +106,21 @@ export function NewGame({ onStart, initialConfig }: NewGameProps) {
       seats,
     });
     onStart(header);
+  }
+
+  function handleStartOnline() {
+    if (!onStartOnline || !canStartOnline || !boardResult.ok || !seedResult.ok) return;
+    // The create body is the designer config as validateCreateBody accepts it: seed as the DECIMAL
+    // STRING (JSON can't carry a bigint), and NO version fields (the host stamps them). The header
+    // carries the same config with the bigint seed for PlayView's started-game identity.
+    const request: CreateRoomRequest = {
+      seats,
+      config,
+      boardSource: boardResult.source,
+      seed: seedResult.seed.toString(),
+    };
+    const header = assembleHeader({ seed: seedResult.seed, config, boardSource: boardResult.source, seats });
+    onStartOnline({ request, header });
   }
 
   function setPreset(name: PresetName) {
@@ -128,7 +167,7 @@ export function NewGame({ onStart, initialConfig }: NewGameProps) {
         {BALANCE_IN_PROGRESS_NOTE}
       </p>
 
-      <div>
+      <div style={START_ROW_STYLE}>
         <button
           type="button"
           className="chrome-button brass-accent-bg"
@@ -137,7 +176,27 @@ export function NewGame({ onStart, initialConfig }: NewGameProps) {
         >
           Start
         </button>
+        {onStartOnline && (
+          <button
+            type="button"
+            className="chrome-button"
+            disabled={!canStartOnline}
+            onClick={handleStartOnline}
+          >
+            Play online
+          </button>
+        )}
       </div>
+      {onStartOnline && humans > 1 && (
+        <p className="mono" role="note" style={NOTE_STYLE} data-testid="multi-human-online-note">
+          {MULTI_HUMAN_ONLINE_NOTE}
+        </p>
+      )}
+      {onlineError && (
+        <p className="mono" role="alert" style={FIELD_ERROR_STYLE} data-testid="online-error">
+          {onlineError}
+        </p>
+      )}
     </section>
   );
 }
@@ -613,6 +672,7 @@ const PANEL_STYLE: React.CSSProperties = {
   padding: "1rem",
   maxWidth: "72ch",
 };
+const START_ROW_STYLE: React.CSSProperties = { display: "flex", gap: "0.5rem", alignItems: "center" };
 const CLUSTER_GRID_STYLE: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(15rem, 1fr))",

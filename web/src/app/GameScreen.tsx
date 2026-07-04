@@ -19,9 +19,13 @@ import { CombatReveal } from "../game/choreography/CombatReveal";
 import { Elimination } from "../game/choreography/Elimination";
 import { Victory } from "../game/choreography/Victory";
 import { createGameStore, useGameStore } from "../game/store";
+import { createRoom } from "../game/rooms";
+import { handleReload } from "../game/reload-guard";
 import { useSetRailContent } from "./shell/rail-content";
 import { selectComposer } from "./select-composer";
 import type { GameStore } from "../game/store";
+import type { CreateRoomRequest, CreateRoomResult } from "../game/rooms";
+import type { StartOnlinePayload } from "../designer/NewGame";
 import type { GameDriver, DriverEvent, DriverPending } from "../game/driver";
 import type { GameEvent, GameState, Hex, SessionHeader } from "../engine-client/barrel";
 
@@ -42,16 +46,78 @@ const defaultCreateDriver: CreateDriver = async (header) => {
   return makeLocalReducerDriver(header);
 };
 
+/** The connection the live path binds a SocketDriver to: the created room, the creator's ONE human
+ *  seat index, and that seat's token (from `seatTokens[seat]`). */
+export type OnlineConnection = { roomId: string; seat: number; token: string };
+
+/**
+ * How GameScreen obtains its live `GameDriver` for an online game. In the running app the default
+ * DYNAMICALLY imports the SocketDriver (`import("../game/socket-driver")`) so its value-imports of
+ * `src/wire` (and the one `src/host/version` constant) stay in a lazy chunk the eager entry graph
+ * never pulls — the SAME discipline as the LocalReducerDriver path, and what `check:bundle` enforces.
+ * Tests inject a synchronous factory returning a scripted fake driver.
+ */
+export type CreateOnlineDriver = (conn: OnlineConnection) => GameDriver | Promise<GameDriver>;
+
+/** The production live-driver factory: the SocketDriver dynamic-import target. Module-scope so the
+ *  seam is one named thing tests replace and the entry graph never statically pulls src/wire. */
+const defaultCreateOnlineDriver: CreateOnlineDriver = async (conn) => {
+  const { makeSocketDriver } = await import("../game/socket-driver");
+  return makeSocketDriver({ roomId: conn.roomId, seat: conn.seat, token: conn.token });
+};
+
+/** The create-room boundary GameScreen calls for an online game — the request-only slice of `createRoom`
+ *  (production binds the global `fetch`). Injected in tests so no network is touched. */
+export type CreateRoomFn = (req: CreateRoomRequest) => Promise<CreateRoomResult>;
+
+/** The production create-room call: `createRoom` bound to the global `fetch`. */
+const defaultCreateRoomFn: CreateRoomFn = (req) => createRoom(req, fetch);
+
+/** The reload-guard's storage slice (defaults to `window.sessionStorage`); narrowed to what the guard reads. */
+type ReloadStorage = Pick<Storage, "getItem" | "setItem">;
+
+/**
+ * Resolve one `connection:"reload-required"` signal into an outcome, wrapping {@link handleReload} so ANY
+ * thrown storage exception (Safari private-mode, storage-disabled webviews) is treated as `"loop-detected"`
+ * — failing toward the manual-refresh notice, NEVER toward an unguarded reload that could loop.
+ */
+function guardedReload(reloadFn: () => void, storage: ReloadStorage): "reloaded" | "loop-detected" {
+  try {
+    return handleReload({ reloadFn, storage });
+  } catch {
+    return "loop-detected";
+  }
+}
+
 export interface GameScreenProps {
-  /** Injected driver factory (defaults to the dynamic-import LocalReducerDriver path). Tests pass a
-   *  synchronous factory returning `makeFakeDriver(...)`. */
+  /** Injected LOCAL driver factory (defaults to the dynamic-import LocalReducerDriver path). Tests pass
+   *  a synchronous factory returning `makeFakeDriver(...)`. */
   readonly createDriver?: CreateDriver;
-  /** Optional pre-assembled header — starts a game immediately, skipping the NewGame entry screen.
+  /** Injected LIVE driver factory (defaults to the dynamic-import SocketDriver path). Tests pass a
+   *  synchronous factory returning `makeFakeDriver(...)` so no real socket opens. */
+  readonly createOnlineDriver?: CreateOnlineDriver;
+  /** Injected create-room boundary (defaults to `createRoom` over the global `fetch`). Tests inject a
+   *  stub so no network is touched. */
+  readonly createRoomFn?: CreateRoomFn;
+  /** Optional pre-assembled header — starts a LOCAL game immediately, skipping the NewGame entry screen.
    *  Tests use this to mount straight into play; the app leaves it undefined so `/game` shows NewGame. */
   readonly header?: SessionHeader;
   /** Injected store (tests may pass their own to drive assertions; defaults to a fresh instance). */
   readonly store?: GameStore;
+  /** Injected reload for the version-mismatch guard (defaults to `() => window.location.reload()`). */
+  readonly reloadFn?: () => void;
+  /** Injected reload-guard marker storage (defaults to `window.sessionStorage`). */
+  readonly reloadStorage?: ReloadStorage;
 }
+
+/**
+ * A started game and the transport it runs over: a LOCAL game (the hotseat/offline LocalReducerDriver,
+ * built from the header) or an ONLINE game (the SocketDriver, built from the resolved room connection).
+ * `header` is the started-game identity + PlayView remount key in both cases.
+ */
+type StartedGame =
+  | { mode: "local"; header: SessionHeader }
+  | { mode: "online"; header: SessionHeader; connection: OnlineConnection };
 
 // ─── Event accumulation seam ──────────────────────────────────────────────────────────────────────
 /**
@@ -99,23 +165,82 @@ function stageableFrom(events: readonly GameEvent[]): Choreography | null {
  * (the `/game` entry flow — `onStart(header)` starts the game); AFTER, it mounts the war-room layout
  * (board hero + contextual composer + HUD rail) driven by the connected GameDriver.
  */
-export function GameScreen({ createDriver = defaultCreateDriver, header, store: injectedStore }: GameScreenProps) {
-  const [startedHeader, setStartedHeader] = useState<SessionHeader | null>(header ?? null);
+export function GameScreen({
+  createDriver = defaultCreateDriver,
+  createOnlineDriver = defaultCreateOnlineDriver,
+  createRoomFn = defaultCreateRoomFn,
+  header,
+  store: injectedStore,
+  reloadFn = defaultReloadFn,
+  reloadStorage,
+}: GameScreenProps) {
+  const [started, setStarted] = useState<StartedGame | null>(header ? { mode: "local", header } : null);
+  // A create-room failure surfaced back on the designer (the online action's async error path).
+  const [onlineError, setOnlineError] = useState<string | null>(null);
 
-  if (startedHeader === null) {
-    // The `/game` entry flow: the NewGame designer IS the pre-game screen. `onStart(header)` starts
-    // the game — mounting PlayView below with that header. NewGame supplies its own "New game" heading.
-    return <NewGame onStart={setStartedHeader} />;
+  if (started === null) {
+    // The `/game` entry flow: the NewGame designer IS the pre-game screen. `onStart` starts a LOCAL
+    // game; `onStartOnline` creates a room then starts the ONLINE game — both mount PlayView below.
+    return (
+      <NewGame
+        onStart={(h) => setStarted({ mode: "local", header: h })}
+        onStartOnline={(payload) => {
+          setOnlineError(null);
+          void startOnlineGame(payload, createRoomFn, setStarted, setOnlineError);
+        }}
+        onlineError={onlineError}
+      />
+    );
   }
+
+  // The started game routes through the SAME PlayView/store/composers stack regardless of transport —
+  // the only difference is which driver factory `createDriver` resolves to (local reducer vs socket).
+  const playCreateDriver: CreateDriver =
+    started.mode === "local" ? createDriver : () => createOnlineDriver(started.connection);
 
   return (
     <PlayView
-      key={headerKey(startedHeader)}
-      header={startedHeader}
-      createDriver={createDriver}
+      key={headerKey(started.header)}
+      header={started.header}
+      createDriver={playCreateDriver}
       injectedStore={injectedStore}
+      reloadFn={reloadFn}
+      reloadStorage={reloadStorage}
     />
   );
+}
+
+/** The production reload — a real hard reload of the current page. Module-scope so tests replace it via
+ *  the `reloadFn` prop and never trigger a real navigation. */
+function defaultReloadFn(): void {
+  window.location.reload();
+}
+
+/**
+ * Create the room for an online game, then start it. On success the resolved `{ roomId, seatTokens }` is
+ * paired with the creator's ONE human seat (the first — and, per the one-human gate, only — human seat)
+ * and its token into the `online` StartedGame. A `createRoom` failure surfaces its message on the designer.
+ */
+async function startOnlineGame(
+  payload: StartOnlinePayload,
+  createRoomFn: CreateRoomFn,
+  setStarted: (g: StartedGame) => void,
+  setError: (message: string) => void,
+): Promise<void> {
+  try {
+    const { roomId, seatTokens } = await createRoomFn(payload.request);
+    const seat = payload.request.seats.findIndex((s) => s.kind === "human");
+    const token = seat >= 0 ? seatTokens[seat] : null;
+    if (seat < 0 || token == null) {
+      // Defense in depth: the one-human gate guarantees a human seat with a token, so this is a host
+      // contract violation (a human seat minted no token) — surface it rather than connect tokenless.
+      setError("Could not start the online game — no seat token was issued for your seat.");
+      return;
+    }
+    setStarted({ mode: "online", header: payload.header, connection: { roomId, seat, token } });
+  } catch (err) {
+    setError(err instanceof Error ? err.message : "Could not create the online game.");
+  }
 }
 
 /** A stable identity for a header so a NEW game (a fresh onStart, or a different header prop) remounts
@@ -129,6 +254,8 @@ interface PlayViewProps {
   readonly header: SessionHeader;
   readonly createDriver: CreateDriver;
   readonly injectedStore: GameStore | undefined;
+  readonly reloadFn: () => void;
+  readonly reloadStorage: ReloadStorage | undefined;
 }
 
 /**
@@ -136,7 +263,7 @@ interface PlayViewProps {
  * dispose on unmount), the accumulated event log, and the transient choreography. Split from
  * GameScreen so the `key`-remount on a new game gives every started game a pristine store + driver.
  */
-function PlayView({ header, createDriver, injectedStore }: PlayViewProps) {
+function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage }: PlayViewProps) {
   // One store per started game (stable across this PlayView's life; a new game remounts PlayView).
   const storeRef = useRef<GameStore | undefined>(injectedStore);
   if (storeRef.current === undefined) storeRef.current = createGameStore();
@@ -148,11 +275,15 @@ function PlayView({ header, createDriver, injectedStore }: PlayViewProps) {
   // The chain-continue beat: set true after an attack `applied` lands on the acting player's turn, so
   // the screen offers "attack again / done" instead of re-opening the AttackComposer immediately.
   const [inChainContinue, setInChainContinue] = useState(false);
+  // Set when a version-mismatch reload was suppressed as a loop (the second signal this page load, or a
+  // storage exception) — the cue to show the manual-refresh notice instead of reloading again.
+  const [reloadLoopDetected, setReloadLoopDetected] = useState(false);
 
   const state = useGameStore(store, (s) => s.authoritative.state);
   const pending = useGameStore(store, (s) => s.authoritative.pending);
   const rollover = useGameStore(store, (s) => s.authoritative.turnRollover);
   const terminal = useGameStore(store, (s) => s.authoritative.terminal);
+  const connection = useGameStore(store, (s) => s.authoritative.connection);
   const selection = useGameStore(store, (s) => s.ui.selection);
 
   // ── Driver lifecycle: create (possibly async) → subscribe → dispose. Both subscriptions (the
@@ -220,6 +351,27 @@ function PlayView({ header, createDriver, injectedStore }: PlayViewProps) {
     setRailContent(<Hud state={state} events={eventLog} />);
     return () => setRailContent(null);
   }, [setRailContent, state, eventLog]);
+
+  // ── Version-mismatch reload guard: when the driver reports `connection:"reload-required"` (the
+  //    SocketDriver's mapping of a `reload` ServerMessage), reload the page ONCE per load. A second
+  //    signal in the same load — or a storage exception — is a loop, so we show the manual-refresh
+  //    notice instead (guardedReload fails toward the notice, never an unguarded reload). Keyed on
+  //    `connection` so it fires once per transition into "reload-required", not on every render. ─────
+  useEffect(() => {
+    if (connection !== "reload-required") return;
+    const outcome = guardedReload(reloadFn, reloadStorage ?? window.sessionStorage);
+    if (outcome === "loop-detected") setReloadLoopDetected(true);
+  }, [connection, reloadFn, reloadStorage]);
+
+  if (reloadLoopDetected) {
+    return (
+      <section className="table-panel" aria-label="Reload required" role="alert" style={LOADING_STYLE}>
+        <p className="mono">
+          This game was updated. Please refresh the page to continue.
+        </p>
+      </section>
+    );
+  }
 
   if (driver === null || state === null) {
     return (
