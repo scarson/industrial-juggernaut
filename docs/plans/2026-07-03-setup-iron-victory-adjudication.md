@@ -536,6 +536,33 @@ Their `gameOver` was broadcast under the semantics their `replayVersion` records
 and silent winner changes (the fork (i) hazard). Fork (i)'s no-bump path has no mechanism to protect
 those rooms and should be rejected for that reason alone.
 
+**"Frozen-as-final" means MUTATION-final, NOT presentation-final (round-2 clarification).** Verified
+against the storage layout: a mid-setup-terminal room persists **only its placement log** — no
+snapshot (`agent-drive.ts:165` writes none mid-setup) and **no terminal/winner marker of any kind**
+(the storage keys are header / log:NNNNNN / snapshot / pending / roomOptions / initialized / frozen —
+`src/session/keys.ts`; there is no winner or terminal key). The winner existed **only** as the live
+`gameOver` broadcast, reconstructed on the drive path; it was never persisted. Two independent
+confirmations that no persisted surface carries it: `resyncPayload` (`session.ts:311-325`) returns
+`snapshot` / `logLength` / `pending` / `seats` / versions / `reason` — **no** `winners`/`cause`/
+`terminal` field; and the client store's sync handler (`web/src/game/store.ts:112-124`) sets
+`state`/`logLength`/`roster`/`pending` on resync and **never** a terminal field. Consequence: the
+fork-(ii) bump correctly freezes such a room — the **mutation-safety property holds** (no
+re-resolution, no winner change) — but a viewer returning to a *pre-bump* mid-setup-terminal room
+sees a **frozen board with no victory screen**, because the win was never stored to re-derive from.
+The affected population is bounded: pre-1.0 degenerate instant-win rooms on the default board (the
+only rooms that reach a mid-setup terminal). Two ways to resolve, flagged for the ruling:
+
+- **(c-accept)** Accept the frozen-board-without-victory-screen presentation for that pre-1.0
+  population — it is a cosmetic gap on already-degenerate rooms that this ruling is retiring anyway.
+- **(c-followup)** Budget a small **optional** client follow-up: on a frozen-room resync, the client
+  runs `status()` on the resync `snapshot` to derive the terminal locally and render the victory
+  screen. Frontend-only, no new persisted field, no engine change. Not required for the ruling to hold
+  — a nice-to-have for the affected pre-1.0 rooms.
+
+My recommendation within (c): **accept (c-accept)**; the follow-up is worth doing only if those
+pre-1.0 rooms matter to anyone, which for a pre-release degenerate-config population they likely
+don't.
+
 **Recommendation within Option A: fork (ii), engine-level.** One choke point, four enforcement points
 coherent by construction, record/replay parity preserved with zero `record.ts` change, and a
 versioning story that protects concluded rooms. TDD applies (production `src/` code). This is a
@@ -669,12 +696,17 @@ shipped default, §1.1, which raises the urgency of the balance leg):
 **Leg 1 — Adopt DER #18 (Option A), engine-level (fork ii).** *No victory during placements; every
 seat places; one `status()` resolution at the setup→play transition, multiple qualifiers resolved by
 DER #14.* Implemented as the turn-0 guard in `status()` with the forced REPLAY_VERSION bump; old
-mid-setup-terminal rooms freeze and are treated as final (§6A.3). This closes the fidelity gap,
-replaces the undocumented first-to-clinch race with the ruled DER #14 comparison, and keeps all four
-enforcement points coherent through one choke point. **Flagged decision points inside this leg (I
-argue them in §6A; Sam rules): (a) the boundary (setup→play transition vs first round-end); (b)
-accepting the deliberate winner-flip semantics (7/24 default seeds) and the last-placer information
-advantage they encode; (c) the frozen-as-final rule for old rooms.**
+mid-setup-terminal rooms freeze **mutation-final** — no re-resolution, no winner change (§6A.3). This
+closes the fidelity gap, replaces the undocumented first-to-clinch race with the ruled DER #14
+comparison, and keeps all four enforcement points coherent through one choke point. **Flagged decision
+points inside this leg (I argue them in §6A; Sam rules): (a) the boundary (setup→play transition vs
+first round-end); (b) accepting the deliberate winner-flip semantics (7/24 default seeds) and the
+last-placer information advantage they encode; (c) the old-rooms rule — "frozen-as-final" is
+MUTATION-final, not PRESENTATION-final: a pre-bump mid-setup-terminal room freezes safely but its
+returning viewer sees a frozen board with no victory screen (the winner was never persisted —
+`keys.ts`, `session.ts:311-325`, `store.ts:112-124`). I recommend accepting that for the bounded
+pre-1.0 degenerate-room population; an optional client-derives-`status()`-on-resync follow-up is
+available but not required (§6A.3).**
 
 **Leg 2 — Bundle the designer-facing degeneracy warning now (the instrument half of Option D).**
 Because board-96 + 2 humans is *shipped*, and Leg 1 does **not** change the player-facing outcome on
@@ -857,6 +889,24 @@ adoption:
 Round-2 findings **not** adopted: none — every blocker verified cleanly; my re-probes extended
 blocker 1 (7 flip seeds vs the review's 3) rather than narrowing it.
 
+**Round 3 (fresh independent blind adversarial review, 2026-07-04).** A new reviewer with no access
+to the prior rounds' framing re-derived the mechanism with live engine probes: the turn-0 guard, the
+7 flip seeds, the freeze path, and the designer-warning feasibility all reproduced. **No blocker.**
+One presentation concern on leg-1 decision (c): "freeze old mid-setup-terminal rooms as final"
+over-specified — verified against the storage layout (`keys.ts`: no winner/terminal key; a
+mid-setup-terminal room persists only its placement log, no snapshot), the winner was only ever a live
+`gameOver` broadcast and is carried by **no** persisted surface (`resyncPayload` `session.ts:311-325`;
+store sync handler `store.ts:112-124`). So the fork-(ii) bump freezes such rooms **mutation-safely**
+(no re-resolution, no winner change) but a returning viewer sees a **frozen board with no victory
+screen**. Folded in: §6A.3 and leg-1(c) now distinguish **MUTATION-final** (the safety property, which
+holds) from **PRESENTATION-final** (which does not — the win was never stored), with the accept-as-is
+vs optional-client-follow-up choice flagged for the ruling. I re-verified all three storage claims by
+inspection before folding. The review has converged (blocker count: 3 → 0).
+
+_Terminology note: this doc numbers its own initial adjudication as "Round 1"; the **Ruling** below
+(which counts only the two *adversarial* rounds) calls the three-blocker review "round 1" and this
+fresh clean review "round 2." Same two adversarial passes, offset labels._
+
 ---
 
 ## Appendix — probe provenance
@@ -872,3 +922,20 @@ deferral check (superseded in scope by §3.7). Round-2 probes: exact seed-4 coun
 verification, exhaustive 2P free-placement flip sweep (every seat-0 clinch × every seat-1 response,
 seeds 1-24). Seeds 1–24, generated boards, `defaultConfig()` except where a knob is stated. The repro
 in §1 is reproducible directly from the snippet against `origin/dev` at this branch's base.
+
+---
+
+## Ruling (2026-07-04, issued by Claude under Sam's delegation)
+
+**Authority & process.** Sam delegated this ruling to Claude on the condition of a completed adversarial review. Two independent blind adversarial rounds were run against this document: round 1 found three blockers (the "lossless / identical winner" claim was false under human free placement; the REPLAY_VERSION / frozen-room implementation cost was absent; the "is board-96 shipped" uncertainty rested on a misquote the repo refutes), all fixed in the revision; round 2 used a fresh reviewer who re-derived the mechanism with live engine probes and found no blocker, only the leg-1(c) presentation clarification now folded in. The review has converged.
+
+**Ruling: ADOPT all three legs.**
+
+1. **DER #18 — no victory is decided during the setup (first-base placement) phase.** Every seat completes its placement; a single `status()` resolution runs at the setup→play transition, with DER #14's ordering (most iron, then lowest player id) resolving multiple qualifiers. Implement engine-level via the turn-0 guard in `status()`. This is a DELIBERATE semantic change from the current first-to-clinch behavior — it moves the placement-order privilege to the last placer (an information advantage) and flips the winner on 7/24 default 2P free-placement seeds; adopted with eyes open because the alternative (a victory before a player's first turn) is worse. Accept the forced REPLAY_VERSION bump.
+   - **Old rooms (decision c):** "freeze mid-setup-terminal rooms as final" means MUTATION-final — the bump freezes them, preventing any re-resolution or winner change (the safety property, which holds). It is NOT presentation-final: a returning viewer of such a pre-bump room sees a frozen board with no victory screen (the winner was never persisted). ACCEPTED as-is for the affected population (pre-1.0 degenerate instant-win rooms on the default board); the optional client-derives-terminal-via-status() follow-up is not required by this ruling.
+
+2. **Ship the designer-instrument degeneracy warning now** — frontend-only, computable at form time from the existing client barrel exports; warn when the configured board + control radius + iron-victory threshold makes a single first-base control disk instant-winnable.
+
+3. **Escalate the default-knob fix to the balance-redesign track with raised urgency**, carrying the flag that the protected board-96 shipping-default coordinate is itself the degenerate surface.
+
+**Scope.** This ruling records the DECISION only. The engine implementation of DER #18 (guard, version bump, freeze handling, tests), the designer warning, and the balance-knob change are SEPARATE efforts with their own TDD — NOT part of this documentation PR, and NOT part of the SPA client (Deliverable 2) track now in flight. They belong to the engine / balance-redesign track.
