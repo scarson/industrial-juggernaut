@@ -60,7 +60,7 @@ notes and commit messages.
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
 | 1 — Engine: turn-0 guard + version bump + test remediation | ⬜ Not started | — | Review-class (version bump, winner semantics); Sam-merge-authority decision pending |
-| 2 — Designer degeneracy warning | ⬜ Not started | — | Routine, frontend, independent of Phase 1 |
+| 2 — Designer degeneracy warning | 🚧 In progress (`fix/der18-designer-warning`) | — | Routine, frontend, independent of Phase 1 (branched off `origin/dev`) |
 
 ### Deviations
 _(none yet)_
@@ -160,7 +160,7 @@ After completing Tasks 1.1–1.4:
 
 ## Phase 2 — Designer degeneracy warning
 
-**Execution Status:** ⬜ NOT STARTED
+**Execution Status:** 🚧 IN PROGRESS — branch `fix/der18-designer-warning` (off `origin/dev`), claimed 2026-07-04. Routine; targets auto-merge on green CI after a blind review. (Plan-doc edits on this branch are localized to the Phase 2 row + this section to avoid conflicts with the Phase 1 branch's edits; Phase 1 state lives on [#71](https://github.com/scarson/industrial-juggernaut/pull/71).)
 
 Independent of Phase 1 (pure frontend; no engine or version-bump dependency). May execute before, after, or in parallel with Phase 1 on its own branch.
 
