@@ -59,8 +59,8 @@ notes and commit messages.
 
 | Phase | Status | Ship SHA(s) | Notes |
 |---|---|---|---|
-| 1 — Engine: turn-0 guard + version bump + test remediation | 🚧 In progress (`fix/der18-setup-victory`) | — | Review-class (version bump, winner semantics); STOP for Sam at merge |
-| 2 — Designer degeneracy warning | 🚧 In progress (`fix/der18-designer-warning`) | — | Routine, frontend, independent of Phase 1 (branched off `origin/dev`) |
+| 1 — Engine: turn-0 guard + version bump + test remediation | 🔵 PR open — [#71](https://github.com/scarson/industrial-juggernaut/pull/71), awaiting Sam | `0e78ecb5`, `ff080e9e`, `56426ae3`, `e62209dd` | Review-class (version bump, winner semantics); close-out clean; **STOP for Sam** on merge authority |
+| 2 — Designer degeneracy warning | ✅ Merged — [#72](https://github.com/scarson/industrial-juggernaut/pull/72) (`2e76cb25`) | `9f84bee5`, `29346903` | Routine, frontend, independent of Phase 1 |
 
 ### Deviations
 
@@ -93,7 +93,9 @@ Phase 1 carries a `REPLAY_VERSION` bump (replay-compat blast radius) and changes
 
 ## Phase 1 — Engine: turn-0 guard, version bump, test remediation
 
-**Execution Status:** 🚧 IN PROGRESS — branch `fix/der18-setup-victory`, claimed 2026-07-04. Tasks 1.1–1.4 COMPLETE; full root suite GREEN (2176 passed), typecheck clean. Commits: 1.2 guard+version `0e78ecb5`, 1.3 test re-expression `ff080e9e`, 1.4 new semantics tests `56426ae3`. Remaining: close-out review rounds + blind adversarial gate → open PR → STOP for Sam (merge authority). See Discoveries + Deviations.
+**Execution Status:** 🔵 PR OPEN — [#71](https://github.com/scarson/industrial-juggernaut/pull/71), awaiting Sam's merge-authority decision. Tasks 1.1–1.4 COMPLETE; full root suite GREEN (2176 passed), typecheck clean. Commits: 1.2 guard+version `0e78ecb5`, 1.3 test re-expression `ff080e9e`, 1.4 new semantics tests `56426ae3`, close-out comment fix `e62209dd`.
+
+**Close-out (2026-07-04):** author 3-lens review (spec-faithfulness / test-remediation integrity / version-bump + guard-correctness) — all clear. Blind adversarial merge gate (fresh subagent, no prior context) — **NO BLOCKER FOUND**: independently drove 280 full games (7 rosters × 40 seeds, 2P–6P) with 0 failures / exactly one gameOver per game / none mid-setup / no stall; verified assertion integrity (count rose 37→39) via a sensitivity mutation; confirmed the version hash isn't hand-faked and `turn===0 ⇔ setup`. The gate's one minor finding (stale "mid-setup victory" comment in `agent-drive.ts`) fixed in `e62209dd`. **Gate ran on opus, not the usual Fable tier — Fable 5 was unavailable (monthly spend limit); cross-model diversity reduced, fresh-context adversarial framing preserved.**
 
 **Why this matters:** the Living Document Contract (above) comes from `/writing-plans-enhanced` Step 5 — keep the banners current so a follow-up dispatch reads state instead of reconstructing it.
 
