@@ -19,6 +19,7 @@ import { CombatReveal } from "../game/choreography/CombatReveal";
 import { Elimination } from "../game/choreography/Elimination";
 import { Victory } from "../game/choreography/Victory";
 import { createGameStore, useGameStore } from "../game/store";
+import { useSetRailContent } from "./shell/rail-content";
 import { selectComposer } from "./select-composer";
 import type { GameStore } from "../game/store";
 import type { GameDriver, DriverEvent, DriverPending } from "../game/driver";
@@ -209,6 +210,17 @@ function PlayView({ header, createDriver, injectedStore }: PlayViewProps) {
     };
   }, [header, createDriver, store]);
 
+  // ── HUD publication: the shell hosts the right rail, so PlayView publishes its instrument stack as
+  //    the rail's content rather than laying out its own rail lane. Re-published whenever the state or
+  //    the accumulated event log changes; cleared on unmount so navigating away restores the rail's
+  //    placeholder. `state` is null only while the driver connects — nothing to show yet. ────────────
+  const setRailContent = useSetRailContent();
+  useEffect(() => {
+    if (state === null) return;
+    setRailContent(<Hud state={state} events={eventLog} />);
+    return () => setRailContent(null);
+  }, [setRailContent, state, eventLog]);
+
   if (driver === null || state === null) {
     return (
       <section className="table-panel" aria-label="Game loading" style={LOADING_STYLE}>
@@ -268,10 +280,6 @@ function PlayView({ header, createDriver, injectedStore }: PlayViewProps) {
           <TurnOrderCeremony rollover={rollover} />
         </div>
       </section>
-
-      <aside aria-label="Instruments" style={RAIL_LANE_STYLE}>
-        <Hud state={state} events={eventLog} />
-      </aside>
     </div>
   );
 }
@@ -367,9 +375,10 @@ function ChoreographyStage({
   );
 }
 
-// ─── Layout — the war-room lane (UI brief §5): board is the hero (left-weighted, brightest), the
-//     composer appears contextually beneath/beside it, the HUD lives in the right rail. Geometry only;
-//     colors come from tokens via CSS variables and the components' own classes. ────────────────────
+// ─── Layout — the war-room lane (UI brief §5): board is the hero (left-weighted, brightest) and the
+//     composer appears contextually beneath/beside it; the HUD is published to the shell's right rail
+//     (see the HUD-publication effect above). Geometry only; colors come from tokens via CSS variables
+//     and the components' own classes. ─────────────────────────────────────────────────────────────
 const WAR_ROOM_STYLE: React.CSSProperties = {
   display: "flex",
   gap: "1rem",
@@ -394,10 +403,6 @@ const COMPOSER_LANE_STYLE: React.CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: "0.75rem",
-};
-const RAIL_LANE_STYLE: React.CSSProperties = {
-  width: "20rem",
-  flexShrink: 0,
 };
 const PLAY_COMPOSERS_STYLE: React.CSSProperties = {
   display: "flex",
