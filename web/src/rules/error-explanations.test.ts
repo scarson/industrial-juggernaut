@@ -1,10 +1,11 @@
 // ABOUTME: Pins explainError — one plain-English rule sentence per DriverErrorCode. Exhaustive
-// ABOUTME: over the 20-code union: every code maps to real prose, spot-checked against DERs.
+// ABOUTME: over the driver's error union: every code maps to real prose, spot-checked against DERs.
 import { describe, expect, test } from "vitest";
 import { explainError } from "./error-explanations";
 import type { DriverErrorCode } from "../game/driver";
+import { WIRE_ERROR_CODES } from "../../../src/wire/protocol";
 
-// The 20-code union from web/src/game/driver.ts, spelled out so a code renamed or removed there
+// The full error union from web/src/game/driver.ts, spelled out so a code renamed or removed there
 // without a matching update here is a visible failure, not a silent gap. `ALL_CODES` is derived
 // from `EXPLANATION` (a Record<DriverErrorCode, string>) below, which the compiler already checks
 // for totality — a new DriverErrorCode with no entry fails typecheck before this file even runs.
@@ -14,7 +15,8 @@ const ALL_CODES = Object.keys(EXPLANATION) as DriverErrorCode[];
 
 describe("explainError", () => {
   test("covers every DriverErrorCode with real prose", () => {
-    expect(ALL_CODES.length).toBe(20);
+    // One code per wire error code — the driver's union spans the whole WireErrorCode catalog.
+    expect(ALL_CODES.length).toBe(WIRE_ERROR_CODES.length);
     for (const code of ALL_CODES) {
       const line = explainError(code);
       expect(line, code).toBeTypeOf("string");
@@ -41,5 +43,25 @@ describe("explainError", () => {
     const line = explainError("PASS_NOT_FORCED");
     expect(line).toMatch(/pass/i);
     expect(line).toMatch(/forced|must (build|attack)|cannot pass|voluntary/i);
+  });
+
+  test("BUILD_OVER_BUDGET explains the resources-halved build budget", () => {
+    const line = explainError("BUILD_OVER_BUDGET");
+    expect(line).toMatch(/budget|resources/i);
+  });
+
+  test("BUILD_BOOTSTRAP_FACTORY_ONLY explains the founding factory-only budget", () => {
+    const line = explainError("BUILD_BOOTSTRAP_FACTORY_ONLY");
+    expect(line).toMatch(/factory/i);
+  });
+
+  test("BUILD_ILLEGAL_BASE references the triangle rule (DER #7)", () => {
+    const line = explainError("BUILD_ILLEGAL_BASE");
+    expect(line).toMatch(/triangle|perimeter|friendly base/i);
+  });
+
+  test("VERSION_MISMATCH explains the protocol-version transport condition", () => {
+    const line = explainError("VERSION_MISMATCH");
+    expect(line).toMatch(/version/i);
   });
 });

@@ -28,16 +28,25 @@ export type DriverPending = {
 
 export type SeatRosterEntry = { seat: number; claimed: boolean; kind: SeatConfig["kind"] };
 
+/** Every code a rejected command can carry, one-to-one with the wire protocol's `WireErrorCode`
+ *  catalog. Spelled out here (not aliased from the wire type) so the client owns its own vocabulary;
+ *  the authoritative `WireErrorCode → DriverErrorCode` map in `wire-map.ts` is keyed over the wire
+ *  union, so a new wire code fails typecheck there until it is added here. */
 export type DriverErrorCode =
   // envelope/transport (socket only)
   | "STALE_INDEX" | "NOT_YOUR_TURN" | "DECISION_PENDING" | "ALREADY_RESOLVED"
-  | "SEAT_TAKEN" | "GAME_OVER" | "FROZEN"
+  | "SEAT_TAKEN" | "BAD_SEAT_TOKEN" | "GAME_OVER" | "FROZEN"
+  | "MALFORMED" | "UNKNOWN_TYPE" | "OVERSIZED" | "VERSION_MISMATCH" | "ROOM_NOT_INITIALIZED"
   // setup placement
   | "NOT_IN_SETUP" | "HEX_OFF_BOARD" | "HEX_NOT_OUTER" | "HEX_OCCUPIED" | "INVALID_ATTACKERS"
+  | "SETUP_PLACEMENT_REQUIRED"
   // session validation (→ rule explanations)
   | "PASS_NOT_FORCED" | "ATTACK_NOT_SINGLE_DECL" | "DUP_ATTACKERS"
   | "DEFENDER_IS_TARGET" | "DEFENDER_INELIGIBLE" | "NO_ELIGIBLE_DEFENDER"
-  | "MIXED_PIECE_TYPES" | "DUP_PIECES";
+  | "MIXED_PIECE_TYPES" | "DUP_PIECES"
+  // build rules (engine-enforced at apply time → rule explanations)
+  | "BUILD_EMPTY" | "BUILD_BOOTSTRAP_FACTORY_ONLY" | "BUILD_OVER_BUDGET"
+  | "BUILD_ILLEGAL_FACTORY" | "BUILD_NO_BASES_IN_HAND" | "BUILD_ILLEGAL_BASE";
 
 /** The authoritative event stream. The driver emits `sync` first, then
  *  `applied`/`turnRollover`/`prompt`/`gameOver`/`rejected`/`connection`. */
