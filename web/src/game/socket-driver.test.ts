@@ -726,6 +726,32 @@ describe("reconnect single-flight", () => {
     expect(events).toEqual([]); // the identity guard drops it — nothing reaches subscribers
     h.driver.dispose();
   });
+
+  test("a never-opened superseded socket's late open sends no handshake and emits no open", () => {
+    // Invariant: a superseded socket is inert — its onopen identity guard drops the open, so a stale socket cannot
+    // re-handshake (hello/claimSeat) or clobber reconnecting/backoff. This bites a socket that never opened: a
+    // reconnect attempt that closes before opening is superseded by the NEXT attempt, then fires a late open. Its
+    // per-socket `handshaken` is still false (only a genuine open sets it), so ONLY the identity guard stops it —
+    // without the guard, this late open re-handshakes on a dead socket and re-emits connection:"open".
+    const h = makeReconnectHarness();
+    h.latest().fireOpen();
+    h.latest().fireClose(); // outage 1
+    vi.advanceTimersByTime(RECONNECT_BASE_MS);
+    expect(h.factoryCalls()).toBe(2);
+
+    const stalled = h.latest(); // sockets[1] — the first reconnect attempt
+    stalled.fireClose(); // it closes BEFORE ever opening → schedules the next attempt (still the current socket here)
+    vi.advanceTimersByTime(RECONNECT_BASE_MS * 2); // the escalated delay
+    expect(h.factoryCalls()).toBe(3); // sockets[2] created and becomes current; sockets[1] is now superseded
+
+    const events: DriverEvent[] = [];
+    h.driver.subscribe((e) => events.push(e));
+    events.length = 0;
+    stalled.fireOpen(); // sockets[1]'s late open arrives after it was superseded — handshaken is still false
+    expect(sentJson(stalled)).toEqual([]); // no hello/claimSeat sent on the superseded socket
+    expect(events.filter((e) => e.type === "connection")).toEqual([]); // no connection:"open" emitted
+    h.driver.dispose();
+  });
 });
 
 // ── 13. Reconnect: recovery + resync ───────────────────────────────────────────────────────────────────────────
