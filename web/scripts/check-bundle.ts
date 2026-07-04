@@ -17,23 +17,54 @@ const LAZY_ONLY_MODULE_PATTERN = /src\/(agent|wire)\//;
 export interface BundleChunkInfo {
   isEntry: boolean;
   dynamicallyImported: boolean;
+  /** The chunk's STATIC import edges (Rollup `chunk.imports`), by output file name. Dynamic-import
+   *  edges (`chunk.dynamicImports`) are deliberately NOT followed — a dynamic edge is a lazy boundary. */
+  staticImports: string[];
   moduleIds: string[];
 }
 
 export type BundleModuleMap = Record<string, BundleChunkInfo>;
 
 /**
- * Throws if any eager chunk (isEntry, or reachable only via static imports — i.e. not
- * dynamicallyImported) contains a module under src/agent/ or src/wire/. Those may only ship in
- * dynamically-imported chunks (lazy-loaded or Web Worker bundles).
+ * The EAGER chunk set: every entry chunk plus the transitive closure reached by following ONLY static
+ * import edges from entries. These are the chunks in the initial payload — a lazy-only module in any of
+ * them ships eagerly. A chunk that is merely `!dynamicallyImported` is NOT automatically eager: a chunk
+ * shared between two DYNAMIC chunks is not a dynamic *entry*, yet nothing in the entry's static closure
+ * reaches it, so it loads only when a driver chunk loads. Forward reachability distinguishes the two;
+ * the older `isEntry || !dynamicallyImported` proxy conflated them and false-flagged shared lazy chunks.
+ */
+function eagerChunks(moduleMap: BundleModuleMap): Set<string> {
+  const eager = new Set<string>();
+  const stack = Object.entries(moduleMap)
+    .filter(([, chunk]) => chunk.isEntry)
+    .map(([fileName]) => fileName);
+
+  while (stack.length > 0) {
+    const fileName = stack.pop()!;
+    if (eager.has(fileName)) continue; // visited-guard: tolerates static-import cycles
+    eager.add(fileName);
+    const chunk = moduleMap[fileName];
+    if (chunk === undefined) continue;
+    for (const imported of chunk.staticImports) {
+      if (!eager.has(imported)) stack.push(imported);
+    }
+  }
+
+  return eager;
+}
+
+/**
+ * Throws if any eager chunk (an entry chunk, or one reachable from an entry through STATIC imports)
+ * contains a module under src/agent/ or src/wire/. Those may only ship in chunks reached across a
+ * dynamic-import boundary (lazy-loaded driver/route chunks or the separate Web Worker bundles).
  */
 export function assertNoLazyOnlyModulesInEager(moduleMap: BundleModuleMap): void {
+  const eager = eagerChunks(moduleMap);
   const violations: string[] = [];
 
-  for (const [fileName, chunk] of Object.entries(moduleMap)) {
-    const isEager = chunk.isEntry || !chunk.dynamicallyImported;
-    if (!isEager) continue;
-
+  for (const fileName of eager) {
+    const chunk = moduleMap[fileName];
+    if (chunk === undefined) continue;
     for (const moduleId of chunk.moduleIds) {
       if (LAZY_ONLY_MODULE_PATTERN.test(moduleId)) {
         violations.push(`  ${moduleId} (in eager chunk ${fileName})`);
