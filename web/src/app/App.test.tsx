@@ -1,8 +1,24 @@
 // ABOUTME: Structure tests for the App shell — header + Instruments button always present,
 // ABOUTME: the rail collapses per breakpoint, and the router renders the routed screen.
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { App } from "./App";
+import { useSetRailContent } from "./shell/rail-content";
+import type { ComponentType, ReactNode } from "react";
+
+// The Router seat: every test gets the real Router by default; the render-scoping test swaps in a
+// probe screen so it can count routed-screen renders and publish rail content from inside the tree
+// (the same position a real screen publishes from). Assertions stay on the real App composition.
+const routerSeat = vi.hoisted(() => ({ Probe: null as ComponentType | null }));
+
+vi.mock("./routes", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./routes")>();
+  function RouterSeat() {
+    const Probe = routerSeat.Probe;
+    return Probe !== null ? <Probe /> : <actual.Router />;
+  }
+  return { ...actual, Router: RouterSeat };
+});
 
 /** Installs a matchMedia stub reporting tiers for the given viewport width. */
 function stubMatchMediaForWidth(width: number): void {
@@ -25,6 +41,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   window.history.pushState({}, "", "/");
+  routerSeat.Probe = null;
 });
 
 describe("App", () => {
@@ -80,5 +97,28 @@ describe("App", () => {
     render(<App />);
     expect(screen.getByRole("complementary", { name: "Rail" })).toBeInTheDocument();
     expect(screen.getByText(/per-player resources/i)).toBeInTheDocument();
+  });
+
+  test("publishing rail content does not re-render the routed screen", () => {
+    stubMatchMediaForWidth(1200);
+    const screenRenders = vi.fn();
+    let publish: ((node: ReactNode) => void) | null = null;
+    routerSeat.Probe = function ProbeScreen() {
+      screenRenders();
+      publish = useSetRailContent();
+      return <p>probe screen</p>;
+    };
+
+    render(<App />);
+    expect(screenRenders).toHaveBeenCalledTimes(1);
+
+    act(() => publish!(<span>published instruments</span>));
+
+    // The publish landed: the rail shows the content and the placeholder is gone...
+    expect(screen.getByText("published instruments")).toBeInTheDocument();
+    expect(screen.queryByText(/per-player resources/i)).not.toBeInTheDocument();
+    // ...and the routed screen never re-rendered — rail-content state lives inside the provider,
+    // and App neither holds nor subscribes to it.
+    expect(screenRenders).toHaveBeenCalledTimes(1);
   });
 });
