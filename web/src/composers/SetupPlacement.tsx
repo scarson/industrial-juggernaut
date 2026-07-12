@@ -57,7 +57,7 @@ export function SetupPlacement({ state, player, driver }: SetupPlacementProps) {
       </div>
 
       <p className="mono" data-testid="setup-turn-indicator" style={TURN_INDICATOR_STYLE}>
-        Player {acting} to place
+        Player {acting + 1} to place
       </p>
 
       <RuleLine>
@@ -74,7 +74,7 @@ export function SetupPlacement({ state, player, driver }: SetupPlacementProps) {
         />
       ) : (
         <p className="mono" style={WAITING_STYLE}>
-          Waiting for player {acting} to place their first base…
+          Waiting for player {acting + 1} to place their first base…
         </p>
       )}
     </ComposerPanel>

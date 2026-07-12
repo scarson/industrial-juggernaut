@@ -20,6 +20,9 @@ export function FactoryGauge({ state }: FactoryGaugeProps) {
 
   return (
     <section className="table-panel" aria-label="Factory supply" style={PANEL_STYLE}>
+      <span className="mono" style={LABEL_STYLE}>
+        factory supply
+      </span>
       <span className="mono" data-testid="factory-gauge" style={FIGURE_STYLE}>
         {placed} / {total}
       </span>
@@ -29,6 +32,15 @@ export function FactoryGauge({ state }: FactoryGaugeProps) {
 
 const PANEL_STYLE: React.CSSProperties = {
   padding: "0.5rem 0.75rem",
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.15rem",
+};
+const LABEL_STYLE: React.CSSProperties = {
+  fontSize: "0.65rem",
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  color: color("parchment300"),
 };
 const FIGURE_STYLE: React.CSSProperties = {
   fontSize: "1.1rem",

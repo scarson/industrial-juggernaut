@@ -99,3 +99,12 @@ describe("ResourcePanel — per-player resource rows", () => {
     expect(within(p1Row).getByTestId("resource-bases").textContent).toBe("0");
   });
 });
+
+describe("ResourcePanel — column labels", () => {
+  test("labels the three count columns (iron, factories, bases) as real column headers", () => {
+    render(<ResourcePanel state={resourceFixture()} />);
+    expect(screen.getByRole("columnheader", { name: /iron/i })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /factories/i })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /bases/i })).toBeInTheDocument();
+  });
+});

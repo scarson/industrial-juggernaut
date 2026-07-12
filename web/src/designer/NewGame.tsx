@@ -77,8 +77,6 @@ export function NewGame({ onStart, onStartOnline, onlineError, startPending = fa
   );
   const [seats, dispatchSeats] = useReducer(seatsReducer, undefined, initialSeats);
   const [boardMode, setBoardMode] = useState<BoardMode>("generate");
-  const [genSize, setGenSize] = useState(String(defaultConfig().boardSize));
-  const [genIron, setGenIron] = useState(String(defaultConfig().ironCount));
   const [fixedJson, setFixedJson] = useState("");
   const [seedText, setSeedText] = useState(DEFAULT_SEED);
 
@@ -86,26 +84,40 @@ export function NewGame({ onStart, onStartOnline, onlineError, startPending = fa
   const configErrors = useMemo(() => validateConfig(config), [config]);
   const errorByKnob = useMemo(() => indexErrors(configErrors), [configErrors]);
 
+  // Generate mode reads the BOARD cluster's own knobs — ONE source of truth for size/iron, so
+  // editing the visible knob (or loading a preset) is what generation actually uses. A fixed
+  // paste replaces both; the knobs don't apply there (the picker says so).
   const boardInput =
     boardMode === "generate"
-      ? { kind: "generate" as const, size: Number(genSize), ironCount: Number(genIron) }
+      ? { kind: "generate" as const, size: config.boardSize, ironCount: config.ironCount }
       : { kind: "fixed" as const, raw: fixedJson };
-  const boardResult = useMemo(() => parseBoardSource(boardInput), [boardMode, genSize, genIron, fixedJson]);
+  const boardResult = useMemo(
+    () => parseBoardSource(boardInput),
+    [boardMode, config.boardSize, config.ironCount, fixedJson],
+  );
 
   const seedResult = useMemo(() => parseSeed(seedText), [seedText]);
 
   // Deps are the reachability-determining values ONLY (config.radius + config.victoryThreshold as
   // primitives, plus the already-memoized boardResult/seedResult) so unrelated knob edits (e.g.
   // killBounty, seat changes) don't retrigger board generation — the dominant cost here.
-  const instantWinnable = useMemo(
-    () =>
-      boardResult.ok && seedResult.ok
-        ? isSetupInstantWinnable(config, boardResult.source, seedResult.seed)
-        : false,
-    [config.radius, config.victoryThreshold, boardResult, seedResult],
-  );
+  // The probe doubles as the feasibility check: it generates with the SAME seed + params the game
+  // would, so a generation throw here (range-valid but CSP-infeasible iron/size combos) means Start
+  // would crash too — surfaced as a friendly error + a disabled Start, never an unguarded throw.
+  const probe = useMemo((): { instantWinnable: boolean; infeasible: boolean } => {
+    if (!boardResult.ok || !seedResult.ok) return { instantWinnable: false, infeasible: false };
+    try {
+      return {
+        instantWinnable: isSetupInstantWinnable(config, boardResult.source, seedResult.seed),
+        infeasible: false,
+      };
+    } catch {
+      return { instantWinnable: false, infeasible: true };
+    }
+  }, [config.radius, config.victoryThreshold, boardResult, seedResult]);
+  const instantWinnable = probe.instantWinnable;
 
-  const canStart = configErrors.length === 0 && boardResult.ok && seedResult.ok;
+  const canStart = configErrors.length === 0 && boardResult.ok && seedResult.ok && !probe.infeasible;
 
   const humans = humanSeatCount(seats);
   // The online action is offered only when `onStartOnline` is wired AND the roster is exactly one human
@@ -165,11 +177,7 @@ export function NewGame({ onStart, onStartOnline, onlineError, startPending = fa
       <BoardSourcePicker
         mode={boardMode}
         onMode={setBoardMode}
-        genSize={genSize}
-        genIron={genIron}
         fixedJson={fixedJson}
-        onGenSize={setGenSize}
-        onGenIron={setGenIron}
         onFixedJson={setFixedJson}
         result={boardResult}
       />
@@ -184,6 +192,12 @@ export function NewGame({ onStart, onStartOnline, onlineError, startPending = fa
       {instantWinnable && (
         <p className="mono" style={NOTE_STYLE} data-testid="setup-degeneracy-note">
           {SETUP_DEGENERACY_NOTE}
+        </p>
+      )}
+      {probe.infeasible && (
+        <p className="mono" role="alert" style={NOTE_STYLE} data-testid="board-infeasible-note">
+          This board can&rsquo;t be generated — {config.ironCount} iron deposits don&rsquo;t fit on a{" "}
+          {config.boardSize}-hex board. Lower the iron deposits or raise the board size.
         </p>
       )}
 
@@ -435,30 +449,16 @@ function ProvenanceBadge({ provenance }: { provenance: Provenance }) {
 interface BoardSourcePickerProps {
   mode: BoardMode;
   onMode: (mode: BoardMode) => void;
-  genSize: string;
-  genIron: string;
   fixedJson: string;
-  onGenSize: (v: string) => void;
-  onGenIron: (v: string) => void;
   onFixedJson: (v: string) => void;
   result: BoardSourceValidation;
 }
 
-function BoardSourcePicker({
-  mode,
-  onMode,
-  genSize,
-  genIron,
-  fixedJson,
-  onGenSize,
-  onGenIron,
-  onFixedJson,
-  result,
-}: BoardSourcePickerProps) {
-  const genError = (field: "size" | "ironCount"): string | null => {
-    if (result.ok || result.kind !== "generate") return null;
-    return result.errors.find((e) => e.field === field)?.message ?? null;
-  };
+function BoardSourcePicker({ mode, onMode, fixedJson, onFixedJson, result }: BoardSourcePickerProps) {
+  // Generate-kind failures normally surface inline on the BOARD knobs (validateConfig covers the
+  // same ranges); rendering them here too means a divergence between the two validators can never
+  // reject silently.
+  const genErrors = !result.ok && result.kind === "generate" ? result.errors : [];
   const fixedErrors = !result.ok && result.kind === "fixed" ? result.errors : [];
 
   return (
@@ -481,41 +481,20 @@ function BoardSourcePicker({
 
       {mode === "generate" ? (
         <div data-testid="board-source-generate" style={GEN_FIELDS_STYLE}>
-          <label style={ROW_LABEL_STYLE}>
-            <span>Size</span>
-            <input
-              className="mono"
-              type="number"
-              aria-label="Board size"
-              style={NUMBER_INPUT_STYLE}
-              value={genSize}
-              onChange={(e) => onGenSize(e.target.value)}
-            />
-          </label>
-          {genError("size") && (
-            <p className="mono" role="alert" style={FIELD_ERROR_STYLE}>
-              {genError("size")}
+          <p className="mono" style={SOURCE_NOTE_STYLE}>
+            Generated from the BOARD knobs above — board size and iron deposits.
+          </p>
+          {genErrors.map((e) => (
+            <p key={e.field} className="mono" role="alert" style={FIELD_ERROR_STYLE}>
+              {e.message}
             </p>
-          )}
-          <label style={ROW_LABEL_STYLE}>
-            <span>Iron deposits</span>
-            <input
-              className="mono"
-              type="number"
-              aria-label="Iron deposits"
-              style={NUMBER_INPUT_STYLE}
-              value={genIron}
-              onChange={(e) => onGenIron(e.target.value)}
-            />
-          </label>
-          {genError("ironCount") && (
-            <p className="mono" role="alert" style={FIELD_ERROR_STYLE}>
-              {genError("ironCount")}
-            </p>
-          )}
+          ))}
         </div>
       ) : (
         <div data-testid="board-source-fixed">
+          <p className="mono" style={SOURCE_NOTE_STYLE}>
+            The pasted board defines size and iron — the BOARD size/iron knobs do not apply.
+          </p>
           <label style={{ ...ROW_LABEL_STYLE, alignItems: "flex-start" }}>
             <span>Board JSON</span>
             <textarea
@@ -740,6 +719,11 @@ const ROW_LABEL_STYLE: React.CSSProperties = {
   justifyContent: "space-between",
 };
 const GEN_FIELDS_STYLE: React.CSSProperties = { display: "flex", flexDirection: "column", gap: "0.5rem" };
+const SOURCE_NOTE_STYLE: React.CSSProperties = {
+  margin: 0,
+  fontSize: "0.75rem",
+  color: "var(--color-parchment-300)",
+};
 const TEXTAREA_STYLE: React.CSSProperties = {
   flex: 1,
   minWidth: 0,

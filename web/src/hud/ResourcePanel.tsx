@@ -12,7 +12,8 @@ export interface ResourcePanelProps {
 
 /**
  * Per-player resource readout — the right rail's instrument row for each seat still in the
- * game. Iron and factory counts come straight from `controlOf(state, player)` (GEO-8: `control()`
+ * game, as a real table so the three count columns carry visible, screen-reader-real headers.
+ * Iron and factory counts come straight from `controlOf(state, player)` (GEO-8: `control()`
  * already excludes non-ally perimeter interior for radiating players, so this panel consumes its
  * `iron`/`factories` arrays as-is and never re-sums board iron/factories itself, which would
  * double-count or assume pre-GEO-8 semantics). Bases are counted directly from `state.bases`,
@@ -23,30 +24,44 @@ export function ResourcePanel({ state }: ResourcePanelProps) {
 
   return (
     <section className="table-panel" aria-label="Player resources" style={PANEL_STYLE}>
-      <ul role="list" style={LIST_STYLE}>
-        {activePlayers.map((player) => {
-          const control = controlOf(state, player.id);
-          const baseCount = state.bases.filter((b) => b.owner === player.id).length;
-          return (
-            <li
-              key={player.id}
-              data-testid={`resource-row-${player.id}`}
-              style={ROW_STYLE}
-            >
-              <PlayerShapeIcon identity={playerIdentity(player.id)} size={10} />
-              <span className="mono" data-testid="resource-iron" style={FIGURE_STYLE}>
-                {control.iron.length}
-              </span>
-              <span className="mono" data-testid="resource-factories" style={FIGURE_STYLE}>
-                {control.factories.length}
-              </span>
-              <span className="mono" data-testid="resource-bases" style={FIGURE_STYLE}>
-                {baseCount}
-              </span>
-            </li>
-          );
-        })}
-      </ul>
+      <table style={TABLE_STYLE}>
+        <thead>
+          <tr>
+            <th scope="col" aria-label="player" style={HEADER_STYLE} />
+            <th scope="col" className="mono" style={HEADER_STYLE}>
+              iron
+            </th>
+            <th scope="col" className="mono" style={HEADER_STYLE}>
+              factories
+            </th>
+            <th scope="col" className="mono" style={HEADER_STYLE}>
+              bases
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {activePlayers.map((player) => {
+            const control = controlOf(state, player.id);
+            const baseCount = state.bases.filter((b) => b.owner === player.id).length;
+            return (
+              <tr key={player.id} data-testid={`resource-row-${player.id}`}>
+                <th scope="row" aria-label={`Player ${player.id + 1}`} style={ROW_HEAD_STYLE}>
+                  <PlayerShapeIcon identity={playerIdentity(player.id)} size={10} />
+                </th>
+                <td className="mono" data-testid="resource-iron" style={FIGURE_STYLE}>
+                  {control.iron.length}
+                </td>
+                <td className="mono" data-testid="resource-factories" style={FIGURE_STYLE}>
+                  {control.factories.length}
+                </td>
+                <td className="mono" data-testid="resource-bases" style={FIGURE_STYLE}>
+                  {baseCount}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </section>
   );
 }
@@ -54,22 +69,28 @@ export function ResourcePanel({ state }: ResourcePanelProps) {
 const PANEL_STYLE: React.CSSProperties = {
   padding: "0.5rem 0.75rem",
 };
-const LIST_STYLE: React.CSSProperties = {
-  listStyle: "none",
-  margin: 0,
-  padding: 0,
-  display: "flex",
-  flexDirection: "column",
-  gap: "0.35rem",
+const TABLE_STYLE: React.CSSProperties = {
+  width: "100%",
+  borderCollapse: "collapse",
 };
-const ROW_STYLE: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "0.6rem",
+const HEADER_STYLE: React.CSSProperties = {
+  fontSize: "0.65rem",
+  fontWeight: 400,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  textAlign: "right",
+  color: color("parchment300"),
+  padding: "0 0 0.3rem",
+};
+const ROW_HEAD_STYLE: React.CSSProperties = {
+  textAlign: "left",
   borderBottom: "1px solid var(--hairline)",
-  paddingBottom: "0.35rem",
+  padding: "0.2rem 0",
 };
 const FIGURE_STYLE: React.CSSProperties = {
   fontSize: "0.85rem",
+  textAlign: "right",
   color: color("parchment100"),
+  borderBottom: "1px solid var(--hairline)",
+  padding: "0.2rem 0 0.2rem 0.6rem",
 };

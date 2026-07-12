@@ -23,6 +23,7 @@ import { createRoom } from "../game/rooms";
 import { handleReload } from "../game/reload-guard";
 import { useSetRailContent } from "./shell/rail-content";
 import { selectComposer } from "./select-composer";
+import { explainError } from "../rules/error-explanations";
 import type { GameStore } from "../game/store";
 import type { CreateRoomRequest, CreateRoomResult } from "../game/rooms";
 import type { StartOnlinePayload } from "../designer/NewGame";
@@ -308,6 +309,7 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
   const rollover = useGameStore(store, (s) => s.authoritative.turnRollover);
   const terminal = useGameStore(store, (s) => s.authoritative.terminal);
   const connection = useGameStore(store, (s) => s.authoritative.connection);
+  const rejection = useGameStore(store, (s) => s.authoritative.rejection);
   const selection = useGameStore(store, (s) => s.ui.selection);
 
   // ── Driver lifecycle: create (possibly async) → subscribe → dispose. Both subscriptions (the
@@ -437,6 +439,14 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
         </div>
 
         <div aria-label="Composer" style={COMPOSER_LANE_STYLE} data-testid="composer-lane">
+          {rejection !== null && !showVictory && (
+            <div className="table-panel" role="alert" data-testid="rejection-notice" style={REJECTION_STYLE}>
+              <span className="mono" style={REJECTION_KICKER_STYLE}>
+                not allowed
+              </span>
+              <p style={REJECTION_BODY_STYLE}>{explainError(rejection.code)}</p>
+            </div>
+          )}
           {showVictory ? (
             <Victory winners={terminal.winners} />
           ) : choreography !== null ? (
@@ -590,6 +600,24 @@ const CHOREOGRAPHY_STYLE: React.CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: "0.5rem",
+};
+// The rejection teaching line — oxide kicker on the panel face (linework danger channel, same as
+// the board's attack stroke: an annotation, never a fill flood), body in the working sans.
+const REJECTION_STYLE: React.CSSProperties = {
+  padding: "0.5rem 0.75rem",
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.25rem",
+};
+const REJECTION_KICKER_STYLE: React.CSSProperties = {
+  fontSize: "0.65rem",
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  color: "var(--color-oxide)",
+};
+const REJECTION_BODY_STYLE: React.CSSProperties = {
+  margin: 0,
+  fontSize: "0.85rem",
 };
 const LOADING_STYLE: React.CSSProperties = {
   padding: "1rem",
