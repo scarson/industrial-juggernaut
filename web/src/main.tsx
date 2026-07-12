@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import "./design/tokens.css";
 import "./design/typography.css";
 import "./design/choreography.css";
+import "./design/board-motion.css";
 import "./design/landing.css";
 import { App } from "./app/App";
 

@@ -1,0 +1,35 @@
+/* ABOUTME: Feedback-scale motion for the board surface — the changed-hex emphasis pulse the */
+/* ABOUTME: presentation layer fires on each presented beat (drama pass). Not a set piece. */
+
+/*
+ * DELIBERATE NAMED-RULE BRUSH. DESIGN.md §4 reserves choreography for the four set pieces;
+ * this pulse is the one sanctioned exception beside them: a feedback-scale (200ms — motion.ts
+ * `duration.base`), transform-led surveyor's mark that directs the eye to the cells an agent's
+ * presented move just changed. Neutral ink — not brass (the Brass Budget belongs to selection
+ * and victory), not a player color (the piece itself already carries identity).
+ *
+ * INVERSE opacity discipline from choreography.css: set pieces stage already-visible CONTENT,
+ * so their keyframes floor opacity above 0. This overlay is pure DECORATION — its resting state
+ * (and its reduced-motion state, where the animation below never applies) must be fully hidden,
+ * so a pulse that never fires leaves no permanent ink on the map.
+ */
+
+.hex-emphasis {
+  opacity: 0;
+  /* Scale about the hex's own center, not the SVG viewBox origin. */
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .hex-emphasis {
+    animation: hex-emphasis-pulse 200ms cubic-bezier(0, 0, 0.2, 1) both;
+  }
+}
+
+/* A brief swell-and-fade: the outline lands a hair oversized and settles into the cell as it
+ * fades — transform-led, ending back at the resting opacity 0. */
+@keyframes hex-emphasis-pulse {
+  from { transform: scale(1.06); opacity: 0.85; }
+  to   { transform: scale(1); opacity: 0; }
+}

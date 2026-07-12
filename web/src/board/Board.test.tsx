@@ -325,8 +325,55 @@ describe("Board — decorative layers never swallow clicks", () => {
       expect((layer as SVGGElement).style.pointerEvents).toBe("none");
     }
     // Every decorated mark lives inside one of those layers — nothing paints outside them.
-    for (const mark of container.querySelectorAll("[data-territory], [data-iron], [data-factory], [data-base]")) {
+    for (const mark of container.querySelectorAll(
+      "[data-territory], [data-iron], [data-factory], [data-base], [data-emphasis]",
+    )) {
       expect(mark.closest("g[data-board-layer]")).not.toBeNull();
     }
+  });
+});
+
+describe("Board — changed-hex emphasis layer", () => {
+  test("emphasisHexes renders one pulse outline per key inside a pointer-events-none emphasis layer", () => {
+    const state = postSetupState();
+    const a = hexKey(state.board.hexes[3]!);
+    const b = hexKey(state.board.hexes[7]!);
+    const { container } = render(
+      <Board state={state} emphasisHexes={{ keys: new Set([a, b]), epoch: 1 }} />,
+    );
+
+    const layer = container.querySelector('g[data-board-layer="emphasis"]') as SVGGElement;
+    expect(layer).not.toBeNull();
+    // WEB-7: paint order is hit-test order — the topmost emphasis layer must never swallow clicks.
+    expect(layer.style.pointerEvents).toBe("none");
+
+    const marks = layer.querySelectorAll("polygon[data-emphasis]");
+    expect([...marks].map((m) => m.getAttribute("data-emphasis")).sort()).toEqual([a, b].sort());
+    for (const mark of marks) {
+      expect(mark.getAttribute("class")).toContain("hex-emphasis");
+    }
+  });
+
+  test("without emphasisHexes, no emphasis marks render", () => {
+    const state = postSetupState();
+    const { container } = render(<Board state={state} />);
+    expect(container.querySelectorAll("[data-emphasis]")).toHaveLength(0);
+  });
+
+  test("a new epoch remounts the pulse element so its CSS animation restarts", () => {
+    // Two consecutive beats can emphasize the SAME hex (e.g. a combat then the destroyed base);
+    // the pulse must restart, which for a CSS animation means a NEW element — the epoch keys it.
+    const state = postSetupState();
+    const key = hexKey(state.board.hexes[3]!);
+    const { container, rerender } = render(
+      <Board state={state} emphasisHexes={{ keys: new Set([key]), epoch: 1 }} />,
+    );
+    const first = container.querySelector(`polygon[data-emphasis="${key}"]`);
+    expect(first).not.toBeNull();
+
+    rerender(<Board state={state} emphasisHexes={{ keys: new Set([key]), epoch: 2 }} />);
+    const second = container.querySelector(`polygon[data-emphasis="${key}"]`);
+    expect(second).not.toBeNull();
+    expect(second).not.toBe(first);
   });
 });
