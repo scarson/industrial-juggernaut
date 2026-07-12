@@ -86,4 +86,39 @@ describe("RightRail", () => {
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByRole("complementary", { name: "Rail" })).toBeInTheDocument();
   });
+
+  test("at wide, the rail holds the fixed instrument width — content never sizes it", () => {
+    render(
+      <RightRail breakpoint="wide">
+        <p>{"An extremely long single-line rail sentence that must not widen the rail ".repeat(3)}</p>
+      </RightRail>,
+    );
+    const rail = screen.getByRole("complementary", { name: "Rail" });
+    // The board always wins space (UI brief §5): the rail is a fixed-width instrument column,
+    // never an intrinsic-width one — a long log line must not squeeze the routed screen.
+    expect(rail.style.width).not.toBe("");
+    expect(rail.style.flexShrink).toBe("0");
+  });
+
+  test("while collapsed, the rail gives the width back (no fixed column behind a toggle)", () => {
+    render(
+      <RightRail breakpoint="narrow">
+        <p>Rail content</p>
+      </RightRail>,
+    );
+    const rail = screen.getByRole("complementary", { name: "Rail" });
+    expect(rail.style.width).toBe("");
+  });
+
+  test("expanded at narrow, the rail takes the same fixed instrument width as wide", async () => {
+    const user = userEvent.setup();
+    render(
+      <RightRail breakpoint="narrow">
+        <p>Rail content</p>
+      </RightRail>,
+    );
+    await user.click(screen.getByRole("button", { name: /rail/i }));
+    const rail = screen.getByRole("complementary", { name: "Rail" });
+    expect(rail.style.width).not.toBe("");
+  });
 });

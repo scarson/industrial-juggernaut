@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { GameScreen } from "./GameScreen";
-import { RailContentOutlet, RailContentProvider } from "./shell/rail-content";
+import { RailHost, RailContentProvider } from "./shell/rail-content";
 import { makeFakeDriver } from "../game/fake-driver";
 import { createGameStore } from "../game/store";
 import { defaultConfig, initGame } from "../engine-client/barrel";
@@ -49,7 +49,7 @@ describe("GameScreen — online entry gating", () => {
     render(
       <RailContentProvider>
         <GameScreen />
-        <RailContentOutlet placeholder={<p>rail placeholder</p>} />
+        <RailHost breakpoint="wide" />
       </RailContentProvider>,
     );
     const online = screen.getByRole("button", { name: /play online/i });
@@ -62,7 +62,7 @@ describe("GameScreen — online entry gating", () => {
     render(
       <RailContentProvider>
         <GameScreen />
-        <RailContentOutlet placeholder={<p>rail placeholder</p>} />
+        <RailHost breakpoint="wide" />
       </RailContentProvider>,
     );
     await user.selectOptions(screen.getByLabelText("Seat 2 kind"), "heuristic");
@@ -92,7 +92,7 @@ describe("GameScreen — live path drives the same store/composers", () => {
     render(
       <RailContentProvider>
         <GameScreen createRoomFn={createRoomFn} createOnlineDriver={createOnlineDriver} />
-        <RailContentOutlet placeholder={<p>rail placeholder</p>} />
+        <RailHost breakpoint="wide" />
       </RailContentProvider>,
     );
 
@@ -143,7 +143,7 @@ describe("GameScreen — online-start in-flight guard", () => {
     render(
       <RailContentProvider>
         <GameScreen createRoomFn={deferred.fn} createOnlineDriver={createOnlineDriver} />
-        <RailContentOutlet placeholder={<p>rail placeholder</p>} />
+        <RailHost breakpoint="wide" />
       </RailContentProvider>,
     );
 
@@ -164,7 +164,7 @@ describe("GameScreen — online-start in-flight guard", () => {
     render(
       <RailContentProvider>
         <GameScreen createRoomFn={deferred.fn} createOnlineDriver={createOnlineDriver} />
-        <RailContentOutlet placeholder={<p>rail placeholder</p>} />
+        <RailHost breakpoint="wide" />
       </RailContentProvider>,
     );
 
@@ -189,7 +189,7 @@ describe("GameScreen — online-start in-flight guard", () => {
       return (
         <RailContentProvider>
           {inGame ? <GameScreen createRoomFn={deferred.fn} createOnlineDriver={createOnlineDriver} /> : null}
-          <RailContentOutlet placeholder={<p>rail placeholder</p>} />
+          <RailHost breakpoint="wide" />
         </RailContentProvider>
       );
     }
@@ -227,7 +227,7 @@ describe("GameScreen — reload-guard on connection:reload-required", () => {
           reloadFn={reloadFn}
           reloadStorage={storage}
         />
-        <RailContentOutlet placeholder={<p>rail placeholder</p>} />
+        <RailHost breakpoint="wide" />
       </RailContentProvider>,
     );
     return fakeDriver;

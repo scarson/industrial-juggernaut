@@ -1,5 +1,5 @@
 // ABOUTME: Structure tests for TopBar — header landmark, wordmark, Instruments button,
-// ABOUTME: turn/seed placeholder rendering, and the ≤44px height token (not a magic number).
+// ABOUTME: conditional turn/seed readouts, and the ≤44px height token (not a magic number).
 import { describe, expect, test, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -21,12 +21,38 @@ describe("TopBar", () => {
     expect(screen.getByText("Industrial Juggernaut")).toHaveClass("cartouche");
   });
 
-  test("renders a keyboard-focusable Instruments button", async () => {
+  test("the wordmark is a home link that navigates in-app on plain click", async () => {
     const user = userEvent.setup();
-    render(<TopBar />);
-    const button = screen.getByRole("button", { name: "Instruments" });
+    const onWordmarkClick = vi.fn();
+    render(<TopBar onWordmarkClick={onWordmarkClick} />);
+    const link = screen.getByRole("link", { name: "Industrial Juggernaut" });
+    expect(link).toHaveAttribute("href", "/");
+    await user.click(link);
+    expect(onWordmarkClick).toHaveBeenCalledTimes(1);
+  });
+
+  test("a modifier-click on the wordmark is left to the browser (open-in-new-tab works)", async () => {
+    const user = userEvent.setup();
+    const onWordmarkClick = vi.fn();
+    render(<TopBar onWordmarkClick={onWordmarkClick} />);
+    await user.keyboard("[MetaLeft>]");
+    await user.click(screen.getByRole("link", { name: "Industrial Juggernaut" }));
+    await user.keyboard("[/MetaLeft]");
+    expect(onWordmarkClick).not.toHaveBeenCalled();
+  });
+
+  test("keyboard order runs wordmark link, then the Instruments button", async () => {
+    const user = userEvent.setup();
+    render(<TopBar onInstrumentsClick={() => {}} />);
     await user.tab();
-    expect(button).toHaveFocus();
+    expect(screen.getByRole("link", { name: "Industrial Juggernaut" })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Instruments" })).toHaveFocus();
+  });
+
+  test("renders no Instruments button until something wires it (no dead brass)", () => {
+    render(<TopBar />);
+    expect(screen.queryByRole("button", { name: "Instruments" })).toBeNull();
   });
 
   test("calls onInstrumentsClick when the Instruments button is activated", async () => {
@@ -37,10 +63,16 @@ describe("TopBar", () => {
     expect(onInstrumentsClick).toHaveBeenCalledTimes(1);
   });
 
-  test("without turnLabel/seedLabel, renders em-dash placeholders", () => {
+  test("without turnLabel/seedLabel, renders no turn/seed readouts (instruments with nothing to report recede)", () => {
     render(<TopBar />);
-    expect(screen.getByTestId("topbar-turn")).toHaveTextContent("—");
-    expect(screen.getByTestId("topbar-seed")).toHaveTextContent("—");
+    expect(screen.queryByTestId("topbar-turn")).toBeNull();
+    expect(screen.queryByTestId("topbar-seed")).toBeNull();
+  });
+
+  test("each readout renders independently of the other", () => {
+    render(<TopBar turnLabel="Round 3 · Oxide's move" />);
+    expect(screen.getByTestId("topbar-turn")).toHaveTextContent("Round 3 · Oxide's move");
+    expect(screen.queryByTestId("topbar-seed")).toBeNull();
   });
 
   test("with turnLabel/seedLabel, renders the given values", () => {

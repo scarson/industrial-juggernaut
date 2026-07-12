@@ -106,10 +106,35 @@ body {
   letter-spacing: 0.01em;
 }
 
-/* Shell geometry — the top bar's height is a layout constant (UI brief §5: ≤44px),
- * asserted here so components read the token instead of hard-coding a pixel value. */
+/* Shell geometry — the top bar is a slim instrument strip (UI brief §5: ≤44px, via the
+ * height token so components never hard-code the pixel value): contents vertically
+ * centered on one row, a shared gap between instruments, breathing room at both ends,
+ * and a hairline seam separating the bar from the surfaces below it. border-box keeps
+ * the seam inside the 44px budget. */
 .shell-topbar {
+  box-sizing: border-box;
   height: var(--layout-topbar-height);
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0 1rem;
+  border-bottom: 1px solid var(--hairline);
+}
+
+/* Links in the bar (the wordmark) take the same brass focus treatment as the buttons. */
+.shell-topbar a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The compact "check-in" tier (below the 768px narrow boundary — the same threshold
+ * useBreakpoint.ts encodes): tighten the bar's rhythm so the wordmark, readouts, and the
+ * Instruments button share a phone width without horizontal overflow. */
+@media (max-width: 767px) {
+  .shell-topbar {
+    gap: 0.625rem;
+    padding: 0 0.5rem;
+  }
 }
 
 /* The chrome affordance treatment — resets UA button chrome to a quiet instrument on

@@ -17,10 +17,12 @@ afterEach(() => {
 });
 
 describe("Router", () => {
-  test("renders the home screen at /", () => {
+  test("renders the landing screen at /", () => {
     setPath("/");
     render(<Router />);
-    expect(screen.getByRole("heading", { name: /home/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 1, name: /industrial juggernaut/i }),
+    ).toBeInTheDocument();
   });
 
   test("renders the game screen at /game", () => {
@@ -50,7 +52,9 @@ describe("Router", () => {
   test("navigate() updates the path and re-renders without a full page load", () => {
     setPath("/");
     render(<Router />);
-    expect(screen.getByRole("heading", { name: /home/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 1, name: /industrial juggernaut/i }),
+    ).toBeInTheDocument();
 
     act(() => {
       navigate("/rules");

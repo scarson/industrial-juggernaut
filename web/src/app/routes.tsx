@@ -2,6 +2,7 @@
 // ABOUTME: routes. No react-router: 4 fixed paths don't warrant the dependency (see P0.7 plan).
 import { lazy, Suspense, useEffect, useState } from "react";
 import { GameScreen } from "./GameScreen";
+import { HomeScreen } from "./HomeScreen";
 import { AgentViewer } from "../viewer/AgentViewer";
 import { RulesReference } from "../rules/RulesReference";
 
@@ -70,15 +71,6 @@ export function Router() {
     case "/rules":
       return <RulesScreen />;
   }
-}
-
-function HomeScreen() {
-  return (
-    <section className="table-panel">
-      <h1>Home</h1>
-      <p>Start or resume a game of Industrial Juggernaut.</p>
-    </section>
-  );
 }
 
 function ViewerScreen() {
