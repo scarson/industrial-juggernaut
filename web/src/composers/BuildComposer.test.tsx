@@ -1,7 +1,7 @@
 // ABOUTME: Structure tests for BuildComposer — budget meter text, bootstrap-disabled base option +
 // ABOUTME: explanation, preview-on-placement via the store, and Commit submitting the build command.
 import { describe, expect, test } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { BuildComposer } from "./BuildComposer";
 import { makeFakeDriver } from "../game/fake-driver";
@@ -240,5 +240,55 @@ describe("BuildComposer — commit", () => {
     render(<BuildComposer state={state} player={0} driver={driver} store={store} />);
 
     expect(screen.getByRole("button", { name: /commit/i })).toBeDisabled();
+  });
+});
+
+describe("BuildComposer — board-click seam", () => {
+  test("registers a build board-handler that stages a piece, published to ui.stagedBuild", () => {
+    const state = playFixture();
+    const store = createGameStore();
+    const driver = driverFor(state);
+    store.getState().connectDriver(driver);
+
+    render(<BuildComposer state={state} player={0} driver={driver} store={store} />);
+
+    const handler = store.getState().ui.boardHandlers.build;
+    expect(handler).toBeDefined();
+
+    act(() => handler!(PLAY_BUILD_TARGET));
+
+    expect(screen.getByTestId("build-budget")).toHaveTextContent("Remaining: 1");
+    expect(store.getState().ui.stagedBuild).toEqual([PLAY_BUILD_TARGET]);
+  });
+
+  test("unmount unregisters the handler and clears the staged publication", () => {
+    const state = playFixture();
+    const store = createGameStore();
+    const driver = driverFor(state);
+    store.getState().connectDriver(driver);
+
+    const { unmount } = render(<BuildComposer state={state} player={0} driver={driver} store={store} />);
+    act(() => store.getState().ui.boardHandlers.build!(PLAY_BUILD_TARGET));
+    expect(store.getState().ui.stagedBuild).toHaveLength(1);
+
+    unmount();
+
+    expect(store.getState().ui.boardHandlers.build).toBeUndefined();
+    expect(store.getState().ui.stagedBuild).toEqual([]);
+  });
+
+  test("Commit clears the staged publication along with the local staging", async () => {
+    const user = userEvent.setup();
+    const state = playFixture();
+    const store = createGameStore();
+    const driver = driverFor(state);
+    store.getState().connectDriver(driver);
+
+    render(<BuildComposer state={state} player={0} driver={driver} store={store} />);
+    act(() => store.getState().ui.boardHandlers.build!(PLAY_BUILD_TARGET));
+
+    await user.click(screen.getByRole("button", { name: /^commit$/i }));
+
+    expect(store.getState().ui.stagedBuild).toEqual([]);
   });
 });

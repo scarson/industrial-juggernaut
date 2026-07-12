@@ -275,3 +275,38 @@ describe("Board", () => {
     });
   });
 });
+
+describe("Board — interactiveHexes gating", () => {
+  test("with interactiveHexes, ONLY listed cells fire onHexClick and carry the pointer cursor", () => {
+    const state = postSetupState();
+    const onHexClick = vi.fn();
+    const interactive: Hex = state.board.hexes[3]!;
+    const inert: Hex = state.board.hexes[7]!;
+    const { container } = render(
+      <Board
+        state={state}
+        onHexClick={onHexClick}
+        interactiveHexes={new Set([hexKey(interactive)])}
+      />,
+    );
+
+    const inertCell = container.querySelector(`polygon[data-hex="${hexKey(inert)}"]`) as SVGPolygonElement;
+    inertCell.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(onHexClick).not.toHaveBeenCalled();
+    expect(inertCell.style.cursor).not.toBe("pointer");
+
+    const liveCell = container.querySelector(`polygon[data-hex="${hexKey(interactive)}"]`) as SVGPolygonElement;
+    liveCell.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(onHexClick).toHaveBeenCalledTimes(1);
+    expect(liveCell.style.cursor).toBe("pointer");
+  });
+
+  test("without interactiveHexes, every cell stays clickable (the unrestricted P1 behavior)", () => {
+    const state = postSetupState();
+    const onHexClick = vi.fn();
+    const { container } = render(<Board state={state} onHexClick={onHexClick} />);
+    const cell = container.querySelector(`polygon[data-hex="${hexKey(state.board.hexes[7]!)}"]`) as SVGPolygonElement;
+    cell.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(onHexClick).toHaveBeenCalledTimes(1);
+  });
+});

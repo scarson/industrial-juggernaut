@@ -455,3 +455,66 @@ describe("rejection surfacing", () => {
     expect(store.getState().authoritative.rejection).toBeNull();
   });
 });
+
+describe("ui slice — board interaction channels", () => {
+  test("setStagedBuild publishes staged build hexes; clearStagedBuild empties them", () => {
+    const store = createGameStore();
+    const hexes = [
+      { x: 1, y: -1, z: 0 },
+      { x: 2, y: -2, z: 0 },
+    ];
+
+    store.getState().setStagedBuild(hexes);
+    expect(store.getState().ui.stagedBuild).toEqual(hexes);
+
+    store.getState().setStagedBuild([]);
+    expect(store.getState().ui.stagedBuild).toEqual([]);
+  });
+
+  test("setAttackSelection publishes the target + committed attackers; null clears", () => {
+    const store = createGameStore();
+    const selection = { target: { x: 0, y: 0, z: 0 }, attackers: [{ x: 1, y: -1, z: 0 }] };
+
+    store.getState().setAttackSelection(selection);
+    expect(store.getState().ui.attackSelection).toEqual(selection);
+
+    store.getState().setAttackSelection(null);
+    expect(store.getState().ui.attackSelection).toBeNull();
+  });
+
+  test("setBoardHandler registers a per-channel click handler; null unregisters", () => {
+    const store = createGameStore();
+    const clicks: string[] = [];
+    const handler = (hex: { x: number; y: number; z: number }) => {
+      clicks.push(`${hex.x},${hex.y},${hex.z}`);
+    };
+
+    store.getState().setBoardHandler("build", handler);
+    store.getState().ui.boardHandlers.build?.({ x: 1, y: -1, z: 0 });
+    expect(clicks).toEqual(["1,-1,0"]);
+
+    store.getState().setBoardHandler("build", null);
+    expect(store.getState().ui.boardHandlers.build).toBeUndefined();
+  });
+
+  test("a sync resets the ui interaction channels (a fresh baseline clears stale staging)", () => {
+    const snapshot = fixtureState();
+    const driver = makeFakeDriver({ snapshot, roster: fixtureRoster(), controllableSeats: [0], logLength: 0 });
+    const store = createGameStore();
+    store.getState().connectDriver(driver);
+
+    store.getState().setStagedBuild([{ x: 1, y: -1, z: 0 }]);
+    store.getState().setAttackSelection({ target: { x: 0, y: 0, z: 0 }, attackers: [] });
+
+    driver.pushEvent({
+      type: "sync",
+      snapshot: fixtureState(),
+      logLength: 0,
+      pending: null,
+      seats: fixtureRoster(),
+    });
+
+    expect(store.getState().ui.stagedBuild).toEqual([]);
+    expect(store.getState().ui.attackSelection).toBeNull();
+  });
+});
