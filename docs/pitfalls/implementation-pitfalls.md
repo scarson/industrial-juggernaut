@@ -387,6 +387,18 @@ The broken-perimeter death clock (`applyEliminations`, cause `brokenPerimeterAt1
 
 ---
 
+### WEB-6: A Flex `<aside>` With No Width Sizes to Its Content's Max-Content — One Long Line Steals the Hero's Space
+
+**The Flaw:** The shell's right rail (`web/src/app/shell/RightRail.tsx`) rendered its `<aside>` as a flex sibling of `<main>` with no width declaration. A flex item's default basis is `auto`, and `min-width: auto` floors it at the content's min-content size — so a single unwrappable line anywhere inside the rail (a one-sentence placeholder `<p>`, a long event-log line) sets the rail's width to that line's full length. One ~110-character placeholder sentence widened the rail to ~850px of a 1440px viewport, squeezing `<main>` (the board's lane) to barely half the screen — the exact inversion of the UI brief's "the board always wins space."
+
+**Why It Matters:** This is invisible to the entire jsdom suite — jsdom computes no layout, so every structure test on the rail, the shell, and the routed screens stayed green while the shipped layout was broken. It's also latent, not hypothetical, for live play: the in-game rail hosts the event log, whose narration lines are exactly the kind of long, content-generated single lines that trigger it — the bug was found via a landing-page placeholder, but the same mechanism could squeeze the board mid-game the first time an event narration ran long. And because the rail "worked" for months with short content, nothing about the code suggested a landmine: the failure only appears when real content of real length meets a real layout engine.
+
+**The Fix:** The rail showing content is a fixed-width instrument column — `width: 19rem`, `flexShrink: 0`, `overflowX: hidden` (`OPEN_RAIL_STYLE` in `RightRail.tsx`); collapsed, it carries no width and shrinks to its toggle. Style-contract tests pin the policy (`RightRail.test.tsx`: fixed width present at wide and when expanded at narrow, absent while collapsed — including a test that feeds a deliberately long single-line child), and the layout was verified in a real browser at 1440px and 375px. The width is a policy declaration, not a magic number: rail content (HUD panels, the event log) lays out within it and the log wraps.
+
+**The Lesson:** Any flex sibling of a hero surface needs an explicit width policy — "sized by its content" is only acceptable when the content's width is bounded by construction, and content that includes user- or log-generated text never is. jsdom cannot test layout: a layout invariant ("the board always wins space") needs a style-level contract test AND a real-browser check with adversarially long content, because the DOM structure is identical in the working and broken states.
+
+---
+
 ### Review Checklist
 
 - [ ] **Every utility-class pair expected to compose has an explicit compound-selector override in `tokens.css`** — never rely on stylesheet source order to resolve an equal-specificity collision (WEB-1)
