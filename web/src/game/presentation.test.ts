@@ -6,13 +6,14 @@ import {
   presentationReducer,
   stageableFrom,
   emphasisKeysOf,
+  marksOf,
   beatDelayMs,
   BEAT_INTERVAL_MS,
   BEAT_INTERVAL_FAST_MS,
   SET_PIECE_DWELL_MS,
 } from "./presentation";
-import type { PresentationState } from "./presentation";
-import type { GameEvent, GameState, Hex } from "../engine-client/barrel";
+import type { PresentationAction, PresentationState } from "./presentation";
+import type { GameEvent, GameState, Hex, LogEntry } from "../engine-client/barrel";
 
 // The reducer never reads INTO a GameState — it shepherds opaque references between the store's
 // fold and the board's props — so tagged opaque objects make identity assertions unambiguous.
@@ -34,8 +35,18 @@ const destroyedB: GameEvent = { kind: "baseDestroyed", hex: HEX_B, owner: 0 };
 const replacedA: GameEvent = { kind: "baseReplaced", hex: HEX_A, from: 0, to: 1 };
 const eliminated0: GameEvent = { kind: "eliminated", player: 0, cause: "noBases", bountyTo: null } as GameEvent;
 
-function reduce(s: PresentationState, ...actions: Parameters<typeof presentationReducer>[1][]): PresentationState {
+function reduce(s: PresentationState, ...actions: PresentationAction[]): PresentationState {
   return actions.reduce(presentationReducer, s);
+}
+
+/** A beat action whose marks default to the events' own hexes — the common (non-placement) case. */
+function beat(
+  paced: boolean,
+  state: GameState | null,
+  events: readonly GameEvent[],
+  marks: Set<string> = emphasisKeysOf(events),
+): PresentationAction {
+  return { type: "beat", paced, state, events, marks };
 }
 
 const synced = reduce(INITIAL_PRESENTATION, { type: "reset", state: S0 });
@@ -48,12 +59,42 @@ describe("emphasisKeysOf", () => {
   });
 });
 
+describe("marksOf", () => {
+  test("a placeFirstBase entry marks its hex even though applyEntry emits no events for placements", () => {
+    // THE motivating case: agent setup placements arrive as applied beats with events:[] — the
+    // entry itself is the only record of what changed on the board.
+    const entry: LogEntry = { player: 1, kind: "placeFirstBase", hex: HEX_A, rngBeforeApply: 0n as never };
+    expect(marksOf(entry, [])).toEqual(new Set(["1,-1,0"]));
+  });
+
+  test("other entry kinds mark exactly their events' hexes", () => {
+    const entry: LogEntry = { player: 1, kind: "endRound", rngBeforeApply: 0n as never };
+    expect(marksOf(entry, [combatB])).toEqual(new Set(["2,-2,0"]));
+    expect(marksOf(entry, [])).toEqual(new Set());
+  });
+});
+
+describe("presentationReducer — placement beats (events empty, marks carry the change)", () => {
+  test("a paced placement beat is VISIBLE — it opens a drain and pulses its mark on present", () => {
+    const s = reduce(
+      synced,
+      { type: "beat", paced: true, state: S1, events: [], marks: new Set(["1,-1,0"]) },
+      { type: "tick" },
+    );
+    expect(s.frame!.state).toBe(S1);
+    expect(s.emphasis!.keys).toEqual(new Set(["1,-1,0"]));
+    // No events were appended to the log for a placement, so the cursor stays put.
+    expect(s.appended).toBe(0);
+    expect(s.presented).toBe(0);
+  });
+});
+
 describe("presentationReducer — reset", () => {
   test("reset installs the sync snapshot as the released scene and clears everything else", () => {
     const busy = reduce(
       synced,
-      { type: "beat", paced: false, state: S1, events: [placedA] },
-      { type: "beat", paced: true, state: S2, events: [placedB] },
+      beat(false, S1, [placedA]),
+      beat(true, S2, [placedB]),
     );
     const s = presentationReducer(busy, { type: "reset", state: S3 });
     expect(s.released).toBe(S3);
@@ -66,12 +107,12 @@ describe("presentationReducer — reset", () => {
   });
 
   test("the emphasis epoch counter survives reset — a post-reset pulse never reuses a pre-reset key", () => {
-    const before = reduce(synced, { type: "beat", paced: false, state: S1, events: [placedA] });
+    const before = reduce(synced, beat(false, S1, [placedA]));
     const preResetEpoch = before.emphasis!.epoch;
     const after = reduce(
       before,
       { type: "reset", state: S2 },
-      { type: "beat", paced: false, state: S3, events: [placedB] },
+      beat(false, S3, [placedB]),
     );
     expect(after.emphasis!.epoch).toBeGreaterThan(preResetEpoch);
   });
@@ -79,7 +120,7 @@ describe("presentationReducer — reset", () => {
 
 describe("presentationReducer — non-paced beats (the human's own echo)", () => {
   test("an idle non-paced beat releases its state, pulses its hexes, and never opens a frame", () => {
-    const s = reduce(synced, { type: "beat", paced: false, state: S1, events: [placedA] });
+    const s = reduce(synced, beat(false, S1, [placedA]));
     expect(s.frame).toBeNull();
     expect(s.queue).toHaveLength(0);
     expect(s.released).toBe(S1);
@@ -89,21 +130,21 @@ describe("presentationReducer — non-paced beats (the human's own echo)", () =>
   });
 
   test("a non-paced beat stages its stageable and a later non-stageable beat keeps the reveal lingering", () => {
-    const staged = reduce(synced, { type: "beat", paced: false, state: S1, events: [combatB] });
+    const staged = reduce(synced, beat(false, S1, [combatB]));
     expect(staged.choreography).toEqual({ kind: "combat", event: combatB });
 
-    const lingering = reduce(staged, { type: "beat", paced: false, state: S2, events: [placedA] });
+    const lingering = reduce(staged, beat(false, S2, [placedA]));
     expect(lingering.choreography).toEqual({ kind: "combat", event: combatB });
   });
 
   test("a non-paced beat mid-drain snaps the drain and catches the log cursor up", () => {
     const draining = reduce(
       synced,
-      { type: "beat", paced: true, state: S1, events: [placedA] },
-      { type: "beat", paced: true, state: S2, events: [placedB] },
+      beat(true, S1, [placedA]),
+      beat(true, S2, [placedB]),
     );
     expect(draining.frame).not.toBeNull();
-    const s = reduce(draining, { type: "beat", paced: false, state: S3, events: [combatB] });
+    const s = reduce(draining, beat(false, S3, [combatB]));
     expect(s.frame).toBeNull();
     expect(s.queue).toHaveLength(0);
     expect(s.released).toBe(S3);
@@ -111,13 +152,13 @@ describe("presentationReducer — non-paced beats (the human's own echo)", () =>
   });
 
   test("a fold-degraded beat (no state) leaves the released scene alone", () => {
-    const s = reduce(synced, { type: "beat", paced: false, state: null, events: [placedA] });
+    const s = reduce(synced, beat(false, null, [placedA]));
     expect(s.released).toBe(S0);
   });
 
   test("a beat whose only event is an elimination stages the set piece without touching the pulse", () => {
-    const withPulse = reduce(synced, { type: "beat", paced: false, state: S1, events: [placedA] });
-    const s = reduce(withPulse, { type: "beat", paced: false, state: S2, events: [eliminated0] });
+    const withPulse = reduce(synced, beat(false, S1, [placedA]));
+    const s = reduce(withPulse, beat(false, S2, [eliminated0]));
     expect(s.choreography).toEqual({ kind: "eliminated", event: eliminated0 });
     expect(s.emphasis).toBe(withPulse.emphasis);
   });
@@ -127,8 +168,8 @@ describe("presentationReducer — paced beats", () => {
   test("a paced beat arriving idle opens a HOLD frame of the released scene and queues itself", () => {
     // The whole burst lands in one React batch: the hold frame is what makes the human's own
     // move paint alone (with its pulse) while the first agent move waits for the first tick.
-    const withEcho = reduce(synced, { type: "beat", paced: false, state: S1, events: [placedA] });
-    const s = reduce(withEcho, { type: "beat", paced: true, state: S2, events: [placedB] });
+    const withEcho = reduce(synced, beat(false, S1, [placedA]));
+    const s = reduce(withEcho, beat(true, S2, [placedB]));
     expect(s.frame!.state).toBe(S1);
     expect(s.frame!.events).toHaveLength(0);
     expect(s.queue.map((b) => b.state)).toEqual([S2]);
@@ -140,28 +181,28 @@ describe("presentationReducer — paced beats", () => {
   test("paced beats arriving while a frame presents append to the queue in order", () => {
     const s = reduce(
       synced,
-      { type: "beat", paced: true, state: S1, events: [placedA] },
-      { type: "beat", paced: true, state: S2, events: [placedB] },
-      { type: "beat", paced: true, state: S3, events: [combatB] },
+      beat(true, S1, [placedA]),
+      beat(true, S2, [placedB]),
+      beat(true, S3, [combatB]),
     );
     expect(s.frame!.state).toBe(S0); // the hold
     expect(s.queue.map((b) => b.state)).toEqual([S1, S2, S3]);
   });
 
   test("a zero-event paced beat at idle advances the released scene without opening a drain", () => {
-    const s = reduce(synced, { type: "beat", paced: true, state: S1, events: [] });
+    const s = reduce(synced, beat(true, S1, []));
     expect(s.frame).toBeNull();
     expect(s.released).toBe(S1);
   });
 
   test("a zero-event paced beat mid-drain is dropped — later beats' states subsume it", () => {
-    const draining = reduce(synced, { type: "beat", paced: true, state: S1, events: [placedA] });
-    const s = reduce(draining, { type: "beat", paced: true, state: S2, events: [] });
+    const draining = reduce(synced, beat(true, S1, [placedA]));
+    const s = reduce(draining, beat(true, S2, []));
     expect(s).toBe(draining);
   });
 
   test("a paced beat with no released scene (defensive) presents itself immediately", () => {
-    const s = reduce(INITIAL_PRESENTATION, { type: "beat", paced: true, state: S1, events: [placedA] });
+    const s = reduce(INITIAL_PRESENTATION, beat(true, S1, [placedA]));
     expect(s.frame!.state).toBe(S1);
     expect(s.queue).toHaveLength(0);
     expect(s.emphasis!.keys).toEqual(new Set(["1,-1,0"]));
@@ -171,8 +212,8 @@ describe("presentationReducer — paced beats", () => {
 describe("presentationReducer — tick", () => {
   const draining = reduce(
     synced,
-    { type: "beat", paced: true, state: S1, events: [placedA] },
-    { type: "beat", paced: true, state: S2, events: [combatB] },
+    beat(true, S1, [placedA]),
+    beat(true, S2, [combatB]),
   );
 
   test("a tick presents the next queued beat: frame, released, pulse epoch, and the log cursor advance", () => {
@@ -196,7 +237,7 @@ describe("presentationReducer — tick", () => {
 
     const more = reduce(
       combatFrame,
-      { type: "beat", paced: true, state: S3, events: [placedB] },
+      beat(true, S3, [placedB]),
       { type: "tick" },
     );
     expect(more.frame!.state).toBe(S3);
@@ -217,9 +258,9 @@ describe("presentationReducer — tick", () => {
 describe("presentationReducer — snap / skip / dismiss", () => {
   const draining = reduce(
     synced,
-    { type: "beat", paced: true, state: S1, events: [combatB] },
+    beat(true, S1, [combatB]),
     { type: "tick" }, // present the combat beat: stages the reveal
-    { type: "beat", paced: true, state: S2, events: [placedB] },
+    beat(true, S2, [placedB]),
   );
 
   test("snap (a prompt arrived) drops the drain to the tip but keeps the staged reveal", () => {
@@ -255,22 +296,17 @@ describe("beatDelayMs — the tick scheduling policy", () => {
   test("a frame that staged a set piece dwells; a long queue accelerates; otherwise the base interval", () => {
     const combatFrame = reduce(
       synced,
-      { type: "beat", paced: true, state: S1, events: [combatB] },
+      beat(true, S1, [combatB]),
       { type: "tick" },
     );
     expect(beatDelayMs(combatFrame)).toBe(SET_PIECE_DWELL_MS);
 
-    const shortQueue = reduce(synced, { type: "beat", paced: true, state: S1, events: [placedA] });
+    const shortQueue = reduce(synced, beat(true, S1, [placedA]));
     expect(beatDelayMs(shortQueue)).toBe(BEAT_INTERVAL_MS);
 
     let longQueue = synced;
     for (let i = 0; i < 6; i++) {
-      longQueue = presentationReducer(longQueue, {
-        type: "beat",
-        paced: true,
-        state: opaqueState(`q${i}`),
-        events: [placedA],
-      });
+      longQueue = presentationReducer(longQueue, beat(true, opaqueState(`q${i}`), [placedA]));
     }
     expect(longQueue.queue.length).toBeGreaterThan(4);
     expect(beatDelayMs(longQueue)).toBe(BEAT_INTERVAL_FAST_MS);
@@ -282,9 +318,9 @@ describe("the motivating burst — click, own move paints, agents pace in, drain
     // The whole burst arrives in ONE synchronous batch (LocalReducerDriver.submit).
     let s = reduce(
       synced,
-      { type: "beat", paced: false, state: S1, events: [placedA] }, // the human's own placement
-      { type: "beat", paced: true, state: S2, events: [placedB] }, // agent beats…
-      { type: "beat", paced: true, state: S3, events: [combatB] },
+      beat(false, S1, [placedA]), // the human's own placement
+      beat(true, S2, [placedB]), // agent beats…
+      beat(true, S3, [combatB]),
     );
     // The batch's single render: the human's move (S1) with the human's pulse; agents queued.
     expect(s.frame!.state).toBe(S1);

@@ -9,7 +9,7 @@
 // the event narration is shown (`presented` cursor). While a frame presents, GameScreen suppresses
 // the whole interactive surface, so a human can never act against a presented (stale) scene.
 import { hexKey } from "../board/projection";
-import type { GameEvent, GameState } from "../engine-client/barrel";
+import type { GameEvent, GameState, LogEntry } from "../engine-client/barrel";
 
 /** The pacing rhythm. Base spacing sits inside both the spec's 350–500ms ask and the choreography
  *  family (360–680ms); the fast interval bounds long multi-agent drains; the dwell lets a beat
@@ -55,8 +55,19 @@ export function emphasisKeysOf(events: readonly GameEvent[]): Set<string> {
   return keys;
 }
 
-/** One folded beat: the post-fold authoritative state and the batch's events. */
-export type PresentationBeat = { state: GameState; events: readonly GameEvent[] };
+/** The board cells a folded ENTRY visibly changed. Usually the events' own hexes — but a
+ *  `placeFirstBase` fold emits NO events (round.ts returns events:[]), so the entry itself is the
+ *  only record of the placed base. Without this union, agent setup placements — the motivating
+ *  teleport case — would count as invisible beats and never pace. */
+export function marksOf(entry: LogEntry, events: readonly GameEvent[]): Set<string> {
+  const keys = emphasisKeysOf(events);
+  if (entry.kind === "placeFirstBase") keys.add(hexKey(entry.hex));
+  return keys;
+}
+
+/** One folded beat: the post-fold authoritative state, the batch's events (narration + set-piece
+ *  staging), and the marks (cell pulses + visibility — a superset of the events' hexes). */
+export type PresentationBeat = { state: GameState; events: readonly GameEvent[]; marks: Set<string> };
 
 /** The pulse overlay for the latest presented beat. `epoch` keys the Board's emphasis elements —
  *  a new epoch remounts them so the CSS animation restarts even on a repeat cell. */
@@ -96,8 +107,8 @@ export const INITIAL_PRESENTATION: PresentationState = {
 export type PresentationAction =
   /** A fold attempt landed. `paced: false` = the human's own echo, a fold failure, or reduced
    *  motion — show the tip now. `paced: true` = a non-controllable mover's beat (state required:
-   *  the post-fold authoritative state) — pace it. */
-  | { type: "beat"; paced: boolean; state: GameState | null; events: readonly GameEvent[] }
+   *  the post-fold authoritative state) — pace it. `marks` = marksOf(entry, events). */
+  | { type: "beat"; paced: boolean; state: GameState | null; events: readonly GameEvent[]; marks: Set<string> }
   /** The pacing timer fired: present the next queued beat, or complete the drain. */
   | { type: "tick" }
   /** A prompt arrived — the human must act NOW. Drop the drain to the tip (`state`), keep the
@@ -120,11 +131,14 @@ export function beatDelayMs(s: PresentationState): number | null {
 
 /** Fold a batch's presentational consequences into `s` as the CURRENTLY PRESENTED content:
  *  pulse (only when the batch marked cells) and reveal (latest stageable, else lingering). */
-function present(s: PresentationState, events: readonly GameEvent[]): Pick<PresentationState, "emphasis" | "epoch" | "choreography"> {
-  const keys = emphasisKeysOf(events);
-  const epoch = keys.size > 0 ? s.epoch + 1 : s.epoch;
+function present(
+  s: PresentationState,
+  events: readonly GameEvent[],
+  marks: Set<string>,
+): Pick<PresentationState, "emphasis" | "epoch" | "choreography"> {
+  const epoch = marks.size > 0 ? s.epoch + 1 : s.epoch;
   return {
-    emphasis: keys.size > 0 ? { keys, epoch } : s.emphasis,
+    emphasis: marks.size > 0 ? { keys: marks, epoch } : s.emphasis,
     epoch,
     choreography: stageableFrom(events) ?? s.choreography,
   };
@@ -136,13 +150,13 @@ export function presentationReducer(s: PresentationState, action: PresentationAc
       return { ...INITIAL_PRESENTATION, released: action.state, epoch: s.epoch };
 
     case "beat": {
-      const { paced, state, events } = action;
+      const { paced, state, events, marks } = action;
       if (!paced) {
         // The tip is (or is about to be) the honest scene: snap any drain, release the state,
         // and present this beat's pulse/reveal directly over the tip.
         return {
           ...s,
-          ...present(s, events),
+          ...present(s, events, marks),
           released: state ?? s.released,
           queue: [],
           frame: null,
@@ -150,13 +164,13 @@ export function presentationReducer(s: PresentationState, action: PresentationAc
           presented: s.appended + events.length,
         };
       }
-      // Paced. An invisible beat (endRound/pass/roundSkipped) never earns an interval: its state
-      // is subsumed by later beats mid-drain, or released directly when idle.
-      if (events.length === 0) {
+      // Paced. An invisible beat (endRound/pass/roundSkipped — no events, no marks) never earns
+      // an interval: its state is subsumed by later beats mid-drain, or released directly when idle.
+      if (events.length === 0 && marks.size === 0) {
         if (s.frame === null) return { ...s, released: state };
         return s;
       }
-      const beat: PresentationBeat = { state: state as GameState, events };
+      const beat: PresentationBeat = { state: state as GameState, events, marks };
       if (s.frame !== null) {
         return { ...s, queue: [...s.queue, beat], appended: s.appended + events.length };
       }
@@ -164,7 +178,7 @@ export function presentationReducer(s: PresentationState, action: PresentationAc
         // Defensive: no scene to hold (no sync seen) — present the beat immediately.
         return {
           ...s,
-          ...present(s, beat.events),
+          ...present(s, beat.events, beat.marks),
           released: beat.state,
           frame: beat,
           appended: s.appended + events.length,
@@ -176,7 +190,7 @@ export function presentationReducer(s: PresentationState, action: PresentationAc
       // by its non-paced echo) with the human's pulse — the first agent move waits for tick #1.
       return {
         ...s,
-        frame: { state: s.released, events: [] },
+        frame: { state: s.released, events: [], marks: new Set() },
         queue: [beat],
         appended: s.appended + events.length,
       };
@@ -191,7 +205,7 @@ export function presentationReducer(s: PresentationState, action: PresentationAc
       }
       return {
         ...s,
-        ...present(s, next.events),
+        ...present(s, next.events, next.marks),
         frame: next,
         queue: rest,
         released: next.state,
