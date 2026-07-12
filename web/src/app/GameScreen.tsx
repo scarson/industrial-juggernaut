@@ -24,6 +24,7 @@ import {
   presentationReducer,
   marksOf,
   beatDelayMs,
+  stageableFrom,
 } from "../game/presentation";
 import { prefersReducedMotion } from "../design/motion";
 import { createRoom } from "../game/rooms";
@@ -368,13 +369,12 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
             foldOk &&
             !prefersReducedMotion() &&
             !created.controllableSeats().includes(event.entry.player);
-          dispatchPresentation({
-            type: "beat",
-            paced,
-            state: foldOk ? folded.state : null,
-            events: event.events,
-            marks: marksOf(event.entry, event.events),
-          });
+          const marks = marksOf(event.entry, event.events);
+          dispatchPresentation(
+            paced && folded.state !== null
+              ? { type: "beat", paced: true, state: folded.state, events: event.events, marks }
+              : { type: "beat", paced: false, state: foldOk ? folded.state : null, events: event.events, marks },
+          );
           // A landed attack that belongs to a still-acting controllable player opens the chain-continue
           // beat; any other applied (a build, a setup placement, an agent move) clears it.
           setInChainContinue(isChainContinueAfter(event.events));
@@ -571,12 +571,17 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
           {showVictory ? (
             <Victory winners={terminal.winners} />
           ) : presenting ? (
-            // The drain: the lane holds a quiet spectator panel — the presented beat's set piece
-            // (sans Continue; the clock advances it), or the waiting line, or (on the terminal
-            // frame, already captioned by the banner) nothing. Skip is the one control: it jumps
-            // to the tip, dropping the remaining beats AND any staged reveal.
+            // The drain: the lane holds a quiet spectator panel — the presented beat's OWN set
+            // piece (sans Continue; the clock advances it), or the waiting line, or (on the
+            // terminal frame, already captioned by the banner) nothing. A reveal shows mid-drain
+            // only while the beat that staged it is the frame — later beats present around a
+            // frozen caption otherwise — while the reducer's lingering choreography still hands
+            // off to the tip (Continue dismisses, today's contract). Skip is the one control:
+            // it jumps to the tip, dropping the remaining beats AND any staged reveal.
             <div data-testid="presentation-drain" style={CHOREOGRAPHY_STYLE}>
-              {presentation.choreography !== null ? (
+              {presentation.choreography !== null &&
+              presentation.frame !== null &&
+              stageableFrom(presentation.frame.events) !== null ? (
                 <SetPieceView choreography={presentation.choreography} />
               ) : labelsTerminal === null ? (
                 <WaitingNotice player={currentPlayer(boardState)} />

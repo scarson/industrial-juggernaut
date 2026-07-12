@@ -106,9 +106,11 @@ export const INITIAL_PRESENTATION: PresentationState = {
 
 export type PresentationAction =
   /** A fold attempt landed. `paced: false` = the human's own echo, a fold failure, or reduced
-   *  motion — show the tip now. `paced: true` = a non-controllable mover's beat (state required:
-   *  the post-fold authoritative state) — pace it. `marks` = marksOf(entry, events). */
-  | { type: "beat"; paced: boolean; state: GameState | null; events: readonly GameEvent[]; marks: Set<string> }
+   *  motion — show the tip now (state null only on a fold failure). `paced: true` = a
+   *  non-controllable mover's beat — pace it; the post-fold authoritative state is REQUIRED at
+   *  the type level, so a stateless paced beat is unrepresentable. `marks` = marksOf(entry, events). */
+  | { type: "beat"; paced: true; state: GameState; events: readonly GameEvent[]; marks: Set<string> }
+  | { type: "beat"; paced: false; state: GameState | null; events: readonly GameEvent[]; marks: Set<string> }
   /** The pacing timer fired: present the next queued beat, or complete the drain. */
   | { type: "tick" }
   /** A prompt arrived — the human must act NOW. Drop the drain to the tip (`state`), keep the
@@ -150,14 +152,14 @@ export function presentationReducer(s: PresentationState, action: PresentationAc
       return { ...INITIAL_PRESENTATION, released: action.state, epoch: s.epoch };
 
     case "beat": {
-      const { paced, state, events, marks } = action;
-      if (!paced) {
+      const { events, marks } = action;
+      if (!action.paced) {
         // The tip is (or is about to be) the honest scene: snap any drain, release the state,
         // and present this beat's pulse/reveal directly over the tip.
         return {
           ...s,
           ...present(s, events, marks),
-          released: state ?? s.released,
+          released: action.state ?? s.released,
           queue: [],
           frame: null,
           appended: s.appended + events.length,
@@ -167,10 +169,10 @@ export function presentationReducer(s: PresentationState, action: PresentationAc
       // Paced. An invisible beat (endRound/pass/roundSkipped — no events, no marks) never earns
       // an interval: its state is subsumed by later beats mid-drain, or released directly when idle.
       if (events.length === 0 && marks.size === 0) {
-        if (s.frame === null) return { ...s, released: state };
+        if (s.frame === null) return { ...s, released: action.state };
         return s;
       }
-      const beat: PresentationBeat = { state: state as GameState, events, marks };
+      const beat: PresentationBeat = { state: action.state, events, marks };
       if (s.frame !== null) {
         return { ...s, queue: [...s.queue, beat], appended: s.appended + events.length };
       }

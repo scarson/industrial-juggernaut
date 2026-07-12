@@ -39,14 +39,19 @@ function reduce(s: PresentationState, ...actions: PresentationAction[]): Present
   return actions.reduce(presentationReducer, s);
 }
 
-/** A beat action whose marks default to the events' own hexes — the common (non-placement) case. */
+/** A beat action whose marks default to the events' own hexes — the common (non-placement) case.
+ *  The cast in the paced arm is test convenience only: production construction is the
+ *  discriminated union (a stateless paced beat is unrepresentable), and no test passes
+ *  paced:true with a null state. */
 function beat(
   paced: boolean,
   state: GameState | null,
   events: readonly GameEvent[],
   marks: Set<string> = emphasisKeysOf(events),
 ): PresentationAction {
-  return { type: "beat", paced, state, events, marks };
+  return paced
+    ? { type: "beat", paced: true, state: state as GameState, events, marks }
+    : { type: "beat", paced: false, state, events, marks };
 }
 
 const synced = reduce(INITIAL_PRESENTATION, { type: "reset", state: S0 });

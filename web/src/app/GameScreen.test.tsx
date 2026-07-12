@@ -850,6 +850,37 @@ describe("GameScreen — presentation-paced agent turns", () => {
     expect(screen.getByTestId("choreography-continue")).toBeInTheDocument();
   });
 
+  test("a mid-drain reveal belongs to ITS beat — later beats return the waiting line; the reveal lingers at the tip", async () => {
+    // A combat early in a burst must not sit frozen over unrelated placement beats presenting
+    // around it; but the drain-end hand-off keeps today's tip contract (Continue dismisses).
+    const { snapshot, applied } = placementBurst(3, 3);
+    const combat = { kind: "combat", target: hex(0, 0, 0), committed: 4, attackerWon: true } as const;
+    // The choreography staging keys off the batch's EVENTS, not the folded entry (the store folds
+    // the entry; presentation stages from events) — same seam the existing combat test uses.
+    const withCombat = { ...applied[1]!, events: [combat] };
+    const driver = await mountPaced(snapshot, rosterOf(3), [applied[0]!.entry.player]);
+
+    act(() => {
+      driver.pushEvent(applied[0]!);
+      driver.pushEvent(withCombat);
+      driver.pushEvent(applied[2]!);
+    });
+
+    // Hold frame → first agent beat (the combat) presents and stages its reveal.
+    act(() => vi.advanceTimersByTime(BEAT_INTERVAL_MS));
+    expect(screen.getByTestId("combat-reveal")).toBeInTheDocument();
+
+    // The combat frame dwells; the NEXT beat is a plain placement — the reveal steps aside.
+    act(() => vi.advanceTimersByTime(SET_PIECE_DWELL_MS));
+    expect(screen.queryByTestId("combat-reveal")).toBeNull();
+    expect(screen.getByTestId("waiting-notice")).toBeInTheDocument();
+
+    // Drain completes: the lingering reveal takes the tip WITH Continue (today's contract).
+    act(() => vi.advanceTimersByTime(BEAT_INTERVAL_MS));
+    expect(screen.getByTestId("combat-reveal")).toBeInTheDocument();
+    expect(screen.getByTestId("choreography-continue")).toBeInTheDocument();
+  });
+
   test("victory waits for the drain: the killing blow presents, labels swap on the final frame, then the set piece", async () => {
     const { snapshot, applied } = remoteBuildBurst();
     const buildKey = hexKey((applied[0]!.entry as Extract<LogEntry, { kind: "build" }>).pieces[0]!.hex);
