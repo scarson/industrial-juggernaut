@@ -27,7 +27,7 @@ This document serves three audiences. Start here, then go directly to the sectio
 | 1 | [Geometry & Engine](#section-1-geometry--engine) | Hex math, coordinate projection, PRNG threading, derived state | GEO-1 – GEO-8 | §1.C |
 | 2 | [Durable Object Host](#section-2-durable-object-host) | The `GameRoom` DO — storage, ordering, identity, auth, alarms, hibernation, tests | DO-PURITY-1 – DO-TEST-1 | §2.C |
 | 3 | [Wire Protocol](#section-3-wire-protocol) | The `ClientCommand`/`ServerMessage` boundary and the session-layer error mappers | WIRE-MAP-1 – WIRE-SHAPE-1 | §3.C |
-| 4 | [Web Client (CSS/design-system)](#section-4-web-client-cssdesign-system) | The `web/src/design/` token stylesheet and any component composing its utility classes, a composer re-deriving engine eligibility client-side, or a component mixing border shorthand/longhand in inline styles | WEB-1 – WEB-3 | §4.C |
+| 4 | [Web Client (CSS/design-system)](#section-4-web-client-cssdesign-system) | The `web/src/design/` token stylesheet and any component composing its utility classes, a composer re-deriving engine eligibility client-side, a component mixing border shorthand/longhand in inline styles, the bundle guard, reload/loop guards, shell layout, or the interactive SVG board | WEB-1 – WEB-7 | §4.C |
 | — | [Orchestration](#orchestration) | Parallel subagent dispatch and output persistence | ORCH-1 | §Orchestration.C |
 | A | [Historical Changelog](#appendix-a-historical-changelog) | Provenance, validation dates, review process meta-observations | — | — |
 | B | [Unified Summary Table](#appendix-b-unified-summary-table) | All pitfalls at a glance, with severity and status | — | — |
@@ -399,6 +399,18 @@ The broken-perimeter death clock (`applyEliminations`, cause `brokenPerimeterAt1
 
 ---
 
+### WEB-7: SVG Overlay Layers Swallow the Cell's Pointer Hits, and a Click Affordance Must Derive From the Same Resolution That Mounts Its Handler
+
+**The Flaw:** Two related traps from wiring the board's click interactivity (PR #76). (1) The board paints decorative layers ABOVE the hex landmass — territory washes, iron glyphs, factory glyphs, base tokens — and SVG hit-testing targets the topmost painted element, so a click at an iron hex's center lands on the `IronGlyph` (which has no handler) and dies; an enemy base token makes its attack-target cell unclickable at exactly the point a player aims for. (2) The first cut of `interactiveHexes` (the set of cells that receive `onHexClick` + the pointer cursor) was derived from `highlightSets(state)` — the ACTING player's legal moves — with no check that this client controls that seat or that any composer had registered a board handler, so agent turns, waiting turns, and the chain-continue beat painted pointer cursors over cells that did nothing when clicked.
+
+**Why It Matters:** Both failures are invisible to jsdom (which does no hit-testing and no cursor rendering) and produce the same user-facing symptom — "I clicked and nothing happened" — that is nearly indistinguishable from an app-logic bug (an earlier silent-rejection defect had just been fixed, so a dead click would read as its regression). The overlay variant was found live only because `document.elementFromPoint` at the cell center returned the glyph, not the polygon; a coordinate-space miss and an overlay swallow look identical from a failed click. The false-affordance variant contradicted the code's own stated purpose in a comment and shipped through a green 692-test suite; a blind adversarial review caught it.
+
+**The Fix:** (1) Every decorative board layer is wrapped in `<g data-board-layer=... style={{pointerEvents:"none"}}>` (`Board.tsx`), so the landmass polygon is the SOLE hit target for its cell; a structural test pins that every `[data-territory]/[data-iron]/[data-factory]/[data-base]` mark lives inside such a layer. (2) `interactiveHexes` derives from the SAME `selectComposer(state, pending, controllableSeats)` resolution that decides which composer mounts (lifted to PlayView and passed down as a prop so the two can never disagree), gated additionally on victory/choreography not outranking the composer lane and, for setup, on the acting seat being controllable. Affordance-gating tests assert zero pointer-cursor cells on a waiting turn.
+
+**The Lesson:** In an SVG scene, paint order is hit-test order — any layer painted over an interactive element must explicitly opt out of pointer events, and "the polygon has the handler" proves nothing about whether the polygon can be hit. And a click affordance is a PROMISE that a handler exists: derive the affordance set from the same computation that mounts the handler (one source of truth passed down), never from a parallel derivation that can drift. When debugging a dead click in a real browser, check `document.elementFromPoint` at the target's center FIRST — it distinguishes "something is covering it" from "wrong coordinates" from "no handler" in one call.
+
+---
+
 ### Review Checklist
 
 - [ ] **Every utility-class pair expected to compose has an explicit compound-selector override in `tokens.css`** — never rely on stylesheet source order to resolve an equal-specificity collision (WEB-1)
@@ -409,6 +421,8 @@ The broken-perimeter death clock (`applyEliminations`, cause `brokenPerimeterAt1
 - [ ] **No inline-style object mixes a `border` shorthand with a `borderColor`/`borderWidth`/`borderStyle` longhand override; new components verified console-clean across a re-render that *removes* an emphasis (raise-then-lower, focus-then-blur), not just on mount** — the warning is invisible to static jsdom tests (WEB-3)
 - [ ] **Adding a SECOND dynamic importer of a lazy-only module (`src/wire`/`src/agent`) requires the bundle guard to classify eager by static-import reachability from entries — NOT the `!dynamicallyImported` proxy** — Rollup hoists the twice-imported module into a shared chunk that is lazy but not a dynamic entry; when `check:bundle` reddens, first confirm the entry chunk actually carries the module (grep the built `index-*.js`; inspect `.bundle-modules.json` by source path) before touching the gate or the code (WEB-4)
 - [ ] **A version-mismatch / reload loop-guard marker is cleared (if at all) on the server's compatibility verdict — the first `sync`/`resync` — NEVER on transport `connection:"open"`** — `open` fires on the WebSocket upgrade, before the server decides reload-vs-resync, so clearing on `open` wipes the marker a tick before `reload-required` arrives and reloads forever; the current guard never clears within a page-load cycle (fails safe to the manual-refresh notice), and any test must model the real `open` → `reload-required` order or it rubber-stamps the loop (WEB-5)
+- [ ] **Any flex sibling of the board's hero lane declares an explicit width policy** — a widthless `<aside>` sizes to its content's max-content and one long log line steals the hero's space; invisible to jsdom (WEB-6)
+- [ ] **Every decorative SVG board layer is `pointer-events: none` (inside a `data-board-layer` group), and any click-affordance set derives from the SAME resolution that mounts its handler** — paint order is hit-test order, so an overlay glyph silently swallows its cell's clicks; an affordance derived from a parallel computation (e.g. raw `highlightSets` without the `selectComposer` gate) drifts into pointer cursors over dead cells; when a live click seems ignored, check `document.elementFromPoint` at the target center first (WEB-7)
 
 ---
 
@@ -500,6 +514,8 @@ Pitfalls that arise when a session dispatches parallel subagents and consolidate
 | WEB-3 | A `border` Shorthand + `borderColor` Longhand in One Inline-Style Object Warns on Re-Render — Invisible to Static Tests | MEDIUM | VALIDATED | Web Client (CSS/design-system) |
 | WEB-4 | A Module Imported by Two Dynamic Chunks Becomes a Shared Chunk the `!dynamicallyImported` Bundle-Guard Proxy False-Flags as Eager | MEDIUM | VALIDATED | Web Client (CSS/design-system) |
 | WEB-5 | A Version-Mismatch Loop-Guard Marker Must Clear on the Server's Compatibility Verdict (First `sync`/`resync`), Never on Transport `connection:"open"` | HIGH | VALIDATED | Web Client (CSS/design-system) |
+| WEB-6 | A Flex `<aside>` With No Width Sizes to Its Content's Max-Content — One Long Line Steals the Hero's Space | HIGH | VALIDATED | Web Client (CSS/design-system) |
+| WEB-7 | SVG Overlay Layers Swallow the Cell's Pointer Hits; a Click Affordance Must Derive From the Same Resolution That Mounts Its Handler | HIGH | VALIDATED | Web Client (CSS/design-system) |
 | ORCH-1 | Analysis Dispatches Must Persist Findings | HIGH | VALIDATED | Orchestration |
 
 Severity levels: `CRITICAL` (production data loss / security), `HIGH` (correctness bug under predictable conditions), `MEDIUM` (correctness bug under edge cases), `LOW` (cleanliness / clarity).
