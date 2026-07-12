@@ -28,8 +28,10 @@
 }
 
 /* A brief swell-and-fade: the outline lands a hair oversized and settles into the cell as it
- * fades — transform-led, ending back at the resting opacity 0. */
+ * fades — transform-led, ending back at the resting opacity 0. The amplitude is capped at the
+ * combat set piece's own scale(1.015) settle — feedback must never out-transform choreography,
+ * or the drama hierarchy inverts. */
 @keyframes hex-emphasis-pulse {
-  from { transform: scale(1.06); opacity: 0.85; }
+  from { transform: scale(1.015); opacity: 0.85; }
   to   { transform: scale(1); opacity: 0; }
 }
