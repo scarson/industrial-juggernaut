@@ -1,5 +1,5 @@
 // ABOUTME: Structure tests for TopBar — header landmark, wordmark, Instruments button,
-// ABOUTME: turn/seed placeholder rendering, and the ≤44px height token (not a magic number).
+// ABOUTME: conditional turn/seed readouts, and the ≤44px height token (not a magic number).
 import { describe, expect, test, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -37,10 +37,16 @@ describe("TopBar", () => {
     expect(onInstrumentsClick).toHaveBeenCalledTimes(1);
   });
 
-  test("without turnLabel/seedLabel, renders em-dash placeholders", () => {
+  test("without turnLabel/seedLabel, renders no turn/seed readouts (instruments with nothing to report recede)", () => {
     render(<TopBar />);
-    expect(screen.getByTestId("topbar-turn")).toHaveTextContent("—");
-    expect(screen.getByTestId("topbar-seed")).toHaveTextContent("—");
+    expect(screen.queryByTestId("topbar-turn")).toBeNull();
+    expect(screen.queryByTestId("topbar-seed")).toBeNull();
+  });
+
+  test("each readout renders independently of the other", () => {
+    render(<TopBar turnLabel="Round 3 · Oxide's move" />);
+    expect(screen.getByTestId("topbar-turn")).toHaveTextContent("Round 3 · Oxide's move");
+    expect(screen.queryByTestId("topbar-seed")).toBeNull();
   });
 
   test("with turnLabel/seedLabel, renders the given values", () => {
