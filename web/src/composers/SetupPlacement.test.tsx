@@ -1,10 +1,11 @@
 // ABOUTME: Structure tests for SetupPlacement — placement-hex affordance for a controllable seat's
 // ABOUTME: setup turn, the waiting state for a non-controllable slot, and the drawn order display.
 import { describe, expect, test } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SetupPlacement } from "./SetupPlacement";
 import { makeFakeDriver } from "../game/fake-driver";
+import { createGameStore } from "../game/store";
 import { hexKey } from "../board/projection";
 import { defaultConfig, initGame, legalFirstBaseHexes } from "../engine-client/barrel";
 import type { GameState } from "../engine-client/barrel";
@@ -133,5 +134,35 @@ describe("SetupPlacement — drawn order + whose turn", () => {
 
     expect(screen.getByText(/waiting for player 1/i)).toBeInTheDocument();
     expect(screen.queryByText(/player 0/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("SetupPlacement — board-click seam", () => {
+  test("registers a placement board-handler that submits placeFirstBase for a controllable turn", () => {
+    const state = setupState();
+    const driver = driverFor(state, [0]);
+    const store = createGameStore();
+    store.getState().connectDriver(driver);
+
+    render(<SetupPlacement state={state} player={0} driver={driver} store={store} />);
+
+    const handler = store.getState().ui.boardHandlers.placement;
+    expect(handler).toBeDefined();
+
+    const hex = legalFirstBaseHexes(state)[0]!;
+    act(() => handler!(hex));
+
+    expect(driver.submitted()).toEqual([{ type: "placeFirstBase", hex }]);
+  });
+
+  test("does NOT register a placement handler while the acting seat is not controllable", () => {
+    const state = setupState(); // currentPlayer === 0
+    const driver = driverFor(state, [1]);
+    const store = createGameStore();
+    store.getState().connectDriver(driver);
+
+    render(<SetupPlacement state={state} player={1} driver={driver} store={store} />);
+
+    expect(store.getState().ui.boardHandlers.placement).toBeUndefined();
   });
 });

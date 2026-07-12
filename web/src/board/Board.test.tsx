@@ -135,6 +135,8 @@ describe("Board", () => {
     const target = state.board.hexes[10]!;
     const highlights = {
       buildHexes: new Set([hexKey(target)]),
+      factoryHexes: new Set([hexKey(target)]),
+      baseHexes: new Set<string>(),
       attackTargets: new Set<string>(),
       placementHexes: new Set<string>(),
     };
@@ -152,6 +154,8 @@ describe("Board", () => {
     const state = postSetupState();
     const highlights = {
       buildHexes: new Set<string>(),
+      factoryHexes: new Set<string>(),
+      baseHexes: new Set<string>(),
       attackTargets: new Set<string>(),
       placementHexes: new Set<string>(),
     };
@@ -273,5 +277,56 @@ describe("Board", () => {
       );
       expect(contestedKeys).toEqual(new Set(zones));
     });
+  });
+});
+
+describe("Board — interactiveHexes gating", () => {
+  test("with interactiveHexes, ONLY listed cells fire onHexClick and carry the pointer cursor", () => {
+    const state = postSetupState();
+    const onHexClick = vi.fn();
+    const interactive: Hex = state.board.hexes[3]!;
+    const inert: Hex = state.board.hexes[7]!;
+    const { container } = render(
+      <Board
+        state={state}
+        onHexClick={onHexClick}
+        interactiveHexes={new Set([hexKey(interactive)])}
+      />,
+    );
+
+    const inertCell = container.querySelector(`polygon[data-hex="${hexKey(inert)}"]`) as SVGPolygonElement;
+    inertCell.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(onHexClick).not.toHaveBeenCalled();
+    expect(inertCell.style.cursor).not.toBe("pointer");
+
+    const liveCell = container.querySelector(`polygon[data-hex="${hexKey(interactive)}"]`) as SVGPolygonElement;
+    liveCell.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(onHexClick).toHaveBeenCalledTimes(1);
+    expect(liveCell.style.cursor).toBe("pointer");
+  });
+
+  test("without interactiveHexes, every cell stays clickable (the unrestricted P1 behavior)", () => {
+    const state = postSetupState();
+    const onHexClick = vi.fn();
+    const { container } = render(<Board state={state} onHexClick={onHexClick} />);
+    const cell = container.querySelector(`polygon[data-hex="${hexKey(state.board.hexes[7]!)}"]`) as SVGPolygonElement;
+    cell.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(onHexClick).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Board — decorative layers never swallow clicks", () => {
+  test("territory/iron/factory/base layers carry pointer-events none so the hex polygon is the sole hit target", () => {
+    const state = postSetupState(); // has bases + territory washes + iron glyphs
+    const { container } = render(<Board state={state} onHexClick={vi.fn()} />);
+    const layers = container.querySelectorAll("g[data-board-layer]");
+    expect(layers.length).toBeGreaterThan(0);
+    for (const layer of layers) {
+      expect((layer as SVGGElement).style.pointerEvents).toBe("none");
+    }
+    // Every decorated mark lives inside one of those layers — nothing paints outside them.
+    for (const mark of container.querySelectorAll("[data-territory], [data-iron], [data-factory], [data-base]")) {
+      expect(mark.closest("g[data-board-layer]")).not.toBeNull();
+    }
   });
 });

@@ -19,6 +19,10 @@ export type BoardProps = {
   /** Canonical hexKeys of bases to mark stranded. */
   strandedHexes?: Set<string>;
   onHexClick?: (hex: HexModel) => void;
+  /** When provided, ONLY these cells receive `onHexClick` (and its pointer cursor) — the click
+   *  affordance matches the highlighted legal set, so an inert cell never reads as actionable.
+   *  Omitted = every cell is clickable (the unrestricted P1 behavior the dev page uses). */
+  interactiveHexes?: Set<string>;
   onHexHover?: (hex: HexModel | null) => void;
 };
 
@@ -36,7 +40,15 @@ const HEX_SIZE = 12;
  * Hit-testing is SVG-element-based (pitfall GEO-2 — no pixel->hex inverse): each Hex parses its
  * own `data-hex` on click, so this component wires no per-cell click closures.
  */
-export function Board({ state, highlights, selection, strandedHexes, onHexClick, onHexHover }: BoardProps) {
+export function Board({
+  state,
+  highlights,
+  selection,
+  strandedHexes,
+  onHexClick,
+  interactiveHexes,
+  onHexHover,
+}: BoardProps) {
   const viewBox = boardViewBox(state.board, HEX_SIZE);
   const selectedKeys = selectionKeys(selection);
   // `territoryFills` is memoized on the immutable `state` reference (GEO-5), so calling it inline
@@ -55,6 +67,7 @@ export function Board({ state, highlights, selection, strandedHexes, onHexClick,
       {/* The landmass: one parchment cell per hex, each carrying its own highlight/selection. */}
       {state.board.hexes.map((hex) => {
         const key = hexKey(hex);
+        const clickable = interactiveHexes === undefined || interactiveHexes.has(key);
         return (
           <Hex
             key={key}
@@ -63,7 +76,7 @@ export function Board({ state, highlights, selection, strandedHexes, onHexClick,
             size={HEX_SIZE}
             highlight={highlightFor(key, highlights)}
             selected={selectedKeys.has(key)}
-            onHexClick={onHexClick}
+            onHexClick={clickable ? onHexClick : undefined}
             onHexHover={onHexHover}
           />
         );
@@ -71,50 +84,63 @@ export function Board({ state, highlights, selection, strandedHexes, onHexClick,
 
       {/* Territory washes — a translucent player-color claim over the parchment, painted after the
           landmass (so it sits on the parchment fill) but before iron/factories/bases (so the ink
-          glyphs stay crisp on top). Contested hexes get a two-color split. */}
-      {state.board.hexes.map((hex) => {
-        const key = hexKey(hex);
-        const controllers = fills.get(key);
-        if (controllers === undefined) return null;
-        return (
-          <TerritoryFill
-            key={key}
-            hexKey={key}
-            controllers={controllers}
-            center={pixelPoint(hex)}
-            size={HEX_SIZE}
-          />
-        );
-      })}
+          glyphs stay crisp on top). Contested hexes get a two-color split. Every decorated layer
+          is pointer-events:none so the landmass polygon underneath stays the SOLE hit target — a
+          base token or iron glyph must never swallow the click meant for its cell. */}
+      <g data-board-layer="territory" style={LAYER_STYLE}>
+        {state.board.hexes.map((hex) => {
+          const key = hexKey(hex);
+          const controllers = fills.get(key);
+          if (controllers === undefined) return null;
+          return (
+            <TerritoryFill
+              key={key}
+              hexKey={key}
+              controllers={controllers}
+              center={pixelPoint(hex)}
+              size={HEX_SIZE}
+            />
+          );
+        })}
+      </g>
 
       {/* Iron deposits — unowned ink annotations under the tokens. */}
-      {state.board.iron.map((hex) => {
-        const key = hexKey(hex);
-        return <IronGlyph key={key} hexKey={key} center={pixelPoint(hex)} size={HEX_SIZE} />;
-      })}
+      <g data-board-layer="iron" style={LAYER_STYLE}>
+        {state.board.iron.map((hex) => {
+          const key = hexKey(hex);
+          return <IronGlyph key={key} hexKey={key} center={pixelPoint(hex)} size={HEX_SIZE} />;
+        })}
+      </g>
 
       {/* Factories — unowned ink glyphs. */}
-      {state.factories.map((factory) => {
-        const key = hexKey(factory.hex);
-        return <Factory key={key} hexKey={key} center={pixelPoint(factory.hex)} size={HEX_SIZE} />;
-      })}
+      <g data-board-layer="factories" style={LAYER_STYLE}>
+        {state.factories.map((factory) => {
+          const key = hexKey(factory.hex);
+          return <Factory key={key} hexKey={key} center={pixelPoint(factory.hex)} size={HEX_SIZE} />;
+        })}
+      </g>
 
       {/* Player base tokens on top of the map. */}
-      {state.bases.map((base) => {
-        const key = hexKey(base.hex);
-        return (
-          <Base
-            key={key}
-            base={base}
-            center={pixelPoint(base.hex)}
-            size={HEX_SIZE}
-            stranded={strandedHexes?.has(key) ?? false}
-          />
-        );
-      })}
+      <g data-board-layer="bases" style={LAYER_STYLE}>
+        {state.bases.map((base) => {
+          const key = hexKey(base.hex);
+          return (
+            <Base
+              key={key}
+              base={base}
+              center={pixelPoint(base.hex)}
+              size={HEX_SIZE}
+              stranded={strandedHexes?.has(key) ?? false}
+            />
+          );
+        })}
+      </g>
     </svg>
   );
 }
+
+// Decorated layers are display-only: the hex landmass underneath owns every pointer interaction.
+const LAYER_STYLE: React.CSSProperties = { pointerEvents: "none" };
 
 function pixelPoint(hex: HexModel): { x: number; y: number } {
   const { px, py } = hexToPixel(hex, HEX_SIZE);

@@ -22,8 +22,15 @@ import { createGameStore, useGameStore } from "../game/store";
 import { createRoom } from "../game/rooms";
 import { handleReload } from "../game/reload-guard";
 import { useSetRailContent } from "./shell/rail-content";
+import { useSetShellLabels } from "./shell/shell-labels";
 import { selectComposer } from "./select-composer";
 import { explainError } from "../rules/error-explanations";
+import { turnLabel, seedLabel } from "../game/turn-labels";
+import { tooltipData } from "../board/tooltip";
+import { territoryFills } from "../board/territory";
+import { hexKey } from "../board/projection";
+import { playerIdentity } from "../identity/player-identity";
+import { PlayerShapeIcon } from "../identity/shapes";
 import type { GameStore } from "../game/store";
 import type { CreateRoomRequest, CreateRoomResult } from "../game/rooms";
 import type { StartOnlinePayload } from "../designer/NewGame";
@@ -310,7 +317,11 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
   const terminal = useGameStore(store, (s) => s.authoritative.terminal);
   const connection = useGameStore(store, (s) => s.authoritative.connection);
   const rejection = useGameStore(store, (s) => s.authoritative.rejection);
-  const selection = useGameStore(store, (s) => s.ui.selection);
+  const stagedBuild = useGameStore(store, (s) => s.ui.stagedBuild);
+  const attackSelection = useGameStore(store, (s) => s.ui.attackSelection);
+  // ui.hover is deliberately NOT subscribed here: a pointer crossing publishes on every cell, and
+  // a PlayView re-render would reconcile the whole SVG board each time. HexReadout subscribes to
+  // it internally, so a hover re-renders only the one-line readout.
 
   // ── Driver lifecycle: create (possibly async) → subscribe → dispose. Both subscriptions (the
   //    store's `connectDriver` and the event-log/choreography handler below) are established in the
@@ -378,6 +389,16 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
     return () => setRailContent(null);
   }, [setRailContent, state, eventLog]);
 
+  // ── Shell-labels publication: the top bar's turn chip + seed readout, via the shell-labels seam
+  //    (the same discipline as the rail — App never subscribes to game state; only the TopBarHost
+  //    re-renders on a publish). Cleared on unmount so leaving the game recedes the readouts. ──────
+  const setShellLabels = useSetShellLabels();
+  useEffect(() => {
+    if (state === null) return;
+    setShellLabels({ turnLabel: turnLabel(state), seedLabel: seedLabel(header) });
+    return () => setShellLabels(null);
+  }, [setShellLabels, state, header]);
+
   // ── Version-mismatch reload guard: when the driver reports `connection:"reload-required"` (the
   //    SocketDriver's mapping of a `reload` ServerMessage), reload the page ONCE per load. A second
   //    signal in the same load — or a storage exception — is a loop, so we show the manual-refresh
@@ -411,32 +432,71 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
   const highlights = highlightSets(state);
   const stranded = strandedHexKeys(state);
 
-  // The ACTION path is each composer's own hex-button list (the a11y path — every legal move is a
-  // real, keyboard-reachable button). The SVG board is a reading/pointing surface: hover publishes to
-  // the store's `ui.hover` slice (the documented hover seam), and no `onHexClick` is wired because
-  // the composers own their in-progress selection internally — routing an SVG click into a composer's
-  // private staging state would require a seam the composers deliberately don't expose (P3.4 note).
-  // The board still reflects a composer's published `ui.selection` when one exists (today: none, so
-  // `selection` stays null and the board shows highlights + stranded only).
+  // The keyboard/a11y ACTION path stays each composer's own hex-button list (every legal move is a
+  // real, focusable button). The SVG board is ALSO an action surface (UI brief §7 — "click your
+  // hex"): a click on a highlighted cell routes to the channel the mounted composer claimed via
+  // `ui.boardHandlers` — placement/build/attack are disjoint sets (a placement cell is outer-ring
+  // empty, a build cell is empty, an attack cell holds an enemy base), so the highlight channel
+  // that offered the cell decides who handles it. `interactiveHexes` limits the click affordance
+  // (and its pointer cursor) to exactly the highlighted legal set — no false affordances.
   function handleHexHover(hex: Hex | null) {
     store.setState((s) => ({ ui: { ...s.ui, hover: hex } }));
+  }
+
+  function handleHexClick(hex: Hex) {
+    const key = hexKey(hex);
+    const handlers = store.getState().ui.boardHandlers;
+    if (highlights.placementHexes.has(key)) handlers.placement?.(hex);
+    else if (highlights.buildHexes.has(key)) handlers.build?.(hex);
+    else if (highlights.attackTargets.has(key)) handlers.attackTarget?.(hex);
   }
 
   // Victory is terminal and persistent — it outranks the whole interactive surface once the game ends.
   const showVictory = terminal !== null;
 
+  // The click affordance exists ONLY while a composer is mounted to receive it — the same
+  // resolution that decides which composer renders (selectComposer) gates which cells afford a
+  // click, so an agent's/opponent's turn (waiting), a staged set piece, the chain-continue beat,
+  // and victory never paint pointer cursors over cells no handler backs.
+  const composerKind = selectComposer(state, pending, controllableSeats);
+  const actingControllable = controllableSeats.includes(currentPlayer(state));
+  const interactiveHexes = new Set<string>();
+  if (!showVictory && choreography === null) {
+    if (composerKind === "setup" && actingControllable) {
+      for (const key of highlights.placementHexes) interactiveHexes.add(key);
+    } else if (composerKind === "play" && !inChainContinue) {
+      for (const key of highlights.buildHexes) interactiveHexes.add(key);
+      for (const key of highlights.attackTargets) interactiveHexes.add(key);
+    }
+  }
+
+  // The board's brass selection: staged-but-uncommitted build pieces plus the attack composer's
+  // live target + committed attackers — both published through the store's ui channels.
+  const boardSelection =
+    attackSelection !== null
+      ? { target: attackSelection.target, attackers: attackSelection.attackers, pieces: stagedBuild }
+      : stagedBuild.length > 0
+        ? { pieces: stagedBuild }
+        : null;
+
   return (
     <div style={WAR_ROOM_STYLE}>
       <section aria-label="Board" style={BOARD_LANE_STYLE}>
+        <TurnBanner state={state} />
+
         <div style={BOARD_WRAP_STYLE}>
           <Board
             state={state}
             highlights={highlights}
             strandedHexes={stranded}
-            {...(selection != null ? { selection } : {})}
+            {...(boardSelection !== null ? { selection: boardSelection } : {})}
+            onHexClick={handleHexClick}
+            interactiveHexes={interactiveHexes}
             onHexHover={handleHexHover}
           />
         </div>
+
+        <HexReadout state={state} store={store} />
 
         <div aria-label="Composer" style={COMPOSER_LANE_STYLE} data-testid="composer-lane">
           {rejection !== null && !showVictory && (
@@ -453,9 +513,9 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
             <ChoreographyStage choreography={choreography} onContinue={() => setChoreography(null)} />
           ) : (
             <ActiveComposer
+              kind={composerKind}
               state={state}
               pending={pending}
-              controllableSeats={controllableSeats}
               driver={driver}
               store={store}
               inChainContinue={inChainContinue}
@@ -470,6 +530,73 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
   );
 }
 
+/** The whose-turn banner beside the board: the acting player's identity token + the turn summary.
+ *  Same derivation as the top-bar chip (turn-labels), doubled here because the board lane is where
+ *  the player's eye lives during play. */
+function TurnBanner({ state }: { state: GameState }) {
+  const acting = currentPlayer(state);
+  return (
+    <div className="table-panel" data-testid="turn-banner" style={TURN_BANNER_STYLE}>
+      <PlayerShapeIcon identity={playerIdentity(acting)} size={12} />
+      <span style={TURN_BANNER_TEXT_STYLE}>{turnLabel(state)}</span>
+    </div>
+  );
+}
+
+/** The surveyor readout — a one-line mono strip naming the hovered hex's contents (coordinates,
+ *  iron, occupant, controller). Statically positioned under the board: honest, unlayered, and
+ *  reachable by assistive tech (no floating tooltip z-index games). Empty hover = an em-dash
+ *  placeholder at fixed height so the board doesn't jump as the pointer moves. Subscribes to
+ *  `ui.hover` itself (see PlayView) so a pointer crossing re-renders this line, not the board.
+ *  A contested overlap hex names EVERY controller (Honest Numbers) — `tooltipData.controlledBy`
+ *  alone would misreport it as solely the lowest id's. */
+function HexReadout({ state, store }: { state: GameState; store: GameStore }) {
+  const hover = useGameStore(store, (s) => s.ui.hover);
+  if (hover === null) {
+    return (
+      <p className="mono" data-testid="hex-readout-idle" style={READOUT_STYLE}>
+        —
+      </p>
+    );
+  }
+  const data = tooltipData(state, hover);
+  const controllers = territoryFills(state).get(hexKey(hover)) ?? [];
+  const parts: React.ReactNode[] = [hexKey(hover)];
+  if (data.isIron) parts.push("iron");
+  if (data.occupant !== null) parts.push(data.occupant);
+  if (controllers.length > 1) {
+    parts.push(
+      <span key="contested" style={READOUT_CONTROLLER_STYLE}>
+        contested —{" "}
+        {controllers.map((id) => (
+          <span key={id} style={READOUT_CONTROLLER_STYLE}>
+            <PlayerShapeIcon identity={playerIdentity(id)} size={9} /> Player {id + 1}
+          </span>
+        ))}
+      </span>,
+    );
+  } else if (controllers.length === 1) {
+    parts.push(
+      <span key="controller" style={READOUT_CONTROLLER_STYLE}>
+        <PlayerShapeIcon identity={playerIdentity(controllers[0]!)} size={9} /> Player{" "}
+        {controllers[0]! + 1}
+      </span>,
+    );
+  } else {
+    parts.push("unclaimed");
+  }
+  return (
+    <p className="mono" data-testid="hex-readout" style={READOUT_STYLE}>
+      {parts.map((part, i) => (
+        <span key={i} style={READOUT_PART_STYLE}>
+          {i > 0 && <span aria-hidden="true"> · </span>}
+          {part}
+        </span>
+      ))}
+    </p>
+  );
+}
+
 /** Whether a landed batch's events mean the acting player may still attack again this round — i.e. a
  *  combat resolved (an attack landed) in this batch. The precise "can attack again" existence check is
  *  the ChainContinuePrompt's `canAttackAgain` prop, derived below from `legalActions`; this only
@@ -479,9 +606,11 @@ function isChainContinueAfter(events: readonly GameEvent[]): boolean {
 }
 
 interface ActiveComposerProps {
+  /** The composer resolution PlayView computed via `selectComposer` — passed down (not re-derived)
+   *  so the board's click-affordance gate and the mounted composer can never disagree. */
+  readonly kind: ReturnType<typeof selectComposer>;
   readonly state: GameState;
   readonly pending: DriverPending | null;
-  readonly controllableSeats: readonly number[];
   readonly driver: GameDriver;
   readonly store: GameStore;
   readonly inChainContinue: boolean;
@@ -494,22 +623,21 @@ interface ActiveComposerProps {
  * instead of the pair, until the player chooses to attack again or end the round.
  */
 function ActiveComposer({
+  kind,
   state,
   pending,
-  controllableSeats,
   driver,
   store,
   inChainContinue,
   onAttackAgain,
 }: ActiveComposerProps) {
-  const kind = selectComposer(state, pending, controllableSeats);
   const player = currentPlayer(state);
 
   switch (kind) {
     case "defender":
       return <DefenderPrompt pending={pending} driver={driver} />;
     case "setup":
-      return <SetupPlacement state={state} player={player} driver={driver} />;
+      return <SetupPlacement state={state} player={player} driver={driver} store={store} />;
     case "forcedPass":
       return <ForcedPassNotice state={state} driver={driver} />;
     case "waiting":
@@ -618,6 +746,33 @@ const REJECTION_KICKER_STYLE: React.CSSProperties = {
 const REJECTION_BODY_STYLE: React.CSSProperties = {
   margin: 0,
   fontSize: "0.85rem",
+};
+const TURN_BANNER_STYLE: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "0.5rem",
+  padding: "0.4rem 0.75rem",
+  alignSelf: "stretch",
+};
+const TURN_BANNER_TEXT_STYLE: React.CSSProperties = {
+  fontSize: "0.9rem",
+};
+const READOUT_STYLE: React.CSSProperties = {
+  margin: 0,
+  fontSize: "0.8rem",
+  color: "var(--color-parchment-300)",
+  minHeight: "1.2rem",
+  alignSelf: "center",
+};
+const READOUT_PART_STYLE: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.25rem",
+};
+const READOUT_CONTROLLER_STYLE: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.3rem",
 };
 const LOADING_STYLE: React.CSSProperties = {
   padding: "1rem",

@@ -8,6 +8,9 @@ import { RailHost, RailContentProvider } from "./shell/rail-content";
 import { makeFakeDriver } from "../game/fake-driver";
 import { hex } from "../../../src/geometry/cube";
 import { defaultConfig, initGame, legalFirstBaseHexes } from "../engine-client/barrel";
+import { highlightSets } from "../board/highlight";
+import { overlapFixtureState, SHARED_HEX } from "../board/test-fixtures";
+import * as BoardModule from "../board/Board";
 import type { GameState, LogEntry } from "../engine-client/barrel";
 import type { DriverPending, GameDriver, SeatRosterEntry } from "../game/driver";
 import type { SessionHeader } from "../engine-client/barrel";
@@ -96,6 +99,14 @@ function renderGame(snapshot: GameState, controllableSeats: number[], pending: D
   );
   return driver;
 }
+
+// Counts real Board renders without altering behavior — the hover render-scoping test reads it.
+const boardRenderSpy = vi.fn();
+const RealBoard = BoardModule.Board;
+vi.spyOn(BoardModule, "Board").mockImplementation((props) => {
+  boardRenderSpy();
+  return RealBoard(props);
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -314,5 +325,167 @@ describe("GameScreen — rejection notice", () => {
     });
 
     await waitFor(() => expect(screen.queryByTestId("rejection-notice")).not.toBeInTheDocument());
+  });
+});
+
+// ── Board interactivity — the board is the interface (UI brief §7), chips stay the a11y path ─────
+describe("GameScreen — board interactivity", () => {
+  test("clicking a highlighted placement hex on the SVG board places the first base", async () => {
+    const state = setupState();
+    const driver = renderGame(state, [0, 1]);
+    await screen.findByRole("region", { name: /setup placement/i });
+
+    const target = legalFirstBaseHexes(state)[0]!;
+    const cell = document.querySelector(
+      `polygon[data-hex="${target.x},${target.y},${target.z}"]`,
+    ) as SVGPolygonElement;
+    act(() => {
+      cell.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(driver.submitted()).toEqual([{ type: "placeFirstBase", hex: target }]);
+  });
+
+  test("clicking a highlighted build hex stages the piece and brass-marks the cell", async () => {
+    const state = playState();
+    renderGame(state, [0, 1]);
+    await screen.findByTestId("play-composers");
+
+    // A hex the engine offers as a legal build target (the same set the board highlights).
+    const buildKey = [...highlightSets(state).buildHexes][0]!;
+    const cell = document.querySelector(`polygon[data-hex="${buildKey}"]`) as SVGPolygonElement;
+    expect(cell.getAttribute("data-highlight")).toBe("build");
+    act(() => {
+      cell.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(screen.getByTestId("build-budget")).toHaveTextContent("Remaining: 1");
+    const staged = document.querySelector(`polygon[data-hex="${buildKey}"]`) as SVGPolygonElement;
+    expect(staged.getAttribute("data-selected")).toBe("true");
+  });
+
+  test("a non-highlighted hex is not click-actionable (no false affordance)", async () => {
+    const state = playState();
+    const driver = renderGame(state, [0, 1]);
+    await screen.findByTestId("play-composers");
+
+    const sets = highlightSets(state);
+    const inertHex = state.board.hexes.find((h) => {
+      const k = `${h.x},${h.y},${h.z}`;
+      return !sets.buildHexes.has(k) && !sets.attackTargets.has(k) && !sets.placementHexes.has(k);
+    })!;
+    const cell = document.querySelector(
+      `polygon[data-hex="${inertHex.x},${inertHex.y},${inertHex.z}"]`,
+    ) as SVGPolygonElement;
+    act(() => {
+      cell.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(driver.submitted()).toEqual([]);
+    expect(screen.getByTestId("build-budget")).toHaveTextContent("Remaining: 2");
+  });
+
+  test("hovering a hex surfaces the surveyor readout with its contents", async () => {
+    const state = playState();
+    renderGame(state, [0, 1]);
+    await screen.findByTestId("play-composers");
+
+    // PLAY_IRON[0] is iron under p0's control — the readout should name both facts.
+    const ironHex = PLAY_IRON[0]!;
+    const cell = document.querySelector(
+      `polygon[data-hex="${ironHex.x},${ironHex.y},${ironHex.z}"]`,
+    ) as SVGPolygonElement;
+    act(() => {
+      // jsdom has no PointerEvent; React synthesizes onPointerEnter from bubbling `pointerover`
+      // (see Board.test.tsx's hover test for the full rationale).
+      cell.dispatchEvent(new Event("pointerover", { bubbles: true }));
+    });
+
+    const readout = await screen.findByTestId("hex-readout");
+    expect(readout.textContent).toContain(`${ironHex.x},${ironHex.y},${ironHex.z}`);
+    expect(readout.textContent).toMatch(/iron/i);
+  });
+});
+
+// ── The turn banner — whose round it is, in plain sight beside the board ─────────────────────────
+describe("GameScreen — turn banner", () => {
+  test("setup phase shows the 1-based acting player in the banner", async () => {
+    renderGame(setupState(), [0, 1]);
+    const banner = await screen.findByTestId("turn-banner");
+    expect(banner.textContent).toMatch(/setup/i);
+    expect(banner.textContent).toMatch(/player 1/i);
+  });
+
+  test("play phase shows the turn number and the acting player's round", async () => {
+    renderGame(playState(), [0, 1]);
+    const banner = await screen.findByTestId("turn-banner");
+    expect(banner.textContent).toMatch(/turn 1/i);
+    expect(banner.textContent).toMatch(/player 1/i);
+  });
+});
+
+// ── No false affordances on turns this client cannot act in (blind-review P1) ────────────────────
+describe("GameScreen — board affordance gating", () => {
+  test("a NON-controllable acting seat gets ZERO click-affordant cells (waiting turn)", async () => {
+    const state = playState(); // seat 0 acting...
+    renderGame(state, [1]); // ...but this client controls only seat 1
+    await screen.findByTestId("waiting-notice");
+
+    // No cell may carry the click affordance: pointer cursor + click handler are gated together.
+    const affordant = [...document.querySelectorAll("polygon[data-hex]")].filter(
+      (p) => (p as SVGPolygonElement).style.cursor === "pointer",
+    );
+    expect(affordant).toHaveLength(0);
+  });
+
+  test("setup phase with a non-controllable acting seat offers no placement affordance", async () => {
+    const state = setupState(); // seat 0 placing...
+    renderGame(state, [1]); // ...but this client controls only seat 1
+    await screen.findByRole("region", { name: /setup placement/i });
+
+    const affordant = [...document.querySelectorAll("polygon[data-hex]")].filter(
+      (p) => (p as SVGPolygonElement).style.cursor === "pointer",
+    );
+    expect(affordant).toHaveLength(0);
+  });
+});
+
+// ── Honest readout on contested hexes + hover render scoping (blind-review round 2) ─────────────
+describe("GameScreen — contested-hex readout", () => {
+  test("hovering an overlap hex reads as contested with BOTH controllers, never a sole owner", async () => {
+    renderGame(overlapFixtureState(), [0, 1]);
+    await screen.findByTestId("composer-lane");
+
+    const cell = document.querySelector(
+      `polygon[data-hex="${SHARED_HEX.x},${SHARED_HEX.y},${SHARED_HEX.z}"]`,
+    ) as SVGPolygonElement;
+    act(() => {
+      cell.dispatchEvent(new Event("pointerover", { bubbles: true }));
+    });
+
+    const readout = await screen.findByTestId("hex-readout");
+    expect(readout.textContent).toMatch(/contested/i);
+    expect(readout.textContent).toMatch(/player 1/i);
+    expect(readout.textContent).toMatch(/player 2/i);
+  });
+});
+
+describe("GameScreen — hover render scoping", () => {
+  test("a hover publish re-renders the readout, not the board", async () => {
+    renderGame(playState(), [0, 1]);
+    await screen.findByTestId("play-composers");
+
+    const rendersBefore = boardRenderSpy.mock.calls.length;
+    const hex = playState().board.hexes[5]!;
+    const cell = document.querySelector(
+      `polygon[data-hex="${hex.x},${hex.y},${hex.z}"]`,
+    ) as SVGPolygonElement;
+    act(() => {
+      cell.dispatchEvent(new Event("pointerover", { bubbles: true }));
+    });
+
+    await screen.findByTestId("hex-readout");
+    // The hover published to the store and the readout re-rendered — the board must not have.
+    expect(boardRenderSpy.mock.calls.length).toBe(rendersBefore);
   });
 });

@@ -3,7 +3,7 @@
 // ABOUTME: Commit submits the attack decl with the representativeDefender proposal, no local
 // ABOUTME: combat resolution happens, and a null-defender target blocks Commit with DER #4.
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AttackComposer } from "./AttackComposer";
 import { makeFakeDriver } from "../game/fake-driver";
@@ -273,5 +273,55 @@ describe("AttackComposer — no eligible defender (DER #4)", () => {
 
     // Defense in depth: even if Commit were clicked, no submit should occur since it's disabled.
     expect(driver.submitted()).toHaveLength(0);
+  });
+});
+
+describe("AttackComposer — board-click seam", () => {
+  test("registers an attackTarget board-handler that selects the clicked target", () => {
+    const state = attackFixture();
+    const store = createGameStore();
+    const driver = driverFor(state);
+    store.getState().connectDriver(driver);
+
+    render(<AttackComposer state={state} player={0} driver={driver} store={store} />);
+
+    const handler = store.getState().ui.boardHandlers.attackTarget;
+    expect(handler).toBeDefined();
+
+    act(() => handler!(TARGET));
+
+    expect(screen.getByTestId(`attack-target-${key(TARGET)}`)).toHaveAttribute("aria-pressed", "true");
+  });
+
+  test("a selected target publishes ui.attackSelection with the committed attackers", () => {
+    const state = attackFixture();
+    const store = createGameStore();
+    const driver = driverFor(state);
+    store.getState().connectDriver(driver);
+
+    render(<AttackComposer state={state} player={0} driver={driver} store={store} />);
+    act(() => store.getState().ui.boardHandlers.attackTarget!(TARGET));
+
+    const selection = store.getState().ui.attackSelection;
+    expect(selection).not.toBeNull();
+    expect(selection!.target).toEqual(TARGET);
+    // Default commitment is 3 — the three nearest fresh attackers are the committed set.
+    expect(selection!.attackers).toHaveLength(3);
+  });
+
+  test("unmount unregisters the handler and clears the attack selection", () => {
+    const state = attackFixture();
+    const store = createGameStore();
+    const driver = driverFor(state);
+    store.getState().connectDriver(driver);
+
+    const { unmount } = render(<AttackComposer state={state} player={0} driver={driver} store={store} />);
+    act(() => store.getState().ui.boardHandlers.attackTarget!(TARGET));
+    expect(store.getState().ui.attackSelection).not.toBeNull();
+
+    unmount();
+
+    expect(store.getState().ui.boardHandlers.attackTarget).toBeUndefined();
+    expect(store.getState().ui.attackSelection).toBeNull();
   });
 });
