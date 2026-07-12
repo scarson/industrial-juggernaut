@@ -404,14 +404,21 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
   }, [header, createDriver, store]);
 
   // ── The pacing timer: while a frame presents, one timeout advances the drain. beatDelayMs picks
-  //    the frame's own delay (set-piece dwell / fast drain / base interval); each presented frame
-  //    re-arms via the dependency, and the drain-completing tick (frame → null) stops the clock. ──
+  //    the frame's own delay (set-piece dwell / fast drain / base interval). Keyed on the FRAME's
+  //    identity, not the whole presentation state: online, each socket `applied` is its own React
+  //    batch, and a dep on `presentation` would rewind the presenting frame's clock on every late
+  //    enqueue — the drain would not start advancing until arrivals settled. The ref supplies the
+  //    queue-length context at arm time; each presented frame recomputes its own delay. ──────────
+  const presentationRef = useRef(presentation);
+  presentationRef.current = presentation;
+  const presentedFrame = presentation.frame;
   useEffect(() => {
-    const delay = beatDelayMs(presentation);
+    if (presentedFrame === null) return;
+    const delay = beatDelayMs(presentationRef.current);
     if (delay === null) return;
     const timer = setTimeout(() => dispatchPresentation({ type: "tick" }), delay);
     return () => clearTimeout(timer);
-  }, [presentation]);
+  }, [presentedFrame]);
 
   // ── HUD publication: the shell hosts the right rail, so PlayView publishes its instrument stack as
   //    the rail's content rather than laying out its own rail lane. Re-published whenever the state or

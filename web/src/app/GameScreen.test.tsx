@@ -700,6 +700,30 @@ describe("GameScreen — presentation-paced agent turns", () => {
     expect(screen.queryByTestId("presentation-drain")).toBeNull();
   });
 
+  test("beats arriving in SEPARATE batches (the online socket path) never rewind the presenting frame's timer", async () => {
+    // Locally a burst folds in ONE React batch; online each applied is its own WebSocket message
+    // task. If the tick timer re-armed on every enqueue, a live burst would hold the first frame
+    // until arrivals settled and the advertised cadence would not hold at the drain's leading edge.
+    const { snapshot, applied } = placementBurst(3, 3);
+    const [p0] = applied.map((a) => a.entry.player);
+    const keys = applied.map((a) => hexKey((a.entry as Extract<LogEntry, { kind: "placeFirstBase" }>).hex));
+    const driver = await mountPaced(snapshot, rosterOf(3), [p0!]);
+
+    act(() => {
+      driver.pushEvent(applied[0]!);
+      driver.pushEvent(applied[1]!); // hold frame opens; its 420ms timer starts NOW
+    });
+    act(() => vi.advanceTimersByTime(300));
+    act(() => {
+      driver.pushEvent(applied[2]!); // a late arrival enqueues — it must NOT reset the clock
+    });
+    act(() => vi.advanceTimersByTime(BEAT_INTERVAL_MS - 300));
+
+    // 420ms have elapsed since the hold frame opened: the first paced beat has presented.
+    expect(baseAt(keys[1]!)).not.toBeNull();
+    expect(baseAt(keys[2]!)).toBeNull();
+  });
+
   test("prefers-reduced-motion snaps: the whole burst lands instantly, no drain, no suppression", async () => {
     const reduced = vi.spyOn(motionModule, "prefersReducedMotion").mockReturnValue(true);
     try {
