@@ -65,3 +65,19 @@ describe("explainError", () => {
     expect(line).toMatch(/version/i);
   });
 });
+
+describe("explainError — config-sensitive copy", () => {
+  test("BUILD_ILLEGAL_FACTORY reflects the game's placeRange, never a hardcoded 5", () => {
+    expect(explainError("BUILD_ILLEGAL_FACTORY", { placeRange: 3 })).toMatch(/within 3\b/);
+    expect(explainError("BUILD_ILLEGAL_FACTORY", { placeRange: 3 })).not.toMatch(/within 5\b/);
+  });
+
+  test("BUILD_ILLEGAL_BASE reflects the game's placeRange", () => {
+    expect(explainError("BUILD_ILLEGAL_BASE", { placeRange: 8 })).toMatch(/within 8 hexes\b/);
+  });
+
+  test("without a context, placeRange-sensitive copy falls back to the engine default", () => {
+    // defaultConfig().placeRange is 5 today — the fallback reads the engine default, not a literal.
+    expect(explainError("BUILD_ILLEGAL_FACTORY")).toMatch(/within 5\b/);
+  });
+});

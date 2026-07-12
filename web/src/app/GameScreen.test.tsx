@@ -268,7 +268,9 @@ describe("GameScreen — turn-order ceremony", () => {
 // ── Rejection surfacing — a rejected command teaches the rule it broke (DESIGN.md §5) ────────────
 describe("GameScreen — rejection notice", () => {
   test("a rejected command surfaces the rule explanation, never the bare code", async () => {
-    const driver = renderGame(playState(), [0, 1]);
+    // A non-default placeRange: the teaching line must state THIS game's rule, not the default 5.
+    const state: GameState = { ...playState(), config: { ...defaultConfig(), placeRange: 3 } };
+    const driver = renderGame(state, [0, 1]);
     await screen.findByTestId("play-composers");
 
     act(() => {
@@ -282,6 +284,7 @@ describe("GameScreen — rejection notice", () => {
 
     const notice = await screen.findByTestId("rejection-notice");
     expect(notice.textContent).toMatch(/factory must be placed on an empty non-iron hex/i);
+    expect(notice.textContent).toMatch(/within 3\b/);
     expect(notice.textContent).not.toContain("BUILD_ILLEGAL_FACTORY");
     expect(notice).toHaveAttribute("role", "alert");
   });

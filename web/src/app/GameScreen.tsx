@@ -444,7 +444,7 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
               <span className="mono" style={REJECTION_KICKER_STYLE}>
                 not allowed
               </span>
-              <p style={REJECTION_BODY_STYLE}>{explainError(rejection.code)}</p>
+              <p style={REJECTION_BODY_STYLE}>{explainError(rejection.code, state.config)}</p>
             </div>
           )}
           {showVictory ? (
