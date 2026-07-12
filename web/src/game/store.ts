@@ -210,6 +210,11 @@ function dispatch(
           ...authoritative,
           state: result.state,
           logLength: authoritative.logLength + 1,
+          // A fold-success while a pending is open can ONLY be the pending's resolution: the
+          // session's write-lock rejects every other mutating command until the decision resolves,
+          // and no DriverEvent ever says "pending cleared" (resolveDefender emits only `applied`).
+          // Leaving it set would re-mount a stale DefenderPrompt after the human defends.
+          pending: null,
           rejection: null,
         },
         preview: initialPreview,
