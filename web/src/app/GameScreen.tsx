@@ -19,6 +19,13 @@ import { CombatReveal } from "../game/choreography/CombatReveal";
 import { Elimination } from "../game/choreography/Elimination";
 import { Victory } from "../game/choreography/Victory";
 import { createGameStore, useGameStore } from "../game/store";
+import {
+  INITIAL_PRESENTATION,
+  presentationReducer,
+  marksOf,
+  beatDelayMs,
+} from "../game/presentation";
+import { prefersReducedMotion } from "../design/motion";
 import { createRoom } from "../game/rooms";
 import { handleReload } from "../game/reload-guard";
 import { useSetRailContent } from "./shell/rail-content";
@@ -32,6 +39,7 @@ import { hexKey } from "../board/projection";
 import { playerIdentity } from "../identity/player-identity";
 import { PlayerShapeIcon } from "../identity/shapes";
 import type { GameStore, GameOverTerminal } from "../game/store";
+import type { Choreography } from "../game/presentation";
 import type { HighlightSets } from "../board/highlight";
 import type { CreateRoomRequest, CreateRoomResult } from "../game/rooms";
 import type { StartOnlinePayload } from "../designer/NewGame";
@@ -145,28 +153,6 @@ function eventLogReducer(log: GameEvent[], action: EventLogAction): GameEvent[] 
     case "append":
       return action.events.length === 0 ? log : [...log, ...action.events];
   }
-}
-
-/**
- * The transient set piece currently staged, if any. A `combat`/`eliminated` GameEvent arriving in an
- * `applied` batch stages the matching choreography until the player dismisses it (Continue) or the
- * next authoritative action supersedes it. Victory is NOT here — it is a persistent terminal state
- * read from the store's `authoritative.terminal` (the top-level `gameOver` DriverEvent), never dismissed.
- */
-type Choreography =
-  | { kind: "combat"; event: Extract<GameEvent, { kind: "combat" }> }
-  | { kind: "eliminated"; event: Extract<GameEvent, { kind: "eliminated" }> };
-
-/** The last stageable set-piece event in a batch, or null. A batch can carry several (e.g. a combat
- *  that eliminates a player) — the LATEST wins, so the elimination is what's shown, matching how the
- *  EventLog reads bottom-up. Combat and elimination each get their own moment across successive batches. */
-function stageableFrom(events: readonly GameEvent[]): Choreography | null {
-  let staged: Choreography | null = null;
-  for (const event of events) {
-    if (event.kind === "combat") staged = { kind: "combat", event };
-    else if (event.kind === "eliminated") staged = { kind: "eliminated", event };
-  }
-  return staged;
 }
 
 /**
@@ -304,7 +290,10 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
 
   const [driver, setDriver] = useState<GameDriver | null>(null);
   const [eventLog, dispatchEventLog] = useReducer(eventLogReducer, []);
-  const [choreography, setChoreography] = useState<Choreography | null>(null);
+  // The presentation clock (game/presentation.ts): what the BOARD shows, paced beat by beat, while
+  // the store's authoritative fold stays instantaneous. Owns the presented frame, the changed-hex
+  // pulse, the combat/elim reveal, and the visible tail of the event narration.
+  const [presentation, dispatchPresentation] = useReducer(presentationReducer, INITIAL_PRESENTATION);
   // The chain-continue beat: set true after an attack `applied` lands on the acting player's turn, so
   // the screen offers "attack again / done" instead of re-opening the AttackComposer immediately.
   const [inChainContinue, setInChainContinue] = useState(false);
@@ -323,6 +312,16 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
   // ui.hover is deliberately NOT subscribed here: a pointer crossing publishes on every cell, and
   // a PlayView re-render would reconcile the whole SVG board each time. HexReadout subscribes to
   // it internally, so a hover re-renders only the one-line readout.
+
+  // ── Presentation derivations. While a frame presents, the BOARD (and its labels/readout) shows
+  //    the presented scene and the interactive surface is suppressed; everything actionable keeps
+  //    reading the authoritative tip. The labels swap to the outcome as soon as the FINAL frame
+  //    presents (queue empty + terminal) — the killing-blow scene gets its Victory caption. The
+  //    HUD's narration tail is windowed to presented beats so the log never spoils the reveal
+  //    (numeric HUD panels stay at the tip — honest numbers). ─────────────────────────────────────
+  const presenting = presentation.frame !== null;
+  const labelsTerminal = terminal !== null && presentation.queue.length === 0 ? terminal : null;
+  const shownEvents = presenting ? eventLog.slice(0, presentation.presented) : eventLog;
 
   // ── Driver lifecycle: create (possibly async) → subscribe → dispose. Both subscriptions (the
   //    store's `connectDriver` and the event-log/choreography handler below) are established in the
@@ -350,14 +349,32 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
       unsubscribeEventLog = created.subscribe((event: DriverEvent) => {
         if (event.type === "sync") {
           dispatchEventLog({ type: "sync" });
-          setChoreography(null);
+          dispatchPresentation({ type: "reset", state: event.snapshot });
           setInChainContinue(false);
           return;
         }
         if (event.type === "applied") {
           dispatchEventLog({ type: "append", events: event.events });
-          const staged = stageableFrom(event.events);
-          if (staged !== null) setChoreography(staged);
+          // The store subscribed first (connectDriver above; drivers fan out in insertion order),
+          // so by here it has already folded this entry — the post-fold state IS this beat's
+          // frame. If that ordering ever broke, foldOk fails and the beat degrades to an unpaced
+          // snap (today's behavior) — never a stale or corrupted frame. A beat by a seat this
+          // client controls (the human's own echo) is never paced; note a defender-resolve echo
+          // carries the ATTACKER as entry.player, so the human defender's own resolution presents
+          // as one held beat of suspense before the combat lands — a chosen behavior.
+          const folded = store.getState().authoritative;
+          const foldOk = folded.state !== null && folded.logLength === event.logIndex + 1;
+          const paced =
+            foldOk &&
+            !prefersReducedMotion() &&
+            !created.controllableSeats().includes(event.entry.player);
+          dispatchPresentation({
+            type: "beat",
+            paced,
+            state: foldOk ? folded.state : null,
+            events: event.events,
+            marks: marksOf(event.entry, event.events),
+          });
           // A landed attack that belongs to a still-acting controllable player opens the chain-continue
           // beat; any other applied (a build, a setup placement, an agent move) clears it.
           setInChainContinue(isChainContinueAfter(event.events));
@@ -366,6 +383,13 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
         if (event.type === "prompt" || event.type === "gameOver") {
           // A defender prompt or the game ending supersedes any lingering chain-continue offer.
           setInChainContinue(false);
+          if (event.type === "prompt") {
+            // The human must decide NOW: drop any draining beats to the tip so the decision is
+            // made against the true board. The build-up's pacing is deliberately sacrificed to
+            // responsiveness. (A staged reveal is kept — Continue dismisses it, as at the tip.)
+            dispatchPresentation({ type: "snap", state: store.getState().authoritative.state });
+          }
+          // gameOver does NOT snap: the killing-blow beats present first, then Victory rises.
         }
       });
       setDriver(created);
@@ -379,6 +403,16 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
     };
   }, [header, createDriver, store]);
 
+  // ── The pacing timer: while a frame presents, one timeout advances the drain. beatDelayMs picks
+  //    the frame's own delay (set-piece dwell / fast drain / base interval); each presented frame
+  //    re-arms via the dependency, and the drain-completing tick (frame → null) stops the clock. ──
+  useEffect(() => {
+    const delay = beatDelayMs(presentation);
+    if (delay === null) return;
+    const timer = setTimeout(() => dispatchPresentation({ type: "tick" }), delay);
+    return () => clearTimeout(timer);
+  }, [presentation]);
+
   // ── HUD publication: the shell hosts the right rail, so PlayView publishes its instrument stack as
   //    the rail's content rather than laying out its own rail lane. Re-published whenever the state or
   //    the accumulated event log changes; cleared on unmount so navigating away restores the rail's
@@ -386,21 +420,23 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
   const setRailContent = useSetRailContent();
   useEffect(() => {
     if (state === null) return;
-    setRailContent(<Hud state={state} events={eventLog} />);
+    setRailContent(<Hud state={state} events={shownEvents} />);
     return () => setRailContent(null);
-  }, [setRailContent, state, eventLog]);
+  }, [setRailContent, state, shownEvents]);
 
   // ── Shell-labels publication: the top bar's turn chip + seed readout, via the shell-labels seam
   //    (the same discipline as the rail — App never subscribes to game state; only the TopBarHost
   //    re-renders on a publish). Cleared on unmount so leaving the game recedes the readouts. ──────
   const setShellLabels = useSetShellLabels();
+  const shellState = presentation.frame?.state ?? state;
   useEffect(() => {
-    if (state === null) return;
-    // A finished game has no acting player — the chip tells the outcome (victory's spatial story).
-    const label = terminal !== null ? gameOverLabel(terminal.winners) : turnLabel(state);
+    if (shellState === null) return;
+    // The chip captions the DISPLAYED scene — the presented frame while a drain runs, the tip
+    // otherwise — and swaps to the outcome once the final frame presents (no phantom turn).
+    const label = labelsTerminal !== null ? gameOverLabel(labelsTerminal.winners) : turnLabel(shellState);
     setShellLabels({ turnLabel: label, seedLabel: seedLabel(header) });
     return () => setShellLabels(null);
-  }, [setShellLabels, state, header, terminal]);
+  }, [setShellLabels, shellState, header, labelsTerminal]);
 
   // ── Version-mismatch reload guard: when the driver reports `connection:"reload-required"` (the
   //    SocketDriver's mapping of a `reload` ServerMessage), reload the page ONCE per load. A second
@@ -432,7 +468,10 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
   }
 
   const controllableSeats = driver.controllableSeats();
-  const stranded = strandedHexKeys(state);
+  // What the BOARD (and its banner/readout) shows: the presented frame while beats drain, else the
+  // authoritative tip. Everything ACTIONABLE below reads `state` — never `boardState`.
+  const boardState = presentation.frame?.state ?? state;
+  const stranded = strandedHexKeys(boardState);
 
   // The keyboard/a11y ACTION path stays each composer's own hex-button list (every legal move is a
   // real, focusable button). The SVG board is ALSO an action surface (UI brief §7 — "click your
@@ -453,21 +492,22 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
     else if (highlights.attackTargets.has(key)) handlers.attackTarget?.(hex);
   }
 
-  // Victory is terminal and persistent — it outranks the whole interactive surface once the game ends.
-  const showVictory = terminal !== null;
+  // Victory is terminal and persistent — but its set piece waits for the drain, so the killing
+  // blow presents (with its pulse) before Victory rises. Reduced motion never drains → instant.
+  const showVictory = terminal !== null && !presenting;
 
-  // A finished game affords nothing, so the victory stage drops the legal-move highlight tints —
-  // the board's ending treatment is the winners' iron, not a phantom "your move" scene.
-  const highlights = showVictory ? EMPTY_HIGHLIGHTS : highlightSets(state);
+  // A finished game affords nothing, and a draining board is not the actionable scene — both drop
+  // the legal-move highlight tints. When actionable, the sets derive from the authoritative tip.
+  const highlights = showVictory || presenting ? EMPTY_HIGHLIGHTS : highlightSets(state);
 
   // The click affordance exists ONLY while a composer is mounted to receive it — the same
   // resolution that decides which composer renders (selectComposer) gates which cells afford a
   // click, so an agent's/opponent's turn (waiting), a staged set piece, the chain-continue beat,
-  // and victory never paint pointer cursors over cells no handler backs.
+  // a draining presentation, and victory never paint pointer cursors over cells no handler backs.
   const composerKind = selectComposer(state, pending, controllableSeats);
   const actingControllable = controllableSeats.includes(currentPlayer(state));
   const interactiveHexes = new Set<string>();
-  if (!showVictory && choreography === null) {
+  if (!showVictory && presentation.choreography === null && !presenting) {
     if (composerKind === "setup" && actingControllable) {
       for (const key of highlights.placementHexes) interactiveHexes.add(key);
     } else if (composerKind === "play" && !inChainContinue) {
@@ -478,38 +518,42 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
 
   // The board's brass selection: staged-but-uncommitted build pieces plus the attack composer's
   // live target + committed attackers — both published through the store's ui channels. At game
-  // over the selection becomes the ending's spatial story instead: the winners' controlling iron,
-  // brass-marked (a deliberate Brass Budget brush — the scarce accent floods the winner's engine
-  // exactly once, at the moment the game stops being interactive).
+  // over the selection becomes the ending's spatial story instead: the winners' controlling iron
+  // (or, for an iron-less elimination winner, their surviving bases), brass-marked — a deliberate
+  // Brass Budget brush: the scarce accent floods the winner's engine exactly once, at the moment
+  // the game stops being interactive and nothing competes for selection.
   const boardSelection = showVictory
-    ? { pieces: terminal.winners.flatMap((winner) => controlOf(state, winner).iron) }
-    : attackSelection !== null
-      ? { target: attackSelection.target, attackers: attackSelection.attackers, pieces: stagedBuild }
-      : stagedBuild.length > 0
-        ? { pieces: stagedBuild }
-        : null;
+    ? { pieces: victoryMarks(state, terminal.winners) }
+    : presenting
+      ? null
+      : attackSelection !== null
+        ? { target: attackSelection.target, attackers: attackSelection.attackers, pieces: stagedBuild }
+        : stagedBuild.length > 0
+          ? { pieces: stagedBuild }
+          : null;
 
   return (
     <div style={WAR_ROOM_STYLE}>
       <section aria-label="Board" style={BOARD_LANE_STYLE}>
-        <TurnBanner state={state} terminal={terminal} />
+        <TurnBanner state={boardState} terminal={labelsTerminal} />
 
         <div style={BOARD_WRAP_STYLE}>
           <Board
-            state={state}
+            state={boardState}
             highlights={highlights}
             strandedHexes={stranded}
             {...(boardSelection !== null ? { selection: boardSelection } : {})}
             onHexClick={handleHexClick}
             interactiveHexes={interactiveHexes}
             onHexHover={handleHexHover}
+            {...(presentation.emphasis !== null ? { emphasisHexes: presentation.emphasis } : {})}
           />
         </div>
 
-        <HexReadout state={state} store={store} />
+        <HexReadout state={boardState} store={store} />
 
         <div aria-label="Composer" style={COMPOSER_LANE_STYLE} data-testid="composer-lane">
-          {rejection !== null && !showVictory && (
+          {rejection !== null && !showVictory && !presenting && (
             <div className="table-panel" role="alert" data-testid="rejection-notice" style={REJECTION_STYLE}>
               <span className="mono" style={REJECTION_KICKER_STYLE}>
                 not allowed
@@ -519,8 +563,35 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
           )}
           {showVictory ? (
             <Victory winners={terminal.winners} />
-          ) : choreography !== null ? (
-            <ChoreographyStage choreography={choreography} onContinue={() => setChoreography(null)} />
+          ) : presenting ? (
+            // The drain: the lane holds a quiet spectator panel — the presented beat's set piece
+            // (sans Continue; the clock advances it), or the waiting line, or (on the terminal
+            // frame, already captioned by the banner) nothing. Skip is the one control: it jumps
+            // to the tip, dropping the remaining beats AND any staged reveal.
+            <div data-testid="presentation-drain" style={CHOREOGRAPHY_STYLE}>
+              {presentation.choreography !== null ? (
+                <SetPieceView choreography={presentation.choreography} />
+              ) : labelsTerminal === null ? (
+                <WaitingNotice player={currentPlayer(boardState)} />
+              ) : null}
+              <div>
+                <button
+                  type="button"
+                  className="chrome-button"
+                  data-testid="presentation-skip"
+                  onClick={() =>
+                    dispatchPresentation({ type: "skip", state: store.getState().authoritative.state })
+                  }
+                >
+                  Skip
+                </button>
+              </div>
+            </div>
+          ) : presentation.choreography !== null ? (
+            <ChoreographyStage
+              choreography={presentation.choreography}
+              onContinue={() => dispatchPresentation({ type: "dismissChoreography" })}
+            />
           ) : (
             <ActiveComposer
               kind={composerKind}
@@ -533,7 +604,9 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
             />
           )}
 
-          <TurnOrderCeremony rollover={rollover} />
+          {/* The turn-order draw is a sanctioned set piece — it never fires over a draining board
+              (it would announce an outcome the beats haven't shown yet); it surfaces at the tip. */}
+          <TurnOrderCeremony rollover={presenting ? null : rollover} />
         </div>
       </section>
     </div>
@@ -663,13 +736,7 @@ function ActiveComposer({
     case "forcedPass":
       return <ForcedPassNotice state={state} driver={driver} />;
     case "waiting":
-      return (
-        <ComposerPanel ariaLabel="Waiting">
-          <p className="mono" style={WAITING_STYLE} data-testid="waiting-notice">
-            Waiting for player {player + 1}…
-          </p>
-        </ComposerPanel>
-      );
+      return <WaitingNotice player={player} />;
     case "play":
       if (inChainContinue) {
         const canAttackAgain = legalActions(state).some((a) => a.kind === "attack");
@@ -686,8 +753,37 @@ function ActiveComposer({
   }
 }
 
-/** Stages the transient combat/elimination set piece with a Continue affordance to dismiss it and
- *  return to the active composer. The set pieces themselves handle reduced motion. */
+/** The one spectator line for turns (and draining beats) this client cannot act in. */
+function WaitingNotice({ player }: { player: number }) {
+  return (
+    <ComposerPanel ariaLabel="Waiting">
+      <p className="mono" style={WAITING_STYLE} data-testid="waiting-notice">
+        Waiting for player {player + 1}…
+      </p>
+    </ComposerPanel>
+  );
+}
+
+/** The combat/elimination set piece itself — reduced motion is the pieces' own concern. */
+function SetPieceView({ choreography }: { choreography: Choreography }) {
+  return choreography.kind === "combat" ? (
+    <CombatReveal event={choreography.event} />
+  ) : (
+    <Elimination event={choreography.event} />
+  );
+}
+
+/** The winners' controlling iron — or, when an elimination winner controls none (a last-standing
+ *  win far from every deposit), their surviving bases — so the ending always marks SOMETHING. */
+function victoryMarks(state: GameState, winners: readonly number[]): Hex[] {
+  const iron = winners.flatMap((winner) => controlOf(state, winner).iron);
+  if (iron.length > 0) return iron;
+  return state.bases.filter((base) => winners.includes(base.owner)).map((base) => base.hex);
+}
+
+/** Stages the transient combat/elimination set piece at the tip, with the Continue affordance that
+ *  dismisses it back to the active composer. While a drain is presenting, the lane renders the
+ *  set piece WITHOUT Continue instead (the clock advances; Skip is the drain's one control). */
 function ChoreographyStage({
   choreography,
   onContinue,
@@ -697,11 +793,7 @@ function ChoreographyStage({
 }) {
   return (
     <div data-testid="choreography-stage" style={CHOREOGRAPHY_STYLE}>
-      {choreography.kind === "combat" ? (
-        <CombatReveal event={choreography.event} />
-      ) : (
-        <Elimination event={choreography.event} />
-      )}
+      <SetPieceView choreography={choreography} />
       <div>
         <button type="button" className="chrome-button" onClick={onContinue} data-testid="choreography-continue">
           Continue
