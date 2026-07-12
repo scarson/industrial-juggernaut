@@ -95,9 +95,53 @@ describe("NewGame — validation gates Start", () => {
 });
 
 describe("NewGame — board source", () => {
-  test("defaults to the generate picker with size + ironCount inputs", () => {
+  test("defaults to generate mode, sourcing size + iron from the BOARD knobs — no duplicate inputs", () => {
     render(<NewGame onStart={vi.fn()} />);
     expect(screen.getByTestId("board-source-generate")).toBeInTheDocument();
+    // Exactly ONE Board size / Iron deposits input each (the BOARD cluster's knobs). The picker
+    // previously duplicated both with shadow state that generation read INSTEAD of the knobs —
+    // editing the visible knob silently did nothing.
+    expect(screen.getAllByRole("spinbutton", { name: /board size/i })).toHaveLength(1);
+    expect(screen.getAllByRole("spinbutton", { name: /iron deposits/i })).toHaveLength(1);
+  });
+
+  test("CSP-infeasible generate params show a friendly error and disable Start — never a crash", async () => {
+    const user = userEvent.setup();
+    render(<NewGame onStart={vi.fn()} />);
+
+    // 99 iron deposits cannot be placed on a 96-hex board under the generator's constraints —
+    // before the probe guard this THREW inside a useMemo and white-screened the whole designer.
+    const iron = screen.getByRole("spinbutton", { name: /iron deposits/i });
+    await user.clear(iron);
+    await user.type(iron, "99");
+
+    const note = screen.getByTestId("board-infeasible-note");
+    expect(note.textContent).toMatch(/can.t be generated/i);
+    expect(note.textContent).not.toMatch(/placeIron|restarts|CSP/i); // friendly copy, no internals
+    expect(startButton()).toBeDisabled();
+    // The form survived — the preset picker is still there.
+    expect(screen.getByRole("combobox", { name: /preset/i })).toBeInTheDocument();
+  });
+
+  test("the BOARD cluster's size + iron knobs feed the generated board source", async () => {
+    const user = userEvent.setup();
+    const onStart = vi.fn();
+    render(<NewGame onStart={onStart} />);
+
+    const size = screen.getByRole("spinbutton", { name: /board size/i });
+    await user.clear(size);
+    await user.type(size, "120");
+    const iron = screen.getByRole("spinbutton", { name: /iron deposits/i });
+    await user.clear(iron);
+    await user.type(iron, "16");
+
+    await user.click(startButton());
+
+    expect(onStart).toHaveBeenCalledTimes(1);
+    const header = onStart.mock.calls[0]![0] as SessionHeader;
+    expect(header.boardSource).toEqual({ kind: "generate", size: 120, ironCount: 16 });
+    expect(header.config.boardSize).toBe(120);
+    expect(header.config.ironCount).toBe(16);
   });
 
   test("switching to fixed JSON and pasting bad JSON shows the friendly parse error", async () => {

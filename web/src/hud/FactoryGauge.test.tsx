@@ -34,3 +34,10 @@ describe("FactoryGauge — supply readout", () => {
     expect(gauge.textContent).toBe("5 / 37");
   });
 });
+
+describe("FactoryGauge — label", () => {
+  test("carries a visible 'factory supply' label so the figure is self-explaining", () => {
+    render(<FactoryGauge state={setupState()} />);
+    expect(screen.getByText(/factory supply/i)).toBeInTheDocument();
+  });
+});

@@ -1,6 +1,14 @@
 // ABOUTME: explainError — turns a DriverErrorCode into one plain-English rule sentence, so a
 // ABOUTME: rejected command teaches the rule it broke instead of surfacing a bare wire code.
+import { defaultConfig } from "../engine-client/barrel";
 import type { DriverErrorCode } from "../game/driver";
+
+/** The config slice placeRange-sensitive explanations interpolate. Callers with a live game pass
+ *  the game's own config so the teaching line states THIS game's rule, not the default. */
+export type ExplainContext = { placeRange: number };
+
+/** An entry is a fixed sentence, or a template of the tunable knob its rule depends on. */
+type Explainer = string | ((context: ExplainContext) => string);
 
 /**
  * One sentence per `DriverErrorCode` (the union in `web/src/game/driver.ts`). Keyed as a `Record`
@@ -15,7 +23,7 @@ import type { DriverErrorCode } from "../game/driver";
  * Digital Edition Ruling callouts are referenced by number (see rules-content.ts) where a code's
  * explanation depends on a documented divergence from the printed rules.
  */
-export const EXPLANATION: Record<DriverErrorCode, string> = {
+export const EXPLANATION: Record<DriverErrorCode, Explainer> = {
   // --- envelope/transport (socket only) ---
   STALE_INDEX:
     "Your view of the game fell behind the server. Resyncing will bring you back to the current state.",
@@ -61,14 +69,20 @@ export const EXPLANATION: Record<DriverErrorCode, string> = {
     "While founding, your first build must be a factory — a new base is not buildable until you earn real budget by building that factory or gaining a second iron.",
   BUILD_OVER_BUDGET:
     "You tried to place more pieces than your budget allows — you may build one piece for every two resources you control, rounded down.",
-  BUILD_ILLEGAL_FACTORY:
-    "A factory must be placed on an empty non-iron hex within 5 of your farthest base, and only while the central supply has factories left.",
+  BUILD_ILLEGAL_FACTORY: ({ placeRange }) =>
+    `A factory must be placed on an empty non-iron hex within ${placeRange} of your farthest base, and only while the central supply has factories left.`,
   BUILD_NO_BASES_IN_HAND: "You have no bases left in hand to place.",
-  BUILD_ILLEGAL_BASE:
-    "A base outside your perimeter must sit within 5 hexes of a friendly base, outside every opponent's perimeter, and — once you have three or more bases — form a new triangle with two existing bases (the triangle rule applies from the perimeter-establishing 4th base on, Ruling #7).",
+  BUILD_ILLEGAL_BASE: ({ placeRange }) =>
+    `A base outside your perimeter must sit within ${placeRange} hexes of a friendly base, outside every opponent's perimeter, and — once you have three or more bases — form a new triangle with two existing bases (the triangle rule applies from the perimeter-establishing 4th base on, Ruling #7).`,
 };
 
-/** Returns the one-sentence rule explanation for a rejected command's `DriverErrorCode`. */
-export function explainError(code: DriverErrorCode): string {
-  return EXPLANATION[code];
+/**
+ * Returns the one-sentence rule explanation for a rejected command's `DriverErrorCode`.
+ * Callers with a live game pass its config (`state.config`) so knob-sensitive rules (placeRange)
+ * state the game's actual numbers; without a context, templates fall back to the engine default.
+ */
+export function explainError(code: DriverErrorCode, context?: ExplainContext): string {
+  const entry = EXPLANATION[code];
+  if (typeof entry === "string") return entry;
+  return entry(context ?? { placeRange: defaultConfig().placeRange });
 }

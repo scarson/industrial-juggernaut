@@ -383,3 +383,75 @@ describe("createGameStore", () => {
     expect(store.getState().authoritative.connection).toBe(connectionBefore); // unchanged — no longer subscribed
   });
 });
+
+describe("rejection surfacing", () => {
+  test("a rule-code rejection records {code, message} in authoritative.rejection", () => {
+    const snapshot = fixtureState();
+    const driver = makeFakeDriver({ snapshot, roster: fixtureRoster(), controllableSeats: [0], logLength: 0 });
+    const store = createGameStore();
+    store.getState().connectDriver(driver);
+
+    driver.pushEvent({
+      type: "rejected",
+      code: "BUILD_ILLEGAL_FACTORY",
+      message: "factory on an iron hex",
+      currentLogIndex: 0,
+    });
+
+    expect(store.getState().authoritative.rejection).toEqual({
+      code: "BUILD_ILLEGAL_FACTORY",
+      message: "factory on an iron hex",
+    });
+  });
+
+  test("a STALE_INDEX rejection does NOT record a rejection — it auto-resyncs instead", () => {
+    const snapshot = fixtureState();
+    const driver = makeFakeDriver({ snapshot, roster: fixtureRoster(), controllableSeats: [0], logLength: 4 });
+    const store = createGameStore();
+    store.getState().connectDriver(driver);
+
+    driver.pushEvent({ type: "rejected", code: "STALE_INDEX", message: "stale", currentLogIndex: 4 });
+
+    expect(store.getState().authoritative.rejection).toBeNull();
+  });
+
+  test("a following applied clears the rejection — the next successful action supersedes it", () => {
+    const snapshot = fixtureState();
+    const driver = makeFakeDriver({ snapshot, roster: fixtureRoster(), controllableSeats: [0], logLength: 0 });
+    const store = createGameStore();
+    store.getState().connectDriver(driver);
+
+    driver.pushEvent({ type: "rejected", code: "BUILD_OVER_BUDGET", message: "over budget", currentLogIndex: 0 });
+    expect(store.getState().authoritative.rejection).not.toBeNull();
+
+    const entry: LogEntry = {
+      player: 0,
+      kind: "placeFirstBase",
+      hex: legalFirstBaseHexes(snapshot)[0]!,
+      rngBeforeApply: snapshot.rngState,
+    };
+    driver.pushEvent({ type: "applied", entry, events: [], logIndex: 0 });
+
+    expect(store.getState().authoritative.rejection).toBeNull();
+  });
+
+  test("a following sync clears the rejection — a fresh authoritative baseline supersedes it", () => {
+    const snapshot = fixtureState();
+    const driver = makeFakeDriver({ snapshot, roster: fixtureRoster(), controllableSeats: [0], logLength: 0 });
+    const store = createGameStore();
+    store.getState().connectDriver(driver);
+
+    driver.pushEvent({ type: "rejected", code: "NOT_YOUR_TURN", message: "not your turn", currentLogIndex: 0 });
+    expect(store.getState().authoritative.rejection).not.toBeNull();
+
+    driver.pushEvent({
+      type: "sync",
+      snapshot: fixtureState(),
+      logLength: 0,
+      pending: null,
+      seats: fixtureRoster(),
+    });
+
+    expect(store.getState().authoritative.rejection).toBeNull();
+  });
+});

@@ -4,7 +4,15 @@ import { createStore } from "zustand/vanilla";
 import { useStore } from "zustand/react";
 import { applyEntry } from "../engine-client/barrel";
 import type { GameState, Hex } from "../engine-client/barrel";
-import type { ConnectionStatus, DriverCommand, DriverEvent, DriverPending, GameDriver, SeatRosterEntry } from "./driver";
+import type {
+  ConnectionStatus,
+  DriverCommand,
+  DriverErrorCode,
+  DriverEvent,
+  DriverPending,
+  GameDriver,
+  SeatRosterEntry,
+} from "./driver";
 import type { BoardProps } from "../board/Board";
 
 /** The ceremony data `turnRollover` carries. It is NOT the source of truth for game state —
@@ -15,6 +23,10 @@ export type TurnRollover = { order: number[]; ironWeights: number[] | null };
 
 export type GameOverTerminal = { winners: number[]; cause: string };
 
+/** A rejected command's verdict, kept so the UI can teach the rule it broke (explainError) instead
+ *  of swallowing it. Cleared by the next authoritative progress (sync/applied/prompt/gameOver). */
+export type Rejection = { code: DriverErrorCode; message: string };
+
 export type AuthoritativeSlice = {
   state: GameState | null;
   logLength: number;
@@ -23,6 +35,7 @@ export type AuthoritativeSlice = {
   connection: ConnectionStatus;
   turnRollover: TurnRollover | null;
   terminal: GameOverTerminal | null;
+  rejection: Rejection | null;
 };
 
 export type PreviewSlice = {
@@ -65,6 +78,7 @@ const initialAuthoritative: AuthoritativeSlice = {
   connection: "connecting",
   turnRollover: null,
   terminal: null,
+  rejection: null,
 };
 
 const initialPreview: PreviewSlice = { state: null, source: null, combat: false };
@@ -117,6 +131,7 @@ function dispatch(
           logLength: event.logLength,
           roster: event.seats,
           pending: event.pending,
+          rejection: null,
         },
         preview: initialPreview,
       });
@@ -153,6 +168,7 @@ function dispatch(
           ...authoritative,
           state: result.state,
           logLength: authoritative.logLength + 1,
+          rejection: null,
         },
         preview: initialPreview,
       });
@@ -179,7 +195,7 @@ function dispatch(
         return;
       }
       set({
-        authoritative: { ...get().authoritative, pending: event.pending },
+        authoritative: { ...get().authoritative, pending: event.pending, rejection: null },
         preview: initialPreview,
       });
       return;
@@ -190,6 +206,7 @@ function dispatch(
         authoritative: {
           ...get().authoritative,
           terminal: { winners: event.winners, cause: event.cause },
+          rejection: null,
         },
         preview: initialPreview,
       });
@@ -198,9 +215,16 @@ function dispatch(
 
     case "rejected": {
       if (event.code === "STALE_INDEX") {
+        // A stale view repairs itself via resync — recording it would flash a teaching line for a
+        // transport hiccup the player did nothing to cause.
         driver.requestSync();
+        set({ preview: initialPreview });
+        return;
       }
-      set({ preview: initialPreview });
+      set({
+        authoritative: { ...get().authoritative, rejection: { code: event.code, message: event.message } },
+        preview: initialPreview,
+      });
       return;
     }
 

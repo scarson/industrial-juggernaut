@@ -264,3 +264,55 @@ describe("GameScreen — turn-order ceremony", () => {
     expect(await screen.findByRole("region", { name: /turn order draw/i })).toBeInTheDocument();
   });
 });
+
+// ── Rejection surfacing — a rejected command teaches the rule it broke (DESIGN.md §5) ────────────
+describe("GameScreen — rejection notice", () => {
+  test("a rejected command surfaces the rule explanation, never the bare code", async () => {
+    // A non-default placeRange: the teaching line must state THIS game's rule, not the default 5.
+    const state: GameState = { ...playState(), config: { ...defaultConfig(), placeRange: 3 } };
+    const driver = renderGame(state, [0, 1]);
+    await screen.findByTestId("play-composers");
+
+    act(() => {
+      driver.pushEvent({
+        type: "rejected",
+        code: "BUILD_ILLEGAL_FACTORY",
+        message: "raw wire message",
+        currentLogIndex: null,
+      });
+    });
+
+    const notice = await screen.findByTestId("rejection-notice");
+    expect(notice.textContent).toMatch(/factory must be placed on an empty non-iron hex/i);
+    expect(notice.textContent).toMatch(/within 3\b/);
+    expect(notice.textContent).not.toContain("BUILD_ILLEGAL_FACTORY");
+    expect(notice).toHaveAttribute("role", "alert");
+  });
+
+  test("the next authoritative event clears the rejection notice", async () => {
+    const driver = renderGame(playState(), [0, 1]);
+    await screen.findByTestId("play-composers");
+
+    act(() => {
+      driver.pushEvent({
+        type: "rejected",
+        code: "BUILD_OVER_BUDGET",
+        message: "over budget",
+        currentLogIndex: null,
+      });
+    });
+    await screen.findByTestId("rejection-notice");
+
+    act(() => {
+      driver.pushEvent({
+        type: "sync",
+        snapshot: playState(),
+        logLength: 0,
+        pending: null,
+        seats: fixtureRoster(),
+      });
+    });
+
+    await waitFor(() => expect(screen.queryByTestId("rejection-notice")).not.toBeInTheDocument());
+  });
+});

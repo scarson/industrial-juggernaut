@@ -112,6 +112,26 @@ describe("SetupPlacement — drawn order + whose turn", () => {
 
     const orderGroup = screen.getByRole("group", { name: /placement order/i });
     expect(orderGroup).toBeInTheDocument();
-    expect(screen.getByTestId("setup-turn-indicator")).toHaveTextContent(/0/);
+    // On-screen player labels are 1-based (the event-copy convention) — seat 0 reads "Player 1".
+    expect(screen.getByTestId("setup-turn-indicator")).toHaveTextContent(/player 1 to place/i);
+  });
+
+  test("never leaks the 0-based engine index into a player label", () => {
+    const state = setupState(); // currentPlayer === 0
+    const driver = driverFor(state, [0]);
+
+    render(<SetupPlacement state={state} player={0} driver={driver} />);
+
+    expect(screen.queryByText(/player 0/i)).not.toBeInTheDocument();
+  });
+
+  test("the waiting line for a non-controllable slot names the player 1-based", () => {
+    const state = setupState(); // currentPlayer === 0
+    const driver = driverFor(state, [1]); // this client does NOT control the acting seat
+
+    render(<SetupPlacement state={state} player={1} driver={driver} />);
+
+    expect(screen.getByText(/waiting for player 1/i)).toBeInTheDocument();
+    expect(screen.queryByText(/player 0/i)).not.toBeInTheDocument();
   });
 });
