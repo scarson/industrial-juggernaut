@@ -9,6 +9,8 @@ import { makeFakeDriver } from "../game/fake-driver";
 import { hex } from "../../../src/geometry/cube";
 import { defaultConfig, initGame, legalFirstBaseHexes } from "../engine-client/barrel";
 import { highlightSets } from "../board/highlight";
+import { overlapFixtureState, SHARED_HEX } from "../board/test-fixtures";
+import * as BoardModule from "../board/Board";
 import type { GameState, LogEntry } from "../engine-client/barrel";
 import type { DriverPending, GameDriver, SeatRosterEntry } from "../game/driver";
 import type { SessionHeader } from "../engine-client/barrel";
@@ -97,6 +99,14 @@ function renderGame(snapshot: GameState, controllableSeats: number[], pending: D
   );
   return driver;
 }
+
+// Counts real Board renders without altering behavior — the hover render-scoping test reads it.
+const boardRenderSpy = vi.fn();
+const RealBoard = BoardModule.Board;
+vi.spyOn(BoardModule, "Board").mockImplementation((props) => {
+  boardRenderSpy();
+  return RealBoard(props);
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -437,5 +447,45 @@ describe("GameScreen — board affordance gating", () => {
       (p) => (p as SVGPolygonElement).style.cursor === "pointer",
     );
     expect(affordant).toHaveLength(0);
+  });
+});
+
+// ── Honest readout on contested hexes + hover render scoping (blind-review round 2) ─────────────
+describe("GameScreen — contested-hex readout", () => {
+  test("hovering an overlap hex reads as contested with BOTH controllers, never a sole owner", async () => {
+    renderGame(overlapFixtureState(), [0, 1]);
+    await screen.findByTestId("composer-lane");
+
+    const cell = document.querySelector(
+      `polygon[data-hex="${SHARED_HEX.x},${SHARED_HEX.y},${SHARED_HEX.z}"]`,
+    ) as SVGPolygonElement;
+    act(() => {
+      cell.dispatchEvent(new Event("pointerover", { bubbles: true }));
+    });
+
+    const readout = await screen.findByTestId("hex-readout");
+    expect(readout.textContent).toMatch(/contested/i);
+    expect(readout.textContent).toMatch(/player 1/i);
+    expect(readout.textContent).toMatch(/player 2/i);
+  });
+});
+
+describe("GameScreen — hover render scoping", () => {
+  test("a hover publish re-renders the readout, not the board", async () => {
+    renderGame(playState(), [0, 1]);
+    await screen.findByTestId("play-composers");
+
+    const rendersBefore = boardRenderSpy.mock.calls.length;
+    const hex = playState().board.hexes[5]!;
+    const cell = document.querySelector(
+      `polygon[data-hex="${hex.x},${hex.y},${hex.z}"]`,
+    ) as SVGPolygonElement;
+    act(() => {
+      cell.dispatchEvent(new Event("pointerover", { bubbles: true }));
+    });
+
+    await screen.findByTestId("hex-readout");
+    // The hover published to the store and the readout re-rendered — the board must not have.
+    expect(boardRenderSpy.mock.calls.length).toBe(rendersBefore);
   });
 });

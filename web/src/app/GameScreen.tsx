@@ -27,6 +27,7 @@ import { selectComposer } from "./select-composer";
 import { explainError } from "../rules/error-explanations";
 import { turnLabel, seedLabel } from "../game/turn-labels";
 import { tooltipData } from "../board/tooltip";
+import { territoryFills } from "../board/territory";
 import { hexKey } from "../board/projection";
 import { playerIdentity } from "../identity/player-identity";
 import { PlayerShapeIcon } from "../identity/shapes";
@@ -318,7 +319,9 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
   const rejection = useGameStore(store, (s) => s.authoritative.rejection);
   const stagedBuild = useGameStore(store, (s) => s.ui.stagedBuild);
   const attackSelection = useGameStore(store, (s) => s.ui.attackSelection);
-  const hover = useGameStore(store, (s) => s.ui.hover);
+  // ui.hover is deliberately NOT subscribed here: a pointer crossing publishes on every cell, and
+  // a PlayView re-render would reconcile the whole SVG board each time. HexReadout subscribes to
+  // it internally, so a hover re-renders only the one-line readout.
 
   // ── Driver lifecycle: create (possibly async) → subscribe → dispose. Both subscriptions (the
   //    store's `connectDriver` and the event-log/choreography handler below) are established in the
@@ -493,7 +496,7 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
           />
         </div>
 
-        <HexReadout state={state} hover={hover} />
+        <HexReadout state={state} store={store} />
 
         <div aria-label="Composer" style={COMPOSER_LANE_STYLE} data-testid="composer-lane">
           {rejection !== null && !showVictory && (
@@ -543,8 +546,12 @@ function TurnBanner({ state }: { state: GameState }) {
 /** The surveyor readout — a one-line mono strip naming the hovered hex's contents (coordinates,
  *  iron, occupant, controller). Statically positioned under the board: honest, unlayered, and
  *  reachable by assistive tech (no floating tooltip z-index games). Empty hover = an em-dash
- *  placeholder at fixed height so the board doesn't jump as the pointer moves. */
-function HexReadout({ state, hover }: { state: GameState; hover: Hex | null }) {
+ *  placeholder at fixed height so the board doesn't jump as the pointer moves. Subscribes to
+ *  `ui.hover` itself (see PlayView) so a pointer crossing re-renders this line, not the board.
+ *  A contested overlap hex names EVERY controller (Honest Numbers) — `tooltipData.controlledBy`
+ *  alone would misreport it as solely the lowest id's. */
+function HexReadout({ state, store }: { state: GameState; store: GameStore }) {
+  const hover = useGameStore(store, (s) => s.ui.hover);
   if (hover === null) {
     return (
       <p className="mono" data-testid="hex-readout-idle" style={READOUT_STYLE}>
@@ -553,19 +560,31 @@ function HexReadout({ state, hover }: { state: GameState; hover: Hex | null }) {
     );
   }
   const data = tooltipData(state, hover);
+  const controllers = territoryFills(state).get(hexKey(hover)) ?? [];
   const parts: React.ReactNode[] = [hexKey(hover)];
   if (data.isIron) parts.push("iron");
   if (data.occupant !== null) parts.push(data.occupant);
-  parts.push(
-    data.controlledBy !== null ? (
+  if (controllers.length > 1) {
+    parts.push(
+      <span key="contested" style={READOUT_CONTROLLER_STYLE}>
+        contested —{" "}
+        {controllers.map((id) => (
+          <span key={id} style={READOUT_CONTROLLER_STYLE}>
+            <PlayerShapeIcon identity={playerIdentity(id)} size={9} /> Player {id + 1}
+          </span>
+        ))}
+      </span>,
+    );
+  } else if (controllers.length === 1) {
+    parts.push(
       <span key="controller" style={READOUT_CONTROLLER_STYLE}>
-        <PlayerShapeIcon identity={playerIdentity(data.controlledBy)} size={9} /> Player{" "}
-        {data.controlledBy + 1}
-      </span>
-    ) : (
-      "unclaimed"
-    ),
-  );
+        <PlayerShapeIcon identity={playerIdentity(controllers[0]!)} size={9} /> Player{" "}
+        {controllers[0]! + 1}
+      </span>,
+    );
+  } else {
+    parts.push("unclaimed");
+  }
   return (
     <p className="mono" data-testid="hex-readout" style={READOUT_STYLE}>
       {parts.map((part, i) => (
