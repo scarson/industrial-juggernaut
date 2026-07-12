@@ -21,12 +21,38 @@ describe("TopBar", () => {
     expect(screen.getByText("Industrial Juggernaut")).toHaveClass("cartouche");
   });
 
-  test("renders a keyboard-focusable Instruments button", async () => {
+  test("the wordmark is a home link that navigates in-app on plain click", async () => {
     const user = userEvent.setup();
-    render(<TopBar />);
-    const button = screen.getByRole("button", { name: "Instruments" });
+    const onWordmarkClick = vi.fn();
+    render(<TopBar onWordmarkClick={onWordmarkClick} />);
+    const link = screen.getByRole("link", { name: "Industrial Juggernaut" });
+    expect(link).toHaveAttribute("href", "/");
+    await user.click(link);
+    expect(onWordmarkClick).toHaveBeenCalledTimes(1);
+  });
+
+  test("a modifier-click on the wordmark is left to the browser (open-in-new-tab works)", async () => {
+    const user = userEvent.setup();
+    const onWordmarkClick = vi.fn();
+    render(<TopBar onWordmarkClick={onWordmarkClick} />);
+    await user.keyboard("[MetaLeft>]");
+    await user.click(screen.getByRole("link", { name: "Industrial Juggernaut" }));
+    await user.keyboard("[/MetaLeft]");
+    expect(onWordmarkClick).not.toHaveBeenCalled();
+  });
+
+  test("keyboard order runs wordmark link, then the Instruments button", async () => {
+    const user = userEvent.setup();
+    render(<TopBar onInstrumentsClick={() => {}} />);
     await user.tab();
-    expect(button).toHaveFocus();
+    expect(screen.getByRole("link", { name: "Industrial Juggernaut" })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Instruments" })).toHaveFocus();
+  });
+
+  test("renders no Instruments button until something wires it (no dead brass)", () => {
+    render(<TopBar />);
+    expect(screen.queryByRole("button", { name: "Instruments" })).toBeNull();
   });
 
   test("calls onInstrumentsClick when the Instruments button is activated", async () => {

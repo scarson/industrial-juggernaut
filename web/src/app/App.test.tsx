@@ -1,10 +1,10 @@
 // ABOUTME: Structure tests for the App shell — header + Instruments button always present,
 // ABOUTME: the rail collapses per breakpoint, and the router renders the routed screen.
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
+import { useEffect, type ComponentType, type ReactNode } from "react";
 import { App } from "./App";
 import { useSetRailContent } from "./shell/rail-content";
-import type { ComponentType, ReactNode } from "react";
 
 // The Router seat: every test gets the real Router by default; the render-scoping test swaps in a
 // probe screen so it can count routed-screen renders and publish rail content from inside the tree
@@ -45,33 +45,64 @@ afterEach(() => {
 });
 
 describe("App", () => {
-  test("renders a <header> with the wordmark and an Instruments button", () => {
+  test("renders a <header> with the wordmark; no Instruments button until the menu exists", () => {
     stubMatchMediaForWidth(1200);
     render(<App />);
-    expect(screen.getByRole("banner")).toBeInTheDocument();
-    expect(screen.getByText("Industrial Juggernaut")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Instruments" })).toBeInTheDocument();
+    const banner = screen.getByRole("banner");
+    // Scoped to the banner: the landing screen's title plate carries the same text in <main>.
+    expect(within(banner).getByText("Industrial Juggernaut")).toBeInTheDocument();
+    // The Instruments affordance recedes while unwired (the Brass Budget bans inactive brass);
+    // it returns the moment the shell gives it a real job.
+    expect(screen.queryByRole("button", { name: "Instruments" })).toBeNull();
   });
 
-  test("at wide (>=1100px), the rail's content is present without a toggle", () => {
+  test("the wordmark navigates home from another route", async () => {
     stubMatchMediaForWidth(1200);
+    window.history.pushState({}, "", "/rules");
     render(<App />);
-    expect(screen.getByRole("complementary")).toBeInTheDocument();
+    await act(async () => {
+      screen.getByRole("link", { name: "Industrial Juggernaut" }).click();
+    });
+    expect(window.location.pathname).toBe("/");
+  });
+
+  test("at wide (>=1100px), published rail content is present without a toggle", () => {
+    stubMatchMediaForWidth(1200);
+    routerSeat.Probe = function PublishingScreen() {
+      const publish = useSetRailContent();
+      useEffect(() => {
+        publish(<span>instruments</span>);
+        return () => publish(null);
+      }, [publish]);
+      return <p>probe screen</p>;
+    };
+    render(<App />);
+    expect(screen.getByRole("complementary", { name: "Rail" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /rail/i })).toBeNull();
   });
 
-  test("at narrow (768-1099px), the rail collapses to a toggle with aria-expanded=false", () => {
+  test("at narrow (768-1099px), a publishing screen's rail collapses to a toggle", () => {
     stubMatchMediaForWidth(900);
+    routerSeat.Probe = function PublishingScreen() {
+      const publish = useSetRailContent();
+      useEffect(() => {
+        publish(<span>instruments</span>);
+        return () => publish(null);
+      }, [publish]);
+      return <p>probe screen</p>;
+    };
     render(<App />);
     const toggle = screen.getByRole("button", { name: /rail/i });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
   });
 
-  test("routes to the home screen at /", () => {
+  test("routes to the landing screen at /", () => {
     stubMatchMediaForWidth(1200);
     window.history.pushState({}, "", "/");
     render(<App />);
-    expect(screen.getByRole("heading", { name: /home/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 1, name: /industrial juggernaut/i }),
+    ).toBeInTheDocument();
   });
 
   test("routes to the rules screen at /rules", () => {
@@ -81,22 +112,18 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: /rules/i })).toBeInTheDocument();
   });
 
-  test("the shell rail renders on /game too, showing the placeholder before a game starts", () => {
+  test("no rail on /game before a game starts — the designer publishes no instruments yet", () => {
     stubMatchMediaForWidth(1200);
     window.history.pushState({}, "", "/game");
     render(<App />);
-    // The shell rail is present on every route; before a game starts (the NewGame designer) it shows
-    // the placeholder, consistent with the other routes.
-    expect(screen.getByRole("complementary", { name: "Rail" })).toBeInTheDocument();
-    expect(screen.getByText(/per-player resources/i)).toBeInTheDocument();
+    expect(screen.queryByRole("complementary")).toBeNull();
   });
 
-  test("the shell rail shows the placeholder on a non-game route", () => {
+  test("no rail on the landing — a rail with nothing to hold earns no pixels", () => {
     stubMatchMediaForWidth(1200);
     window.history.pushState({}, "", "/");
     render(<App />);
-    expect(screen.getByRole("complementary", { name: "Rail" })).toBeInTheDocument();
-    expect(screen.getByText(/per-player resources/i)).toBeInTheDocument();
+    expect(screen.queryByRole("complementary")).toBeNull();
   });
 
   test("publishing rail content does not re-render the routed screen", () => {
@@ -111,12 +138,14 @@ describe("App", () => {
 
     render(<App />);
     expect(screenRenders).toHaveBeenCalledTimes(1);
+    // Nothing published yet: no rail landmark at all.
+    expect(screen.queryByRole("complementary")).toBeNull();
 
     act(() => publish!(<span>published instruments</span>));
 
-    // The publish landed: the rail shows the content and the placeholder is gone...
-    expect(screen.getByText("published instruments")).toBeInTheDocument();
-    expect(screen.queryByText(/per-player resources/i)).not.toBeInTheDocument();
+    // The publish landed: the rail mounted around the content...
+    const rail = screen.getByRole("complementary", { name: "Rail" });
+    expect(rail).toContainElement(screen.getByText("published instruments"));
     // ...and the routed screen never re-rendered — rail-content state lives inside the provider,
     // and App neither holds nor subscribes to it.
     expect(screenRenders).toHaveBeenCalledTimes(1);

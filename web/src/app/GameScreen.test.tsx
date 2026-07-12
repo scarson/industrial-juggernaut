@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { GameScreen } from "./GameScreen";
-import { RailContentOutlet, RailContentProvider } from "./shell/rail-content";
+import { RailHost, RailContentProvider } from "./shell/rail-content";
 import { makeFakeDriver } from "../game/fake-driver";
 import { hex } from "../../../src/geometry/cube";
 import { defaultConfig, initGame, legalFirstBaseHexes } from "../engine-client/barrel";
@@ -82,8 +82,8 @@ function dummyHeader(): SessionHeader {
  * Mount GameScreen with an injected fake driver reporting `snapshot`. Returns the driver so the test
  * can push scripted authoritative events (`pushEvent`) — the same seam the store/composer tests use.
  * `header` skips the NewGame entry so the test mounts straight into play. GameScreen publishes its HUD
- * into the shell rail, so the mount wraps it in the rail-content provider with an outlet standing in
- * for the shell rail — the HUD lands in that outlet, which is where the HUD assertions read it.
+ * into the shell rail, so the mount wraps it in the rail-content provider with the RailHost standing
+ * in for the shell rail — the HUD mounts the rail, which is where the HUD assertions read it.
  */
 function renderGame(snapshot: GameState, controllableSeats: number[], pending: DriverPending | null = null) {
   const driver = makeFakeDriver({ snapshot, roster: fixtureRoster(), controllableSeats, pending });
@@ -91,7 +91,7 @@ function renderGame(snapshot: GameState, controllableSeats: number[], pending: D
   render(
     <RailContentProvider>
       <GameScreen createDriver={createDriver} header={dummyHeader()} />
-      <RailContentOutlet placeholder={<p>rail placeholder</p>} />
+      <RailHost breakpoint="wide" />
     </RailContentProvider>,
   );
   return driver;
@@ -140,9 +140,9 @@ describe("GameScreen — the right composer at each phase", () => {
 describe("GameScreen — HUD + event log", () => {
   test("the HUD publishes into the shell rail from the synced state", async () => {
     renderGame(setupState(), [0, 1]);
-    // The HUD lands in the rail outlet (the shell rail's seam), replacing the placeholder.
+    // The HUD lands in the shell rail (the rail exists BECAUSE the HUD published into it).
     expect(await screen.findByLabelText("HUD")).toBeInTheDocument();
-    expect(screen.queryByText("rail placeholder")).not.toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "Rail" })).toBeInTheDocument();
     // No events yet — the log is empty on a fresh sync.
     expect(screen.getByText(/no events yet/i)).toBeInTheDocument();
   });
@@ -150,17 +150,17 @@ describe("GameScreen — HUD + event log", () => {
   test("GameScreen does not render its own Instruments rail lane — the HUD lives in the shell rail", async () => {
     renderGame(setupState(), [0, 1]);
     await screen.findByLabelText("HUD");
-    // The HUD's only landmark is the shell rail's outlet; GameScreen renders no aside of its own.
+    // The HUD's only landmark is the shell rail; GameScreen renders no aside of its own.
     expect(screen.queryByRole("complementary", { name: "Instruments" })).toBeNull();
   });
 
-  test("unmounting GameScreen restores the rail placeholder (navigating away mid-game)", async () => {
+  test("unmounting GameScreen drops the rail entirely (navigating away mid-game)", async () => {
     const driver = makeFakeDriver({ snapshot: setupState(), roster: fixtureRoster(), controllableSeats: [0, 1] });
     function Harness({ inGame }: { inGame: boolean }) {
       return (
         <RailContentProvider>
           {inGame ? <GameScreen createDriver={() => driver as GameDriver} header={dummyHeader()} /> : null}
-          <RailContentOutlet placeholder={<p>rail placeholder</p>} />
+          <RailHost breakpoint="wide" />
         </RailContentProvider>
       );
     }
@@ -169,9 +169,9 @@ describe("GameScreen — HUD + event log", () => {
     expect(await screen.findByLabelText("HUD")).toBeInTheDocument();
 
     rerender(<Harness inGame={false} />);
-    // The publish effect's cleanup cleared the rail, so the placeholder is back.
+    // The publish effect's cleanup cleared the content, so the rail itself is gone.
     expect(screen.queryByLabelText("HUD")).toBeNull();
-    expect(screen.getByText("rail placeholder")).toBeInTheDocument();
+    expect(screen.queryByRole("complementary")).toBeNull();
   });
 
   test("an applied batch appends its events to the event log", async () => {

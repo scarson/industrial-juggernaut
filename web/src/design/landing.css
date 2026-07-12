@@ -1,0 +1,208 @@
+/* ABOUTME: The landing screen's set dressing — lamplight over the table, the map plate's */
+/* ABOUTME: atlas framing, and the "table is set" entrance (transform-led, opacity-floored). */
+
+/*
+ * The landing IS the North Star scene (DESIGN.md: "a dark wooden surface where a beautiful
+ * aged map lies open... the hero, glowing at center"). Three materials only: the walnut
+ * table, one parchment map object, and lamplight — a warm brass-tinted pool of light under
+ * the map. The glow is LIGHT on the table, not a drop shadow under a floating panel, so the
+ * Material-Layering Rule holds. Motion follows the choreography discipline: content renders
+ * at full legibility without it (opacity floors, media-gated), transform-led, ease-out.
+ */
+
+.landing {
+  max-width: 56rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 3rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* --- The title plate ----------------------------------------------------- */
+
+.landing-title {
+  margin: 0;
+  font-size: 2.25rem;
+  line-height: 1.15;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-align: center;
+  text-wrap: balance;
+}
+
+.landing-flavor {
+  margin: 0.75rem 0 0;
+  font-size: 0.9375rem;
+  color: var(--color-parchment-300);
+  text-align: center;
+  text-wrap: balance;
+}
+
+.landing-facts {
+  margin: 0.375rem 0 0;
+  font-size: 0.75rem;
+  color: var(--color-parchment-300);
+  text-align: center;
+}
+
+/* An engraved rule — two hairlines meeting a small fleuron, the cartouche's frame line. */
+.landing-ornament {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+  width: 100%;
+  justify-content: center;
+}
+
+.landing-rule {
+  height: 1px;
+  flex: 0 1 8rem;
+  background-color: var(--color-ink-700);
+}
+
+.landing-fleuron {
+  color: var(--color-parchment-300);
+  font-size: 0.625rem;
+  line-height: 1;
+}
+
+/* --- The map on the table ------------------------------------------------ */
+
+/* Lamplight pooling on the walnut under the map — the "glowing at center" of the North
+ * Star. A radial wash of the brass hue at whisper alpha: light, not chrome, not shadow. */
+.landing-lamplight {
+  margin-top: 0.75rem;
+  padding: 2rem 2.5rem;
+  width: 100%;
+  box-sizing: border-box;
+  background: radial-gradient(
+    ellipse 82% 78% at 50% 42%,
+    oklch(66.8% 0.11 81.17 / 0.13),
+    transparent 74%
+  );
+}
+
+/* The map lies on the table, not pinned to the screen grid — a half-degree of rest.
+ * (Static transform on the wrapper; the entrance animates the plate inside, so the
+ * animation's final `transform: none` never erases the tilt.) */
+.landing-tilt {
+  transform: rotate(-0.5deg);
+}
+
+/* The atlas plate: parchment margin around an ink plate-border around the map itself.
+ * Parchment is legal here — this object IS a map (the Parchment-Belongs-to-the-Board
+ * Rule's one sanctioned material). */
+/* Height-capped so the title, the map, AND the instruments share the first viewport — the
+ * primary action is visible on arrival, not below the fold. aspect-ratio derives the width
+ * from the capped height; max-width guards short-and-narrow viewports. */
+.landing-plate {
+  padding: 0.625rem;
+  box-sizing: border-box;
+  aspect-ratio: 16 / 10;
+  height: min(52vh, 33rem);
+  width: auto;
+  max-width: 100%;
+  margin-inline: auto;
+}
+
+.landing-plate-frame {
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--color-ink-700);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* The landing's map is an object on the table, not an interactive board. */
+.landing-plate svg {
+  pointer-events: none;
+}
+
+.landing-plate-note {
+  font-size: 0.8125rem;
+  color: var(--color-ink-700);
+}
+
+/* --- The instruments ------------------------------------------------------ */
+
+.landing-instruments {
+  margin-top: 2rem;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.landing-instrument {
+  font-size: 1rem;
+  padding: 0.55em 1.3em;
+}
+
+/* --- The entrance: "the table is set" ------------------------------------- */
+/* One earned beat on arrival — the map settles onto the table and the instruments take
+ * their places. Media-gated (no JS branch needed: every floor keeps content readable if
+ * the animation never runs), transform-led, ease-out quint/expo like the set pieces. */
+
+@media (prefers-reduced-motion: no-preference) {
+  .landing-plate {
+    animation: landing-settle 480ms var(--choreo-ease-expo) both;
+  }
+
+  .landing-instruments > .landing-instrument {
+    animation: landing-take-place 400ms var(--choreo-ease-quint) both;
+    animation-delay: calc(var(--i, 0) * 80ms);
+  }
+}
+
+@keyframes landing-settle {
+  from {
+    transform: scale(1.012);
+    opacity: 0.75;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes landing-take-place {
+  from {
+    transform: translateY(4px);
+    opacity: 0.7;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+/* --- Compact ("check-in") tier -------------------------------------------- */
+
+@media (max-width: 767px) {
+  .landing {
+    padding: 1.5rem 1rem 2rem;
+  }
+
+  .landing-title {
+    font-size: 1.5rem;
+    letter-spacing: 0.08em;
+  }
+
+  .landing-lamplight {
+    padding: 1rem;
+  }
+
+  /* Width-led on a phone: the plate spans the column and the height follows. */
+  .landing-plate {
+    height: auto;
+    width: 100%;
+  }
+
+  .landing-instruments {
+    gap: 0.625rem;
+  }
+}

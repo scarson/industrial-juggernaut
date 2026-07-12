@@ -4,7 +4,7 @@ import { describe, expect, test, vi } from "vitest";
 import { useEffect } from "react";
 import { act, render, screen } from "@testing-library/react";
 import {
-  RailContentOutlet,
+  RailHost,
   RailContentProvider,
   useRailContent,
   useSetRailContent,
@@ -96,16 +96,16 @@ describe("rail-content", () => {
     expect(new Set(seen).size).toBe(1);
   });
 
-  test("RailContentOutlet shows its placeholder when no content is published", () => {
+  test("RailHost renders no rail landmark while nothing is published — a rail must earn its pixels", () => {
     render(
       <RailContentProvider>
-        <RailContentOutlet placeholder={<p>placeholder</p>} />
+        <RailHost breakpoint="wide" />
       </RailContentProvider>,
     );
-    expect(screen.getByText("placeholder")).toBeInTheDocument();
+    expect(screen.queryByRole("complementary")).toBeNull();
   });
 
-  test("RailContentOutlet shows published content instead of the placeholder", () => {
+  test("RailHost mounts the rail around published content", () => {
     function Publisher() {
       const setContent = useSetRailContent();
       useEffect(() => {
@@ -118,14 +118,14 @@ describe("rail-content", () => {
     render(
       <RailContentProvider>
         <Publisher />
-        <RailContentOutlet placeholder={<p>placeholder</p>} />
+        <RailHost breakpoint="wide" />
       </RailContentProvider>,
     );
-    expect(screen.getByText("published")).toBeInTheDocument();
-    expect(screen.queryByText("placeholder")).not.toBeInTheDocument();
+    const rail = screen.getByRole("complementary", { name: "Rail" });
+    expect(rail).toContainElement(screen.getByText("published"));
   });
 
-  test("RailContentOutlet returns to the placeholder when content is cleared", () => {
+  test("RailHost drops the rail again when the publisher clears", () => {
     function Publisher({ publish }: { publish: boolean }) {
       const setContent = useSetRailContent();
       useEffect(() => {
@@ -138,19 +138,18 @@ describe("rail-content", () => {
     const { rerender } = render(
       <RailContentProvider>
         <Publisher publish={true} />
-        <RailContentOutlet placeholder={<p>placeholder</p>} />
+        <RailHost breakpoint="wide" />
       </RailContentProvider>,
     );
-    expect(screen.getByText("published")).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "Rail" })).toBeInTheDocument();
 
     rerender(
       <RailContentProvider>
         <Publisher publish={false} />
-        <RailContentOutlet placeholder={<p>placeholder</p>} />
+        <RailHost breakpoint="wide" />
       </RailContentProvider>,
     );
-    expect(screen.getByText("placeholder")).toBeInTheDocument();
-    expect(screen.queryByText("published")).not.toBeInTheDocument();
+    expect(screen.queryByRole("complementary")).toBeNull();
   });
 
   test("useSetRailContent defaults to a no-op outside any provider", () => {

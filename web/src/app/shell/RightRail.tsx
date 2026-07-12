@@ -22,14 +22,14 @@ export function RightRail({ breakpoint, children }: RightRailProps) {
 
   if (!collapsesToToggle) {
     return (
-      <aside className="table-panel" aria-label="Rail">
+      <aside className="table-panel" aria-label="Rail" style={OPEN_RAIL_STYLE}>
         {children}
       </aside>
     );
   }
 
   return (
-    <aside className="table-panel" aria-label="Rail">
+    <aside className="table-panel" aria-label="Rail" style={expanded ? OPEN_RAIL_STYLE : undefined}>
       <button
         type="button"
         className="chrome-button"
@@ -46,3 +46,15 @@ export function RightRail({ breakpoint, children }: RightRailProps) {
     </aside>
   );
 }
+
+// The rail showing content is a fixed-width instrument column — the board always wins space
+// (UI brief §5), so rail content (a long event-log line, a wide readout) must never widen it.
+// Collapsed, the rail carries no width and shrinks to its toggle.
+const OPEN_RAIL_STYLE: React.CSSProperties = {
+  width: "19rem",
+  flexShrink: 0,
+  boxSizing: "border-box",
+  overflowY: "auto",
+  overflowX: "hidden",
+  padding: "0.75rem",
+};

@@ -1,8 +1,10 @@
 // ABOUTME: The rail-content seam — a screen publishes a ReactNode for the shell's right rail, and a
 // ABOUTME: rail-side consumer reads it, without the publish re-rendering the passed-through children.
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { RightRail } from "./RightRail";
+import type { Breakpoint } from "./useBreakpoint";
 
-/** The content a screen has published for the shell rail, or `null` when the placeholder should show. */
+/** The content a screen has published for the shell rail, or `null` when no rail should exist. */
 const RailContentContext = createContext<ReactNode>(null);
 
 /** Sets the rail's content. Split into its own context so its identity stays stable across content
@@ -48,17 +50,19 @@ export function useSetRailContent(): SetRailContent {
   return useContext(SetRailContentContext);
 }
 
-export interface RailContentOutletProps {
-  /** Shown when no screen has published rail content — the rail's resting state. */
-  readonly placeholder: ReactNode;
+export interface RailHostProps {
+  readonly breakpoint: Breakpoint;
 }
 
 /**
- * Resolves what the rail shows: the published content when a screen has set it, else the placeholder.
- * As a consumer of the content context it re-renders on a publish, so hosting it here (rather than in
- * the shell's render body) keeps a content change from re-rendering the routed screen alongside it.
+ * Mounts the shell rail ONLY while a screen has published instruments into it — a rail with
+ * nothing to hold earns no pixels (DESIGN.md: panels earn their pixels), so the landing, the
+ * viewer, and the rules reference get the full table width. As the content-context consumer
+ * it re-renders on a publish; hosting the subscription here (not in the shell's render body)
+ * keeps a content change from re-rendering the routed screen alongside it.
  */
-export function RailContentOutlet({ placeholder }: RailContentOutletProps) {
+export function RailHost({ breakpoint }: RailHostProps) {
   const content = useRailContent();
-  return <>{content ?? placeholder}</>;
+  if (content === null) return null;
+  return <RightRail breakpoint={breakpoint}>{content}</RightRail>;
 }

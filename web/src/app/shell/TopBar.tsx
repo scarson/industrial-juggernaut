@@ -9,6 +9,10 @@ export interface TopBarProps {
   readonly seedLabel?: string;
   /** Invoked when the Instruments button is activated. */
   readonly onInstrumentsClick?: () => void;
+  /** In-app home navigation for a plain click on the wordmark. Modifier clicks (new tab)
+   *  fall through to the browser via the real `href="/"`; when this is unwired, plain
+   *  clicks do too — the SPA fallback serves the full app either way. */
+  readonly onWordmarkClick?: () => void;
 }
 
 /**
@@ -19,12 +23,21 @@ export interface TopBarProps {
  * instruments — when a screen has nothing to report they recede entirely rather than
  * holding empty placeholders.
  */
-export function TopBar({ turnLabel, seedLabel, onInstrumentsClick }: TopBarProps) {
+export function TopBar({ turnLabel, seedLabel, onInstrumentsClick, onWordmarkClick }: TopBarProps) {
+  function handleWordmarkClick(event: React.MouseEvent<HTMLAnchorElement>) {
+    if (onWordmarkClick === undefined) return;
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
+      return;
+    }
+    event.preventDefault();
+    onWordmarkClick();
+  }
+
   return (
     <header className={`table-surface ${TOPBAR_HEIGHT_CLASS}`}>
-      <span className="cartouche" style={WORDMARK_STYLE}>
+      <a className="cartouche" style={WORDMARK_STYLE} href="/" onClick={handleWordmarkClick}>
         Industrial Juggernaut
-      </span>
+      </a>
       {turnLabel !== undefined && (
         <span data-testid="topbar-turn" style={TURN_CHIP_STYLE}>
           {turnLabel}
@@ -36,14 +49,18 @@ export function TopBar({ turnLabel, seedLabel, onInstrumentsClick }: TopBarProps
             {seedLabel}
           </span>
         )}
-        <button
-          type="button"
-          className="chrome-button brass-accent"
-          style={INSTRUMENTS_STYLE}
-          onClick={onInstrumentsClick}
-        >
-          Instruments
-        </button>
+        {/* Brass never sits on an inactive control (the Brass Budget Rule), so the
+            Instruments affordance exists only once the shell wires it to a real menu. */}
+        {onInstrumentsClick !== undefined && (
+          <button
+            type="button"
+            className="chrome-button brass-accent"
+            style={INSTRUMENTS_STYLE}
+            onClick={onInstrumentsClick}
+          >
+            Instruments
+          </button>
+        )}
       </div>
     </header>
   );
@@ -55,6 +72,8 @@ const WORDMARK_STYLE: React.CSSProperties = {
   fontSize: "1.125rem",
   lineHeight: 1,
   whiteSpace: "nowrap",
+  color: "inherit",
+  textDecoration: "none",
 };
 // The chip is separated from the title plate by an engraved hairline rule (1px — a
 // divider, not a colored side-stripe), and truncates rather than wrapping the 44px bar.

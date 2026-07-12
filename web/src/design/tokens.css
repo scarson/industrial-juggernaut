@@ -121,6 +121,12 @@ body {
   border-bottom: 1px solid var(--hairline);
 }
 
+/* Links in the bar (the wordmark) take the same brass focus treatment as the buttons. */
+.shell-topbar a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* The compact "check-in" tier (below the 768px narrow boundary — the same threshold
  * useBreakpoint.ts encodes): tighten the bar's rhythm so the wordmark, readouts, and the
  * Instruments button share a phone width without horizontal overflow. */
