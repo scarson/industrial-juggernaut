@@ -56,10 +56,17 @@ export function RulesReference() {
       </header>
 
       <nav aria-label="Contents" style={TOC_STYLE}>
-        {rulesSections.map((section) => (
-          <a key={section.id} className="mono" href={`#rules-${section.id}`} style={TOC_LINK_STYLE}>
-            {section.title}
-          </a>
+        {rulesSections.map((section, i) => (
+          <span key={section.id} style={TOC_ENTRY_STYLE}>
+            {i > 0 && (
+              <span aria-hidden="true" style={TOC_DIVIDER_STYLE}>
+                |
+              </span>
+            )}
+            <a className="mono" href={`#rules-${section.id}`} style={TOC_LINK_STYLE}>
+              {section.title}
+            </a>
+          </span>
         ))}
       </nav>
 
@@ -76,9 +83,12 @@ function Section({ section }: { section: RulesSection }) {
     <article id={`rules-${section.id}`} data-testid={`rules-section-${section.id}`} style={SECTION_STYLE}>
       <details open>
         <summary style={SUMMARY_STYLE}>
-          <h2 className="cartouche" style={SECTION_TITLE_STYLE}>
+          {/* A native <h2> inside <summary> is valid HTML but WebKit/VoiceOver drops it from the
+              heading rotor; an explicit heading role on an inline span is exposed by the major
+              screen readers while the summary keeps its disclosure semantics. */}
+          <span role="heading" aria-level={2} className="cartouche" style={SECTION_TITLE_STYLE}>
             {section.title}
-          </h2>
+          </span>
         </summary>
         <div style={SECTION_BODY_STYLE}>
           <p style={BODY_STYLE}>{section.body}</p>
@@ -161,6 +171,16 @@ const TOC_STYLE: CSSProperties = {
   borderTop: "1px solid var(--hairline)",
   borderBottom: "1px solid var(--hairline)",
   padding: "0.6rem 0",
+};
+const TOC_ENTRY_STYLE: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "1rem",
+};
+// A quiet engraved divider between contents entries — decorative, hidden from AT.
+const TOC_DIVIDER_STYLE: CSSProperties = {
+  color: "var(--color-ink-700)",
+  fontSize: "0.8rem",
 };
 const TOC_LINK_STYLE: CSSProperties = {
   fontSize: "0.8rem",
