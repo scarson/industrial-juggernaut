@@ -8,6 +8,7 @@ import { RailHost, RailContentProvider } from "./shell/rail-content";
 import { makeFakeDriver } from "../game/fake-driver";
 import { hex } from "../../../src/geometry/cube";
 import { defaultConfig, initGame, legalFirstBaseHexes } from "../engine-client/barrel";
+import { highlightSets } from "../board/highlight";
 import type { GameState, LogEntry } from "../engine-client/barrel";
 import type { DriverPending, GameDriver, SeatRosterEntry } from "../game/driver";
 import type { SessionHeader } from "../engine-client/barrel";
@@ -314,5 +315,101 @@ describe("GameScreen — rejection notice", () => {
     });
 
     await waitFor(() => expect(screen.queryByTestId("rejection-notice")).not.toBeInTheDocument());
+  });
+});
+
+// ── Board interactivity — the board is the interface (UI brief §7), chips stay the a11y path ─────
+describe("GameScreen — board interactivity", () => {
+  test("clicking a highlighted placement hex on the SVG board places the first base", async () => {
+    const state = setupState();
+    const driver = renderGame(state, [0, 1]);
+    await screen.findByRole("region", { name: /setup placement/i });
+
+    const target = legalFirstBaseHexes(state)[0]!;
+    const cell = document.querySelector(
+      `polygon[data-hex="${target.x},${target.y},${target.z}"]`,
+    ) as SVGPolygonElement;
+    act(() => {
+      cell.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(driver.submitted()).toEqual([{ type: "placeFirstBase", hex: target }]);
+  });
+
+  test("clicking a highlighted build hex stages the piece and brass-marks the cell", async () => {
+    const state = playState();
+    renderGame(state, [0, 1]);
+    await screen.findByTestId("play-composers");
+
+    // A hex the engine offers as a legal build target (the same set the board highlights).
+    const buildKey = [...highlightSets(state).buildHexes][0]!;
+    const cell = document.querySelector(`polygon[data-hex="${buildKey}"]`) as SVGPolygonElement;
+    expect(cell.getAttribute("data-highlight")).toBe("build");
+    act(() => {
+      cell.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(screen.getByTestId("build-budget")).toHaveTextContent("Remaining: 1");
+    const staged = document.querySelector(`polygon[data-hex="${buildKey}"]`) as SVGPolygonElement;
+    expect(staged.getAttribute("data-selected")).toBe("true");
+  });
+
+  test("a non-highlighted hex is not click-actionable (no false affordance)", async () => {
+    const state = playState();
+    const driver = renderGame(state, [0, 1]);
+    await screen.findByTestId("play-composers");
+
+    const sets = highlightSets(state);
+    const inertHex = state.board.hexes.find((h) => {
+      const k = `${h.x},${h.y},${h.z}`;
+      return !sets.buildHexes.has(k) && !sets.attackTargets.has(k) && !sets.placementHexes.has(k);
+    })!;
+    const cell = document.querySelector(
+      `polygon[data-hex="${inertHex.x},${inertHex.y},${inertHex.z}"]`,
+    ) as SVGPolygonElement;
+    act(() => {
+      cell.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(driver.submitted()).toEqual([]);
+    expect(screen.getByTestId("build-budget")).toHaveTextContent("Remaining: 2");
+  });
+
+  test("hovering a hex surfaces the surveyor readout with its contents", async () => {
+    const state = playState();
+    renderGame(state, [0, 1]);
+    await screen.findByTestId("play-composers");
+
+    // PLAY_IRON[0] is iron under p0's control — the readout should name both facts.
+    const ironHex = PLAY_IRON[0]!;
+    const cell = document.querySelector(
+      `polygon[data-hex="${ironHex.x},${ironHex.y},${ironHex.z}"]`,
+    ) as SVGPolygonElement;
+    act(() => {
+      // jsdom has no PointerEvent; React synthesizes onPointerEnter from bubbling `pointerover`
+      // (see Board.test.tsx's hover test for the full rationale).
+      cell.dispatchEvent(new Event("pointerover", { bubbles: true }));
+    });
+
+    const readout = await screen.findByTestId("hex-readout");
+    expect(readout.textContent).toContain(`${ironHex.x},${ironHex.y},${ironHex.z}`);
+    expect(readout.textContent).toMatch(/iron/i);
+  });
+});
+
+// ── The turn banner — whose round it is, in plain sight beside the board ─────────────────────────
+describe("GameScreen — turn banner", () => {
+  test("setup phase shows the 1-based acting player in the banner", async () => {
+    renderGame(setupState(), [0, 1]);
+    const banner = await screen.findByTestId("turn-banner");
+    expect(banner.textContent).toMatch(/setup/i);
+    expect(banner.textContent).toMatch(/player 1/i);
+  });
+
+  test("play phase shows the turn number and the acting player's round", async () => {
+    renderGame(playState(), [0, 1]);
+    const banner = await screen.findByTestId("turn-banner");
+    expect(banner.textContent).toMatch(/turn 1/i);
+    expect(banner.textContent).toMatch(/player 1/i);
   });
 });

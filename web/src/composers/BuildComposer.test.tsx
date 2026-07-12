@@ -292,3 +292,69 @@ describe("BuildComposer — board-click seam", () => {
     expect(store.getState().ui.stagedBuild).toEqual([]);
   });
 });
+
+describe("BuildComposer — piece-typed legality", () => {
+  test("factory mode offers only factory-legal hexes; base mode also offers base-only hexes (iron)", async () => {
+    const user = userEvent.setup();
+    const state = playFixture();
+    const store = createGameStore();
+    const driver = driverFor(state);
+    store.getState().connectDriver(driver);
+
+    render(<BuildComposer state={state} player={0} driver={driver} store={store} />);
+
+    // PLAY_IRON[0] is iron: a legal BASE target but never a legal FACTORY target.
+    const ironKey = key(PLAY_IRON[0]!);
+    expect(screen.queryByTestId(`build-hex-${ironKey}`)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("radio", { name: /base/i }));
+    expect(screen.getByTestId(`build-hex-${ironKey}`)).toBeInTheDocument();
+  });
+
+  test("a board click on a base-only hex with factory selected auto-switches to base and stages it", () => {
+    const state = playFixture();
+    const store = createGameStore();
+    const driver = driverFor(state);
+    store.getState().connectDriver(driver);
+
+    render(<BuildComposer state={state} player={0} driver={driver} store={store} />);
+
+    act(() => store.getState().ui.boardHandlers.build!(PLAY_IRON[0]!));
+
+    expect(screen.getByRole("radio", { name: /base/i })).toBeChecked();
+    expect(store.getState().ui.stagedBuild).toEqual([PLAY_IRON[0]!]);
+    expect(screen.getByTestId("build-budget")).toHaveTextContent("Remaining: 1");
+  });
+
+  test("staging is type-locked: with a factory staged, a base-only hex click does NOT stage (no mixed builds)", () => {
+    const state = playFixture();
+    const store = createGameStore();
+    const driver = driverFor(state);
+    store.getState().connectDriver(driver);
+
+    render(<BuildComposer state={state} player={0} driver={driver} store={store} />);
+
+    act(() => store.getState().ui.boardHandlers.build!(PLAY_BUILD_TARGET)); // factory staged
+    act(() => store.getState().ui.boardHandlers.build!(PLAY_IRON[0]!)); // base-only hex — must not mix
+
+    expect(store.getState().ui.stagedBuild).toEqual([PLAY_BUILD_TARGET]);
+    expect(screen.getByTestId("build-budget")).toHaveTextContent("Remaining: 1");
+  });
+
+  test("switching piece type clears any staged pieces — a build is one piece type (engine rule)", async () => {
+    const user = userEvent.setup();
+    const state = playFixture();
+    const store = createGameStore();
+    const driver = driverFor(state);
+    store.getState().connectDriver(driver);
+
+    render(<BuildComposer state={state} player={0} driver={driver} store={store} />);
+    act(() => store.getState().ui.boardHandlers.build!(PLAY_BUILD_TARGET));
+    expect(screen.getByTestId("build-budget")).toHaveTextContent("Remaining: 1");
+
+    await user.click(screen.getByRole("radio", { name: /base/i }));
+
+    expect(screen.getByTestId("build-budget")).toHaveTextContent("Remaining: 2");
+    expect(store.getState().ui.stagedBuild).toEqual([]);
+  });
+});

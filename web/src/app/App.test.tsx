@@ -5,6 +5,7 @@ import { act, render, screen, within } from "@testing-library/react";
 import { useEffect, type ComponentType, type ReactNode } from "react";
 import { App } from "./App";
 import { useSetRailContent } from "./shell/rail-content";
+import { useSetShellLabels } from "./shell/shell-labels";
 
 // The Router seat: every test gets the real Router by default; the render-scoping test swaps in a
 // probe screen so it can count routed-screen renders and publish rail content from inside the tree
@@ -149,5 +150,35 @@ describe("App", () => {
     // ...and the routed screen never re-rendered — rail-content state lives inside the provider,
     // and App neither holds nor subscribes to it.
     expect(screenRenders).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("App — shell labels seam", () => {
+  test("publishing shell labels surfaces the top-bar turn chip + seed readout without re-rendering the routed screen", () => {
+    stubMatchMediaForWidth(1200);
+    const screenRenders = vi.fn();
+    let publish: ((labels: { turnLabel: string; seedLabel: string } | null) => void) | null = null;
+    routerSeat.Probe = function ProbeScreen() {
+      screenRenders();
+      publish = useSetShellLabels();
+      return <p>probe screen</p>;
+    };
+
+    render(<App />);
+    expect(screenRenders).toHaveBeenCalledTimes(1);
+    // Nothing published: the chip and readout recede entirely.
+    expect(screen.queryByTestId("topbar-turn")).toBeNull();
+    expect(screen.queryByTestId("topbar-seed")).toBeNull();
+
+    act(() => publish!({ turnLabel: "Turn 3 — Player 2's round", seedLabel: "seed 42 · 96 hexes" }));
+
+    expect(screen.getByTestId("topbar-turn")).toHaveTextContent("Turn 3 — Player 2's round");
+    expect(screen.getByTestId("topbar-seed")).toHaveTextContent("seed 42 · 96 hexes");
+    // The routed screen never re-rendered — labels live inside the provider, not App.
+    expect(screenRenders).toHaveBeenCalledTimes(1);
+
+    act(() => publish!(null));
+    expect(screen.queryByTestId("topbar-turn")).toBeNull();
+    expect(screen.queryByTestId("topbar-seed")).toBeNull();
   });
 });

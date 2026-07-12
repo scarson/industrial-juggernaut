@@ -85,3 +85,31 @@ describe("highlightSets", () => {
     expect(sets.attackTargets.size).toBe(0);
   });
 });
+
+describe("highlightSets — piece-typed build sets", () => {
+  test("factoryHexes and baseHexes partition builds by piece type; buildHexes is their union", () => {
+    const state = playPhaseState();
+    const sets = highlightSets(state);
+
+    const expectedFactory = new Set<string>();
+    const expectedBase = new Set<string>();
+    for (const action of legalActions(state)) {
+      if (action.kind !== "build") continue;
+      for (const piece of action.pieces) {
+        (piece.type === "factory" ? expectedFactory : expectedBase).add(hexKey(piece.hex));
+      }
+    }
+
+    expect(sets.factoryHexes).toEqual(expectedFactory);
+    expect(sets.baseHexes).toEqual(expectedBase);
+    expect(sets.buildHexes).toEqual(new Set([...expectedFactory, ...expectedBase]));
+  });
+
+  test("no iron hex is ever a legal factory target (the engine's non-iron factory rule)", () => {
+    const state = playPhaseState();
+    const iron = new Set(state.board.iron.map(hexKey));
+    for (const key of highlightSets(state).factoryHexes) {
+      expect(iron.has(key), key).toBe(false);
+    }
+  });
+});

@@ -1,7 +1,7 @@
 // ABOUTME: The attack composer — target selection, eligible-attacker candidates, a commitment
 // ABOUTME: slider whose odds read live from config.combatTable, and the Commit action. NO local
 // ABOUTME: combat resolution: the RNG draw belongs to the reducer/server (honest tension, PRODUCT.md #5).
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as Slider from "@radix-ui/react-slider";
 import { distance, representativeDefender } from "../engine-client/barrel";
 import { highlightSets } from "../board/highlight";
@@ -86,6 +86,34 @@ export function AttackComposer({ state, player, driver, store }: AttackComposerP
     setCommitment(MIN_COMMITMENT);
     store.getState().clearPreview();
   }
+
+  // Board-click seam: claim the `attackTarget` channel so a click on an enemy base selects it as
+  // the target (PlayView routes only legal `attackTargets` cells here; the chip list remains the
+  // path that also offers illegal targets with their teaching line). Registered once via a ref so
+  // target churn doesn't thrash the store.
+  const selectTargetRef = useRef(selectTarget);
+  selectTargetRef.current = selectTarget;
+  useEffect(() => {
+    store.getState().setBoardHandler("attackTarget", (hex: Hex) => {
+      selectTargetRef.current(hexKey(hex));
+    });
+    return () => {
+      store.getState().setBoardHandler("attackTarget", null);
+      store.getState().setAttackSelection(null);
+    };
+  }, [store]);
+
+  // Publish the live selection for the board's brass treatment: the chosen target plus exactly
+  // the attackers the current commitment level would send. Cleared when no target is chosen.
+  useEffect(() => {
+    if (target === null) {
+      store.getState().setAttackSelection(null);
+      return;
+    }
+    store.getState().setAttackSelection({ target, attackers });
+    // `attackers` is derived (slice of eligibleAttackers by commitment); keying on its stable
+    // inputs avoids re-publishing an identical selection every render.
+  }, [store, targetKey, effectiveCommitment, state]);
 
   const targetItems: HexButtonItem[] = candidateTargets.map((base) => {
     const key = hexKey(base.hex);

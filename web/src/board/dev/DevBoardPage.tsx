@@ -29,8 +29,13 @@ function buildScene(regime: Regime): {
   const empty = state.board.hexes.filter(
     (h) => !state.bases.some((b) => hexKey(b.hex) === hexKey(h)),
   );
+  const buildHexes = new Set(empty.slice(0, 6).map(hexKey));
   const highlights: HighlightSets = {
-    buildHexes: new Set(empty.slice(0, 6).map(hexKey)),
+    buildHexes,
+    // The dev page's demo highlights are hand-picked empty hexes — treat them all as
+    // factory-legal for the piece-typed sets (the demo exercises rendering, not legality).
+    factoryHexes: buildHexes,
+    baseHexes: new Set<string>(),
     attackTargets: new Set(empty.slice(6, 9).map(hexKey)),
     placementHexes: new Set<string>(),
   };

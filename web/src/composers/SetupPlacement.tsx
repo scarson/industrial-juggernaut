@@ -1,14 +1,16 @@
 // ABOUTME: The setup-placement composer — during first-base placement (phase.turn===0), highlights
 // ABOUTME: the drawn player's legal outer-ring hexes and submits placeFirstBase on a click.
+import { useEffect } from "react";
 import { currentPlayer } from "../engine-client/barrel";
 import { highlightSets } from "../board/highlight";
-import { keyToHex } from "../board/projection";
+import { hexKey, keyToHex } from "../board/projection";
 import { playerIdentity } from "../identity/player-identity";
 import { PlayerShapeIcon } from "../identity/shapes";
 import { ComposerPanel, RuleLine, HexButtonList } from "./shell";
 import type { HexButtonItem } from "./shell";
-import type { GameState, PlayerId } from "../engine-client/barrel";
+import type { GameState, Hex, PlayerId } from "../engine-client/barrel";
 import type { GameDriver } from "../game/driver";
+import type { GameStore } from "../game/store";
 
 export interface SetupPlacementProps {
   /** The authoritative state to place against — callers mount this only while `state.phase.turn
@@ -24,14 +26,18 @@ export interface SetupPlacementProps {
   readonly player: PlayerId;
   /** Submits the eventual `{type:"placeFirstBase", hex}` command. */
   readonly driver: GameDriver;
+  /** Board-click seam: while this seat's placement turn is live, the composer claims the store's
+   *  `placement` board channel so a click on a highlighted outer-ring cell places there. Optional —
+   *  without a store (older mounts, tests) the hex-button list remains the only path. */
+  readonly store?: GameStore;
 }
 
 /**
- * Hex selection here is a highlighted-hex-button list (`data-testid="placement-hex-<key>"`), NOT
- * the SVG board — routing a real `Board` click into this composer is P3.11's job, the same split
- * `BuildComposer`/`AttackComposer` document for their own hex selection.
+ * Hex selection is the highlighted-hex-button list (`data-testid="placement-hex-<key>"`) — the
+ * keyboard/a11y action path — plus, when a `store` is provided, the SVG board itself via the
+ * `placement` board-click channel (PlayView routes clicks on `placementHexes` cells here).
  */
-export function SetupPlacement({ state, player, driver }: SetupPlacementProps) {
+export function SetupPlacement({ state, player, driver, store }: SetupPlacementProps) {
   const order = state.phase.order;
   const acting = currentPlayer(state);
   const controllableNow = acting === player && driver.controllableSeats().includes(player);
@@ -40,6 +46,18 @@ export function SetupPlacement({ state, player, driver }: SetupPlacementProps) {
   function place(hex: { x: number; y: number; z: number }) {
     driver.submit({ type: "placeFirstBase", hex });
   }
+
+  // Claim the placement board channel only while THIS seat's turn is live — a waiting instance
+  // must not register (its click would submit for the wrong seat and be rejected as NOT_YOUR_TURN).
+  useEffect(() => {
+    if (store === undefined || !controllableNow) return;
+    const legal = placementHexes;
+    store.getState().setBoardHandler("placement", (hex: Hex) => {
+      if (!legal.has(hexKey(hex))) return;
+      driver.submit({ type: "placeFirstBase", hex });
+    });
+    return () => store.getState().setBoardHandler("placement", null);
+  }, [store, controllableNow, placementHexes, driver]);
 
   const placementItems: HexButtonItem[] = [...placementHexes].map((keyStr) => ({
     key: keyStr,

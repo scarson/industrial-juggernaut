@@ -13,7 +13,6 @@ import type {
   GameDriver,
   SeatRosterEntry,
 } from "./driver";
-import type { BoardProps } from "../board/Board";
 
 /** The ceremony data `turnRollover` carries. It is NOT the source of truth for game state —
  *  `state.phase.order` (set by `advanceRound` inside `applyEntry`, folded on the round-closing
@@ -44,10 +43,23 @@ export type PreviewSlice = {
   combat: boolean;
 };
 
+/** The board-click channels a composer may claim while mounted. PlayView routes an SVG hex click
+ *  to exactly one channel by consulting `highlightSets` — the board affords clicking exactly what
+ *  it highlights, and the composers' own hex-button lists stay the keyboard/a11y action path. */
+export type BoardHandlers = {
+  placement?: (hex: Hex) => void;
+  build?: (hex: Hex) => void;
+  attackTarget?: (hex: Hex) => void;
+};
+
 export type UiSlice = {
   openComposer: string | null;
-  selection: BoardProps["selection"] | null;
   hover: Hex | null;
+  /** Build pieces staged but not yet committed — the board renders these as the brass selection. */
+  stagedBuild: Hex[];
+  /** The attack composer's live target + committed attackers, for the board's brass treatment. */
+  attackSelection: { target: Hex; attackers: Hex[] } | null;
+  boardHandlers: BoardHandlers;
 };
 
 // Consumers should subscribe to the narrowest nested field they need (e.g. `s.authoritative.state`,
@@ -68,6 +80,12 @@ export type GameStoreState = {
    *  outcome; the composer shows odds, not a result). */
   setPreview: (source: DriverCommand, preview: { state: GameState; combat?: true }) => void;
   clearPreview: () => void;
+  /** Publishes the build composer's staged-but-uncommitted pieces for the board's selection. */
+  setStagedBuild: (hexes: Hex[]) => void;
+  /** Publishes the attack composer's live target + committed attackers; `null` clears. */
+  setAttackSelection: (selection: { target: Hex; attackers: Hex[] } | null) => void;
+  /** Claims (or with `null` releases) one board-click channel for the mounted composer. */
+  setBoardHandler: (channel: keyof BoardHandlers, handler: ((hex: Hex) => void) | null) => void;
 };
 
 const initialAuthoritative: AuthoritativeSlice = {
@@ -83,7 +101,13 @@ const initialAuthoritative: AuthoritativeSlice = {
 
 const initialPreview: PreviewSlice = { state: null, source: null, combat: false };
 
-const initialUi: UiSlice = { openComposer: null, selection: null, hover: null };
+const initialUi: UiSlice = {
+  openComposer: null,
+  hover: null,
+  stagedBuild: [],
+  attackSelection: null,
+  boardHandlers: {},
+};
 
 /** The handle `createGameStore()` returns — the type components/composers take as a `store` prop. */
 export type GameStore = ReturnType<typeof createGameStore>;
@@ -113,6 +137,21 @@ export function createGameStore() {
     clearPreview(): void {
       set({ preview: initialPreview });
     },
+
+    setStagedBuild(hexes: Hex[]): void {
+      set({ ui: { ...get().ui, stagedBuild: hexes } });
+    },
+
+    setAttackSelection(selection: { target: Hex; attackers: Hex[] } | null): void {
+      set({ ui: { ...get().ui, attackSelection: selection } });
+    },
+
+    setBoardHandler(channel: keyof BoardHandlers, handler: ((hex: Hex) => void) | null): void {
+      const handlers = { ...get().ui.boardHandlers };
+      if (handler === null) delete handlers[channel];
+      else handlers[channel] = handler;
+      set({ ui: { ...get().ui, boardHandlers: handlers } });
+    },
   }));
 }
 
@@ -134,6 +173,9 @@ function dispatch(
           rejection: null,
         },
         preview: initialPreview,
+        // A fresh authoritative baseline invalidates any in-progress staging; the mounted
+        // composers' click handlers stay registered (sync does not unmount them).
+        ui: { ...get().ui, stagedBuild: [], attackSelection: null },
       });
       return;
     }

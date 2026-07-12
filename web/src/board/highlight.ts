@@ -18,6 +18,13 @@ import { hexKey } from "./projection";
  */
 export type HighlightSets = {
   buildHexes: Set<string>;
+  /** Build hexes legal for a FACTORY piece specifically — never an iron hex (the engine's
+   *  non-iron factory rule). `buildHexes` is the union of this and `baseHexes`; the composer
+   *  offers the piece-type-specific set so a chip/board click can never stage a piece the
+   *  engine would reject on type grounds. */
+  factoryHexes: Set<string>;
+  /** Build hexes legal for a BASE piece specifically — may include iron hexes. */
+  baseHexes: Set<string>;
   attackTargets: Set<string>;
   placementHexes: Set<string>;
 };
@@ -56,6 +63,8 @@ export function highlightSets(state: GameState): HighlightSets {
   if (cached !== undefined) return cached;
 
   const buildHexes = new Set<string>();
+  const factoryHexes = new Set<string>();
+  const baseHexes = new Set<string>();
   const attackTargets = new Set<string>();
   const placementHexes = new Set<string>();
 
@@ -64,14 +73,18 @@ export function highlightSets(state: GameState): HighlightSets {
   } else {
     for (const action of legalActions(state)) {
       if (action.kind === "build") {
-        for (const piece of action.pieces) buildHexes.add(hexKey(piece.hex));
+        for (const piece of action.pieces) {
+          const key = hexKey(piece.hex);
+          buildHexes.add(key);
+          (piece.type === "factory" ? factoryHexes : baseHexes).add(key);
+        }
       } else if (action.kind === "attack") {
         for (const decl of action.attacks) attackTargets.add(hexKey(decl.target));
       }
     }
   }
 
-  const result = { buildHexes, attackTargets, placementHexes };
+  const result = { buildHexes, factoryHexes, baseHexes, attackTargets, placementHexes };
   highlightSetsCache.set(state, result);
   return result;
 }
