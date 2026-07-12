@@ -5,9 +5,12 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { GameScreen } from "./GameScreen";
 import { RailHost, RailContentProvider } from "./shell/rail-content";
+import { ShellLabelsProvider, TopBarHost } from "./shell/shell-labels";
 import { makeFakeDriver } from "../game/fake-driver";
 import { hex } from "../../../src/geometry/cube";
 import { defaultConfig, initGame, legalFirstBaseHexes } from "../engine-client/barrel";
+import { controlOf } from "../engine-client/selectors";
+import { hexKey } from "../board/projection";
 import { highlightSets } from "../board/highlight";
 import { overlapFixtureState, SHARED_HEX } from "../board/test-fixtures";
 import * as BoardModule from "../board/Board";
@@ -259,6 +262,80 @@ describe("GameScreen — choreography", () => {
     expect(screen.getByTestId("victory-winner-0")).toBeInTheDocument();
     // Victory is terminal: the play composers are gone.
     expect(screen.queryByTestId("play-composers")).not.toBeInTheDocument();
+  });
+});
+
+// ── Victory's spatial story — the board and the labels tell the ending, not just a text block ────
+describe("GameScreen — victory's spatial story", () => {
+  test("at game over, the winner's controlled iron takes the brass selected treatment", async () => {
+    const state = playState();
+    const driver = renderGame(state, [0, 1]);
+    await screen.findByTestId("play-composers");
+
+    act(() => {
+      driver.pushEvent({ type: "gameOver", winners: [0], cause: "victory" });
+    });
+    await screen.findByTestId("victory");
+
+    // Self-validating fixture: the winner really controls iron on this board.
+    const winnerIron = controlOf(state, 0).iron;
+    expect(winnerIron.length).toBeGreaterThan(0);
+    for (const iron of winnerIron) {
+      const cell = document.querySelector(`polygon[data-hex="${hexKey(iron)}"]`) as SVGPolygonElement;
+      expect(cell.getAttribute("data-selected")).toBe("true");
+    }
+  });
+
+  test("at game over, stale legal-move highlights leave the victory stage", async () => {
+    const state = playState();
+    const driver = renderGame(state, [0, 1]);
+    await screen.findByTestId("play-composers");
+    // The live play phase highlights legal builds…
+    expect(document.querySelectorAll("polygon[data-highlight]").length).toBeGreaterThan(0);
+
+    act(() => {
+      driver.pushEvent({ type: "gameOver", winners: [0], cause: "victory" });
+    });
+    await screen.findByTestId("victory");
+
+    // …but a finished game affords nothing, so no cell may keep a highlight treatment.
+    expect(document.querySelectorAll("polygon[data-highlight]")).toHaveLength(0);
+  });
+
+  test("at game over, the turn banner tells the outcome instead of a phantom turn", async () => {
+    const driver = renderGame(playState(), [0, 1]);
+    await screen.findByTestId("play-composers");
+
+    act(() => {
+      driver.pushEvent({ type: "gameOver", winners: [1], cause: "victory" });
+    });
+    await screen.findByTestId("victory");
+
+    const banner = screen.getByTestId("turn-banner");
+    expect(banner.textContent).toMatch(/victory — player 2/i);
+    expect(banner.textContent).not.toMatch(/round|places/i);
+  });
+
+  test("at game over, the top-bar turn chip swaps to the game-over label", async () => {
+    const driver = makeFakeDriver({ snapshot: playState(), roster: fixtureRoster(), controllableSeats: [0, 1] });
+    render(
+      <ShellLabelsProvider>
+        <RailContentProvider>
+          <GameScreen createDriver={() => driver as GameDriver} header={dummyHeader()} />
+          <RailHost breakpoint="wide" />
+        </RailContentProvider>
+        <TopBarHost />
+      </ShellLabelsProvider>,
+    );
+    await screen.findByTestId("play-composers");
+    expect(screen.getByTestId("topbar-turn")).toHaveTextContent(/turn 1/i);
+
+    act(() => {
+      driver.pushEvent({ type: "gameOver", winners: [0], cause: "victory" });
+    });
+    await screen.findByTestId("victory");
+
+    expect(screen.getByTestId("topbar-turn")).toHaveTextContent("Victory — Player 1");
   });
 });
 

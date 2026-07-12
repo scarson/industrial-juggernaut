@@ -3,7 +3,7 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import { Board } from "../board/Board";
 import { highlightSets } from "../board/highlight";
-import { strandedHexKeys } from "../engine-client/selectors";
+import { controlOf, strandedHexKeys } from "../engine-client/selectors";
 import { currentPlayer, legalActions } from "../engine-client/barrel";
 import { NewGame } from "../designer/NewGame";
 import { Hud } from "../hud/Hud";
@@ -25,13 +25,14 @@ import { useSetRailContent } from "./shell/rail-content";
 import { useSetShellLabels } from "./shell/shell-labels";
 import { selectComposer } from "./select-composer";
 import { explainError } from "../rules/error-explanations";
-import { turnLabel, seedLabel } from "../game/turn-labels";
+import { turnLabel, seedLabel, gameOverLabel } from "../game/turn-labels";
 import { tooltipData } from "../board/tooltip";
 import { territoryFills } from "../board/territory";
 import { hexKey } from "../board/projection";
 import { playerIdentity } from "../identity/player-identity";
 import { PlayerShapeIcon } from "../identity/shapes";
-import type { GameStore } from "../game/store";
+import type { GameStore, GameOverTerminal } from "../game/store";
+import type { HighlightSets } from "../board/highlight";
 import type { CreateRoomRequest, CreateRoomResult } from "../game/rooms";
 import type { StartOnlinePayload } from "../designer/NewGame";
 import type { GameDriver, DriverEvent, DriverPending } from "../game/driver";
@@ -395,9 +396,11 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
   const setShellLabels = useSetShellLabels();
   useEffect(() => {
     if (state === null) return;
-    setShellLabels({ turnLabel: turnLabel(state), seedLabel: seedLabel(header) });
+    // A finished game has no acting player — the chip tells the outcome (victory's spatial story).
+    const label = terminal !== null ? gameOverLabel(terminal.winners) : turnLabel(state);
+    setShellLabels({ turnLabel: label, seedLabel: seedLabel(header) });
     return () => setShellLabels(null);
-  }, [setShellLabels, state, header]);
+  }, [setShellLabels, state, header, terminal]);
 
   // ── Version-mismatch reload guard: when the driver reports `connection:"reload-required"` (the
   //    SocketDriver's mapping of a `reload` ServerMessage), reload the page ONCE per load. A second
@@ -429,7 +432,6 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
   }
 
   const controllableSeats = driver.controllableSeats();
-  const highlights = highlightSets(state);
   const stranded = strandedHexKeys(state);
 
   // The keyboard/a11y ACTION path stays each composer's own hex-button list (every legal move is a
@@ -454,6 +456,10 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
   // Victory is terminal and persistent — it outranks the whole interactive surface once the game ends.
   const showVictory = terminal !== null;
 
+  // A finished game affords nothing, so the victory stage drops the legal-move highlight tints —
+  // the board's ending treatment is the winners' iron, not a phantom "your move" scene.
+  const highlights = showVictory ? EMPTY_HIGHLIGHTS : highlightSets(state);
+
   // The click affordance exists ONLY while a composer is mounted to receive it — the same
   // resolution that decides which composer renders (selectComposer) gates which cells afford a
   // click, so an agent's/opponent's turn (waiting), a staged set piece, the chain-continue beat,
@@ -471,9 +477,13 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
   }
 
   // The board's brass selection: staged-but-uncommitted build pieces plus the attack composer's
-  // live target + committed attackers — both published through the store's ui channels.
-  const boardSelection =
-    attackSelection !== null
+  // live target + committed attackers — both published through the store's ui channels. At game
+  // over the selection becomes the ending's spatial story instead: the winners' controlling iron,
+  // brass-marked (a deliberate Brass Budget brush — the scarce accent floods the winner's engine
+  // exactly once, at the moment the game stops being interactive).
+  const boardSelection = showVictory
+    ? { pieces: terminal.winners.flatMap((winner) => controlOf(state, winner).iron) }
+    : attackSelection !== null
       ? { target: attackSelection.target, attackers: attackSelection.attackers, pieces: stagedBuild }
       : stagedBuild.length > 0
         ? { pieces: stagedBuild }
@@ -482,7 +492,7 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
   return (
     <div style={WAR_ROOM_STYLE}>
       <section aria-label="Board" style={BOARD_LANE_STYLE}>
-        <TurnBanner state={state} />
+        <TurnBanner state={state} terminal={terminal} />
 
         <div style={BOARD_WRAP_STYLE}>
           <Board
@@ -532,8 +542,20 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
 
 /** The whose-turn banner beside the board: the acting player's identity token + the turn summary.
  *  Same derivation as the top-bar chip (turn-labels), doubled here because the board lane is where
- *  the player's eye lives during play. */
-function TurnBanner({ state }: { state: GameState }) {
+ *  the player's eye lives during play. A finished game has no acting player, so the banner swaps
+ *  to the outcome — every winner's identity token + the game-over label, in the same working type
+ *  (the banner is an instrument; the Victory set piece owns the Cartouche drama). */
+function TurnBanner({ state, terminal }: { state: GameState; terminal: GameOverTerminal | null }) {
+  if (terminal !== null) {
+    return (
+      <div className="table-panel" data-testid="turn-banner" style={TURN_BANNER_STYLE}>
+        {terminal.winners.map((winner) => (
+          <PlayerShapeIcon key={winner} identity={playerIdentity(winner)} size={12} />
+        ))}
+        <span style={TURN_BANNER_TEXT_STYLE}>{gameOverLabel(terminal.winners)}</span>
+      </div>
+    );
+  }
   const acting = currentPlayer(state);
   return (
     <div className="table-panel" data-testid="turn-banner" style={TURN_BANNER_STYLE}>
@@ -688,6 +710,16 @@ function ChoreographyStage({
     </div>
   );
 }
+
+/** No-highlight board treatment — the victory stage (and, with the presentation queue, a draining
+ *  presented frame) shows the scene without legal-move tints. Frozen empty sets, never mutated. */
+const EMPTY_HIGHLIGHTS: HighlightSets = {
+  buildHexes: new Set(),
+  factoryHexes: new Set(),
+  baseHexes: new Set(),
+  attackTargets: new Set(),
+  placementHexes: new Set(),
+};
 
 // ─── Layout — the war-room lane (UI brief §5): board is the hero (left-weighted, brightest) and the
 //     composer appears contextually beneath/beside it; the HUD is published to the shell's right rail
