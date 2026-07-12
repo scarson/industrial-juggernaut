@@ -1,6 +1,6 @@
 // ABOUTME: The landing screen — the North Star scene itself: title plate, the aged map open
 // ABOUTME: on the lamplit table (real Board render, lazy chunk), and the entry instruments.
-import { lazy, Suspense } from "react";
+import { Component, lazy, Suspense, type ReactNode } from "react";
 import { navigate } from "./routes";
 
 // The map hero value-imports engine code (scene generation), so it loads from its own lazy
@@ -31,9 +31,11 @@ export function HomeScreen() {
         <div className="landing-tilt">
           <div className="landing-plate board-surface" data-testid="landing-plate">
             <div className="landing-plate-frame">
-              <Suspense fallback={<span className="mono landing-plate-note">Laying out the map…</span>}>
-                <TableVignette />
-              </Suspense>
+              <VignetteBoundary>
+                <Suspense fallback={<span className="mono landing-plate-note">Laying out the map…</span>}>
+                  <TableVignette />
+                </Suspense>
+              </VignetteBoundary>
             </div>
           </div>
         </div>
@@ -72,4 +74,25 @@ export function HomeScreen() {
 /** The `--i` custom property drives each instrument's entrance stagger (landing.css). */
 function instrumentIndex(i: number): React.CSSProperties {
   return { ["--i"]: i } as React.CSSProperties;
+}
+
+interface VignetteBoundaryProps {
+  readonly children: ReactNode;
+}
+
+/**
+ * The map is decoration on the landing — a failure to load or build it (a dropped lazy chunk
+ * on a bad connection, an engine throw) must never take the whole landing down. On failure
+ * the plate simply stays empty parchment: honest, quiet, and the entry actions keep working.
+ */
+export class VignetteBoundary extends Component<VignetteBoundaryProps, { failed: boolean }> {
+  override state = { failed: false };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  override render(): ReactNode {
+    return this.state.failed ? null : this.props.children;
+  }
 }

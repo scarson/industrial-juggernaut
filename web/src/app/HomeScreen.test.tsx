@@ -1,9 +1,9 @@
 // ABOUTME: Tests for the landing screen — title plate, working entry points (navigate to
 // ABOUTME: game/viewer/rules), the map vignette's honest loading plate, and brass discipline.
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { HomeScreen } from "./HomeScreen";
+import { HomeScreen, VignetteBoundary } from "./HomeScreen";
 
 beforeEach(() => {
   window.history.pushState({}, "", "/");
@@ -67,5 +67,32 @@ describe("HomeScreen", () => {
     expect(
       await screen.findByRole("img", { name: "Game board" }, { timeout: 10_000 }),
     ).toBeInTheDocument();
+  });
+
+  test("a vignette failure never takes the landing down — the plate stays, the actions work", async () => {
+    // React logs the caught error; capture it so the output stays pristine and the catch is proven.
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    function ExplodingMap(): never {
+      throw new Error("vignette failed");
+    }
+
+    const user = userEvent.setup();
+    render(
+      <div className="landing">
+        <VignetteBoundary>
+          <ExplodingMap />
+        </VignetteBoundary>
+        <button type="button" onClick={() => window.history.pushState({}, "", "/game")}>
+          Begin a game
+        </button>
+      </div>,
+    );
+
+    // The boundary swallowed the failure (an empty parchment plate, no crash)...
+    expect(consoleError).toHaveBeenCalled();
+    // ...and the rest of the landing still works.
+    await user.click(screen.getByRole("button", { name: /begin a game/i }));
+    expect(window.location.pathname).toBe("/game");
+    consoleError.mockRestore();
   });
 });
