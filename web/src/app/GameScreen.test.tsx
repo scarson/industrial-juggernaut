@@ -413,3 +413,29 @@ describe("GameScreen — turn banner", () => {
     expect(banner.textContent).toMatch(/player 1/i);
   });
 });
+
+// ── No false affordances on turns this client cannot act in (blind-review P1) ────────────────────
+describe("GameScreen — board affordance gating", () => {
+  test("a NON-controllable acting seat gets ZERO click-affordant cells (waiting turn)", async () => {
+    const state = playState(); // seat 0 acting...
+    renderGame(state, [1]); // ...but this client controls only seat 1
+    await screen.findByTestId("waiting-notice");
+
+    // No cell may carry the click affordance: pointer cursor + click handler are gated together.
+    const affordant = [...document.querySelectorAll("polygon[data-hex]")].filter(
+      (p) => (p as SVGPolygonElement).style.cursor === "pointer",
+    );
+    expect(affordant).toHaveLength(0);
+  });
+
+  test("setup phase with a non-controllable acting seat offers no placement affordance", async () => {
+    const state = setupState(); // seat 0 placing...
+    renderGame(state, [1]); // ...but this client controls only seat 1
+    await screen.findByRole("region", { name: /setup placement/i });
+
+    const affordant = [...document.querySelectorAll("polygon[data-hex]")].filter(
+      (p) => (p as SVGPolygonElement).style.cursor === "pointer",
+    );
+    expect(affordant).toHaveLength(0);
+  });
+});

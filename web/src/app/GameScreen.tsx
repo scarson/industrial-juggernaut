@@ -448,11 +448,24 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
     else if (highlights.attackTargets.has(key)) handlers.attackTarget?.(hex);
   }
 
-  const interactiveHexes = new Set<string>([
-    ...highlights.placementHexes,
-    ...highlights.buildHexes,
-    ...highlights.attackTargets,
-  ]);
+  // Victory is terminal and persistent — it outranks the whole interactive surface once the game ends.
+  const showVictory = terminal !== null;
+
+  // The click affordance exists ONLY while a composer is mounted to receive it — the same
+  // resolution that decides which composer renders (selectComposer) gates which cells afford a
+  // click, so an agent's/opponent's turn (waiting), a staged set piece, the chain-continue beat,
+  // and victory never paint pointer cursors over cells no handler backs.
+  const composerKind = selectComposer(state, pending, controllableSeats);
+  const actingControllable = controllableSeats.includes(currentPlayer(state));
+  const interactiveHexes = new Set<string>();
+  if (!showVictory && choreography === null) {
+    if (composerKind === "setup" && actingControllable) {
+      for (const key of highlights.placementHexes) interactiveHexes.add(key);
+    } else if (composerKind === "play" && !inChainContinue) {
+      for (const key of highlights.buildHexes) interactiveHexes.add(key);
+      for (const key of highlights.attackTargets) interactiveHexes.add(key);
+    }
+  }
 
   // The board's brass selection: staged-but-uncommitted build pieces plus the attack composer's
   // live target + committed attackers — both published through the store's ui channels.
@@ -462,9 +475,6 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
       : stagedBuild.length > 0
         ? { pieces: stagedBuild }
         : null;
-
-  // Victory is terminal and persistent — it outranks the whole interactive surface once the game ends.
-  const showVictory = terminal !== null;
 
   return (
     <div style={WAR_ROOM_STYLE}>
@@ -500,9 +510,9 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
             <ChoreographyStage choreography={choreography} onContinue={() => setChoreography(null)} />
           ) : (
             <ActiveComposer
+              kind={composerKind}
               state={state}
               pending={pending}
-              controllableSeats={controllableSeats}
               driver={driver}
               store={store}
               inChainContinue={inChainContinue}
@@ -577,9 +587,11 @@ function isChainContinueAfter(events: readonly GameEvent[]): boolean {
 }
 
 interface ActiveComposerProps {
+  /** The composer resolution PlayView computed via `selectComposer` — passed down (not re-derived)
+   *  so the board's click-affordance gate and the mounted composer can never disagree. */
+  readonly kind: ReturnType<typeof selectComposer>;
   readonly state: GameState;
   readonly pending: DriverPending | null;
-  readonly controllableSeats: readonly number[];
   readonly driver: GameDriver;
   readonly store: GameStore;
   readonly inChainContinue: boolean;
@@ -592,15 +604,14 @@ interface ActiveComposerProps {
  * instead of the pair, until the player chooses to attack again or end the round.
  */
 function ActiveComposer({
+  kind,
   state,
   pending,
-  controllableSeats,
   driver,
   store,
   inChainContinue,
   onAttackAgain,
 }: ActiveComposerProps) {
-  const kind = selectComposer(state, pending, controllableSeats);
   const player = currentPlayer(state);
 
   switch (kind) {
