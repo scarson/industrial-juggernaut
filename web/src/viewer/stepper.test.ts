@@ -51,6 +51,21 @@ describe("buildFrames", () => {
     expect(frames[0]!.state).toEqual(rawSetupState);
   });
 
+  test("a setup-placement frame narrates its placed base, synthesized from the entry (WEB-8)", () => {
+    // applyEntry(placeFirstBase) returns events:[] (round.ts), so without entry-derived narration
+    // the viewer's event log would stay silent for the whole setup phase — and diverge from the
+    // live HUD, which narrates placements through the same narrationOf helper.
+    const { header, log } = recordFixture();
+    const first = log[0]!;
+    expect(first.kind).toBe("placeFirstBase"); // an all-agent game's log starts with setup
+    const firstPlacement = first as Extract<typeof first, { kind: "placeFirstBase" }>;
+
+    const frames = buildFrames(header, log);
+    expect(frames[1]!.events).toEqual([
+      { kind: "placed", piece: "base", hex: firstPlacement.hex, owner: firstPlacement.player },
+    ]);
+  });
+
   test("frames[i+1] carries logIndex i (the entry applied to reach it)", () => {
     const { header, log } = recordFixture();
     const frames = buildFrames(header, log);

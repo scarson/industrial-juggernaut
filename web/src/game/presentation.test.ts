@@ -96,6 +96,21 @@ describe("narrationOf", () => {
 });
 
 describe("presentationReducer — placement beats (a synthesized placed event carries the narration)", () => {
+  test("a paced beat with marks but NO events still opens a drain and pulses, without moving the cursor", () => {
+    // No current producer emits this shape (placements now synthesize a narration event), but the
+    // reducer's contract stays: visibility = events OR marks, and the log cursor counts only
+    // events. Pinned so the queue-without-appending branch can't silently regress.
+    const s = reduce(
+      synced,
+      { type: "beat", paced: true, state: S1, events: [], marks: new Set(["1,-1,0"]) },
+      { type: "tick" },
+    );
+    expect(s.frame!.state).toBe(S1);
+    expect(s.emphasis!.keys).toEqual(new Set(["1,-1,0"]));
+    expect(s.appended).toBe(0);
+    expect(s.presented).toBe(0);
+  });
+
   test("a paced placement beat is VISIBLE — it opens a drain, pulses its mark, and advances the cursor", () => {
     // A placeFirstBase folds with events:[] (round.ts; WEB-8); GameScreen synthesizes a `placed`
     // event from the entry (narrationOf) and feeds the SAME array to the log and the beat, so the

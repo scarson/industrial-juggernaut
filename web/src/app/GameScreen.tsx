@@ -142,9 +142,10 @@ type StartedGame =
 /**
  * The store's `authoritative` slice does NOT carry a cumulative event list — it folds STATE, not a
  * running narration. GameScreen accumulates the events itself: a `sync` resets the log to empty (a
- * fresh authoritative baseline), and every `applied` appends its `events` batch. This mirrors the
- * P2.7 viewer's `eventsUpTo` cumulative narration, but sourced from the live stream rather than a
- * precomputed frame array. The accumulated list feeds the HUD's EventLog.
+ * fresh authoritative baseline), and every `applied` appends its NARRATED batch — the reported
+ * events routed through `narrationOf`, which synthesizes the `placed` event a placeFirstBase fold
+ * never emits (WEB-8). The viewer's `eventsUpTo` builds its frames through the same helper
+ * (stepper.ts), so live and replayed narration agree. The accumulated list feeds the HUD's EventLog.
  */
 type EventLogAction = { type: "sync" } | { type: "append"; events: readonly GameEvent[] };
 

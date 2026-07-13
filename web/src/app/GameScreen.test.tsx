@@ -190,37 +190,24 @@ describe("GameScreen — HUD + event log", () => {
     expect(screen.queryByRole("complementary")).toBeNull();
   });
 
-  test("an applied batch appends its events to the event log", async () => {
-    const snapshot = setupState();
-    const driver = renderGame(snapshot, [0, 1]);
+  test("an applied batch appends exactly its reported events to the log (the generic passthrough seam)", async () => {
+    // A BUILD entry: narrationOf passes a non-placement beat's reported events through verbatim,
+    // so this pins the generic append seam — no synthesis, no duplication, one line per reported
+    // `placed` event. (A placeFirstBase entry would exercise the synthesis path instead — that
+    // seam is pinned by "a fold-clean setup placement narrates it…" below.)
+    const { snapshot, applied } = remoteBuildBurst();
+    const driver = renderGame(snapshot, [0, 1]); // acting seat controllable → unpaced, appends at once
     await screen.findByRole("log", { name: /event log/i });
 
-    // This exercises the generic append seam: whatever GameEvents an `applied` reports get appended
-    // to the log. The `placed` event below is HAND-ATTACHED — a REAL setup placement emits NO events
-    // (round.ts returns events:[] for placeFirstBase; WEB-8), so the driver does NOT emit a `placed`
-    // for a placement. Narration of a real placement is synthesized from the ENTRY instead — see
-    // "a fold-clean setup placement narrates it, even though it emitted no engine events" below.
-    const hexToPlace = legalFirstBaseHexes(snapshot)[0]!;
-    const entry: LogEntry = {
-      player: 0,
-      kind: "placeFirstBase",
-      hex: hexToPlace,
-      rngBeforeApply: snapshot.rngState,
-    };
-
     act(() => {
-      driver.pushEvent({
-        type: "applied",
-        entry,
-        events: [{ kind: "placed", piece: "base", hex: hexToPlace, owner: 0 }],
-        logIndex: 0,
-      });
+      driver.pushEvent(applied[0]!);
     });
 
-    // The log now narrates the placement (no longer "No events yet").
-    await waitFor(() => {
-      expect(screen.queryByText(/no events yet/i)).not.toBeInTheDocument();
-    });
+    const log = await screen.findByRole("log", { name: /event log/i });
+    await waitFor(() => expect(log.textContent).toMatch(/places a base/i));
+    const reportedPlacements = applied[0]!.events.filter((e) => e.kind === "placed").length;
+    expect(reportedPlacements).toBeGreaterThan(0);
+    expect(log.textContent!.match(/places a base/gi)).toHaveLength(reportedPlacements);
   });
 
   test("a fold-clean setup placement narrates it, even though it emitted no engine events", async () => {
