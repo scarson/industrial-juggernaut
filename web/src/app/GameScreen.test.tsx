@@ -190,36 +190,51 @@ describe("GameScreen — HUD + event log", () => {
     expect(screen.queryByRole("complementary")).toBeNull();
   });
 
-  test("an applied batch appends its events to the event log", async () => {
+  test("an applied batch appends exactly its reported events to the log (the generic passthrough seam)", async () => {
+    // A BUILD entry: narrationOf passes a non-placement beat's reported events through verbatim,
+    // so this pins the generic append seam — no synthesis, no duplication, one line per reported
+    // `placed` event. (A placeFirstBase entry would exercise the synthesis path instead — that
+    // seam is pinned by "a fold-clean setup placement narrates it…" below.)
+    const { snapshot, applied } = remoteBuildBurst();
+    const driver = renderGame(snapshot, [0, 1]); // acting seat controllable → unpaced, appends at once
+    await screen.findByRole("log", { name: /event log/i });
+
+    act(() => {
+      driver.pushEvent(applied[0]!);
+    });
+
+    const log = await screen.findByRole("log", { name: /event log/i });
+    await waitFor(() => expect(log.textContent).toMatch(/places a base/i));
+    const reportedPlacements = applied[0]!.events.filter((e) => e.kind === "placed").length;
+    expect(reportedPlacements).toBeGreaterThan(0);
+    expect(log.textContent!.match(/places a base/gi)).toHaveLength(reportedPlacements);
+  });
+
+  test("a fold-clean setup placement narrates it, even though it emitted no engine events", async () => {
     const snapshot = setupState();
     const driver = renderGame(snapshot, [0, 1]);
     await screen.findByRole("log", { name: /event log/i });
 
-    // A real setup placement entry folds cleanly via applyEntry (logIndex 0 continues logLength 0).
-    // A setup placement itself emits NO GameEvents (round.ts returns events:[]), so the driver's
-    // `applied` reports the batch's events separately — here a `placed` event — and GameScreen
-    // accumulates exactly the reported `events`, independent of the folded entry. This is the seam:
-    // the store folds STATE from the entry; GameScreen accumulates NARRATION from `events`.
-    const hexToPlace = legalFirstBaseHexes(snapshot)[0]!;
+    // The HONEST path: a real placeFirstBase folded through applyEntry. round.ts returns events:[]
+    // for a placement (WEB-8), so the driver's `applied` carries an EMPTY batch — no hand-attached
+    // `placed` event. The event log must still narrate the placement, deriving it from the ENTRY.
+    const player = snapshot.phase.order[snapshot.phase.indexInOrder]!;
     const entry: LogEntry = {
-      player: 0,
+      player,
       kind: "placeFirstBase",
-      hex: hexToPlace,
+      hex: legalFirstBaseHexes(snapshot)[0]!,
       rngBeforeApply: snapshot.rngState,
     };
+    const out = applyEntry(snapshot, entry);
+    expect(out.events).toEqual([]); // pins the WEB-8 premise: a placement emits no engine events
 
     act(() => {
-      driver.pushEvent({
-        type: "applied",
-        entry,
-        events: [{ kind: "placed", piece: "base", hex: hexToPlace, owner: 0 }],
-        logIndex: 0,
-      });
+      driver.pushEvent({ type: "applied", entry, events: out.events, logIndex: 0 });
     });
 
-    // The log now narrates the placement (no longer "No events yet").
+    // Narrated from the entry despite the empty batch — "Player N places a base."
     await waitFor(() => {
-      expect(screen.queryByText(/no events yet/i)).not.toBeInTheDocument();
+      expect(screen.getByRole("log", { name: /event log/i }).textContent).toMatch(/places a base/i);
     });
   });
 });
@@ -798,6 +813,51 @@ describe("GameScreen — presentation-paced agent turns", () => {
 
     act(() => vi.advanceTimersByTime(BEAT_INTERVAL_MS));
     expect(screen.getByRole("log", { name: /event log/i }).textContent).toMatch(/places a base/i);
+  });
+
+  test("a paced SETUP placement narrates in lockstep too — synthesized from the entry, shown when its beat presents", async () => {
+    // The placement analog of the build lockstep above. A placeFirstBase folds with events:[]
+    // (round.ts; WEB-8), so its narration is synthesized from the entry — and it must still track
+    // the board, appearing only when the paced beat presents, never during the pre-move hold frame.
+    const { snapshot, applied } = placementBurst(2, 1);
+    const placer = applied[0]!.entry.player;
+    expect(applied[0]!.events).toEqual([]); // the honest premise: no engine events for a placement
+    const driver = await mountPaced(snapshot, rosterOf(2), [placer === 0 ? 1 : 0]); // the placer is remote → paces
+    act(() => {
+      driver.pushEvent(applied[0]!);
+    });
+
+    // The hold frame presents the pre-move scene: the synthesized line is not yet visible.
+    expect(screen.getByRole("log", { name: /event log/i }).textContent).not.toMatch(/places a base/i);
+
+    act(() => vi.advanceTimersByTime(BEAT_INTERVAL_MS));
+    expect(screen.getByRole("log", { name: /event log/i }).textContent).toMatch(/places a base/i);
+  });
+
+  test("the narration cursor stays in parity with the log through a placement drain — the tail never drifts", async () => {
+    // The parity guard for WEB-8's synthesized events: because the SAME array feeds the event log
+    // AND the presentation beat, the appended/presented cursors count the synthesized placement
+    // exactly as the log does. If they ever drifted (append to the log but not the beat), the
+    // windowed tail would show fewer — or more — lines than beats presented. Step the drain and
+    // count: the visible placement lines must equal the number of beats presented so far.
+    const { snapshot, applied } = placementBurst(3, 3);
+    const p0 = applied[0]!.entry.player;
+    for (const a of applied) expect(a.events).toEqual([]); // every placement emits no engine events
+    const driver = await mountPaced(snapshot, rosterOf(3), [p0]);
+    const placementLines = () =>
+      (screen.getByRole("log", { name: /event log/i }).textContent!.match(/places a base/gi) ?? []).length;
+
+    act(() => {
+      for (const e of applied) driver.pushEvent(e);
+    });
+    // The human's own placement (p0) snapped to the tip and narrated; the two agent beats are held.
+    expect(placementLines()).toBe(1);
+
+    act(() => vi.advanceTimersByTime(BEAT_INTERVAL_MS));
+    expect(placementLines()).toBe(2); // the first agent beat presented — its line joins the tail
+
+    act(() => vi.advanceTimersByTime(BEAT_INTERVAL_MS));
+    expect(placementLines()).toBe(3); // the last agent beat presented — all placements narrated
   });
 
   test("a combat beat dwells with its reveal (no Continue while draining), then the drain resumes", async () => {

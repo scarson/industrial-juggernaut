@@ -1,6 +1,7 @@
 // ABOUTME: buildFrames — folds a recorded game's log into a precomputed Frame[] for the
 // ABOUTME: all-agent viewer's play/pause/step controls; back-stepping is just decrementing an index.
 import { applyEntry, initGame } from "../engine-client/barrel";
+import { narrationOf } from "../game/presentation";
 import type { GameEvent, GameState, LogEntry, SessionHeader } from "../engine-client/barrel";
 
 export type Frame = {
@@ -32,7 +33,10 @@ export function buildFrames(header: SessionHeader, log: LogEntry[]): Frame[] {
   for (let i = 0; i < log.length; i++) {
     const out = applyEntry(state, log[i]!);
     state = out.state;
-    frames.push({ state, events: out.events, logIndex: i });
+    // narrationOf: a placeFirstBase entry folds with events:[] (WEB-8), so the placed base is
+    // synthesized from the entry — the SAME derivation the live HUD's log uses, keeping the
+    // viewer's narration and live narration identical for one recorded game.
+    frames.push({ state, events: [...narrationOf(log[i]!, out.events)], logIndex: i });
   }
   return frames;
 }

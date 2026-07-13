@@ -23,6 +23,7 @@ import {
   INITIAL_PRESENTATION,
   presentationReducer,
   marksOf,
+  narrationOf,
   beatDelayMs,
   stageableFrom,
 } from "../game/presentation";
@@ -141,9 +142,10 @@ type StartedGame =
 /**
  * The store's `authoritative` slice does NOT carry a cumulative event list — it folds STATE, not a
  * running narration. GameScreen accumulates the events itself: a `sync` resets the log to empty (a
- * fresh authoritative baseline), and every `applied` appends its `events` batch. This mirrors the
- * P2.7 viewer's `eventsUpTo` cumulative narration, but sourced from the live stream rather than a
- * precomputed frame array. The accumulated list feeds the HUD's EventLog.
+ * fresh authoritative baseline), and every `applied` appends its NARRATED batch — the reported
+ * events routed through `narrationOf`, which synthesizes the `placed` event a placeFirstBase fold
+ * never emits (WEB-8). The viewer's `eventsUpTo` builds its frames through the same helper
+ * (stepper.ts), so live and replayed narration agree. The accumulated list feeds the HUD's EventLog.
  */
 type EventLogAction = { type: "sync" } | { type: "append"; events: readonly GameEvent[] };
 
@@ -355,7 +357,11 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
           return;
         }
         if (event.type === "applied") {
-          dispatchEventLog({ type: "append", events: event.events });
+          // A `placeFirstBase` folds with events:[] (round.ts; WEB-8), so narration is synthesized
+          // from the entry. The SAME array feeds the log AND the beat below, keeping the
+          // presentation's appended/presented cursors in parity with the log's length.
+          const narrated = narrationOf(event.entry, event.events);
+          dispatchEventLog({ type: "append", events: narrated });
           // The store subscribed first (connectDriver above; drivers fan out in insertion order),
           // so by here it has already folded this entry — the post-fold state IS this beat's
           // frame. If that ordering ever broke, foldOk fails and the beat degrades to an unpaced
@@ -372,8 +378,8 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
           const marks = marksOf(event.entry, event.events);
           dispatchPresentation(
             paced && folded.state !== null
-              ? { type: "beat", paced: true, state: folded.state, events: event.events, marks }
-              : { type: "beat", paced: false, state: foldOk ? folded.state : null, events: event.events, marks },
+              ? { type: "beat", paced: true, state: folded.state, events: narrated, marks }
+              : { type: "beat", paced: false, state: foldOk ? folded.state : null, events: narrated, marks },
           );
           // A landed attack that belongs to a still-acting controllable player opens the chain-continue
           // beat; any other applied (a build, a setup placement, an agent move) clears it.
