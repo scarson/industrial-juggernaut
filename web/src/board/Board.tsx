@@ -7,7 +7,7 @@ import { Factory } from "./Factory";
 import { IronGlyph } from "./IronGlyph";
 import { TerritoryFill } from "./TerritoryFill";
 import { territoryFills } from "./territory";
-import { boardViewBox, hexToPixel, hexKey } from "./projection";
+import { boardViewBox, hexToPixel, hexKey, hexPoints, keyToHex } from "./projection";
 import type { HighlightSets } from "./highlight";
 import type { GameState, Hex as HexModel } from "../engine-client/barrel";
 
@@ -24,6 +24,11 @@ export type BoardProps = {
    *  Omitted = every cell is clickable (the unrestricted P1 behavior the dev page uses). */
   interactiveHexes?: Set<string>;
   onHexHover?: (hex: HexModel | null) => void;
+  /** Canonical hexKeys to pulse with the changed-hex emphasis (the drama pass's presented beats).
+   *  `epoch` keys the pulse elements: a new epoch remounts them so the CSS animation restarts even
+   *  when consecutive beats emphasize the same cell. The pulse is decoration — invisible at rest
+   *  and under reduced motion (board-motion.css) — so stale keys after the animation ends are inert. */
+  emphasisHexes?: { keys: Set<string>; epoch: number };
 };
 
 // The hex circumradius in SVG user units. The board's <svg> scales to its container via the
@@ -48,6 +53,7 @@ export function Board({
   onHexClick,
   interactiveHexes,
   onHexHover,
+  emphasisHexes,
 }: BoardProps) {
   const viewBox = boardViewBox(state.board, HEX_SIZE);
   const selectedKeys = selectionKeys(selection);
@@ -135,6 +141,26 @@ export function Board({
           );
         })}
       </g>
+
+      {/* Changed-hex emphasis — the topmost, transient pulse over cells a presented beat just
+          changed. Painted above everything (the pulse must read over territory washes and tokens)
+          and pointer-events:none like every decorated layer (WEB-7). The `${epoch}:` key remounts
+          the outline per beat so the CSS animation restarts on a repeat cell. */}
+      {emphasisHexes !== undefined && (
+        <g data-board-layer="emphasis" style={LAYER_STYLE}>
+          {[...emphasisHexes.keys].map((key) => (
+            <polygon
+              key={`${emphasisHexes.epoch}:${key}`}
+              data-emphasis={key}
+              className="hex-emphasis"
+              points={hexPoints(pixelPoint(keyToHex(key)), HEX_SIZE)}
+              fill="none"
+              stroke={color("ink900")}
+              strokeWidth={0.07 * HEX_SIZE}
+            />
+          ))}
+        </g>
+      )}
     </svg>
   );
 }

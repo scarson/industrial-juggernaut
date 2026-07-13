@@ -1,7 +1,7 @@
 // ABOUTME: Pins turn-labels — the pure derivations feeding the top-bar turn chip / seed readout
 // ABOUTME: and the play screen's turn banner, all on the 1-based on-screen player convention.
 import { describe, expect, test } from "vitest";
-import { turnLabel, seedLabel } from "./turn-labels";
+import { turnLabel, seedLabel, gameOverLabel } from "./turn-labels";
 import { defaultConfig, initGame } from "../engine-client/barrel";
 import type { GameState, SessionHeader } from "../engine-client/barrel";
 
@@ -37,6 +37,20 @@ describe("turnLabel", () => {
     const state: GameState = { ...setupState(), phase: { turn: 3, order: [1, 0], indexInOrder: 0 } };
     expect(turnLabel(state)).toMatch(/turn 3/i);
     expect(turnLabel(state)).toMatch(/player 2/i); // order[0] === seat 1 → "Player 2"
+  });
+});
+
+describe("gameOverLabel", () => {
+  test("a single winner reads Victory with the 1-based player name", () => {
+    expect(gameOverLabel([1])).toBe("Victory — Player 2");
+  });
+
+  test("a coalition names every winner, joined like the Victory set piece", () => {
+    expect(gameOverLabel([0, 2])).toBe("Victory — Players 1 and 3");
+  });
+
+  test("a no-winner termination reads Game over, never an empty Victory", () => {
+    expect(gameOverLabel([])).toBe("Game over");
   });
 });
 

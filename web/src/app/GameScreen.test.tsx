@@ -1,18 +1,23 @@
 // ABOUTME: Integration-ish structure tests for GameScreen — a fake driver scripted through setup →
 // ABOUTME: play → attack/defender → choreography → victory, asserting the RIGHT composer + HUD updates at each beat.
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { GameScreen } from "./GameScreen";
 import { RailHost, RailContentProvider } from "./shell/rail-content";
+import { ShellLabelsProvider, TopBarHost } from "./shell/shell-labels";
 import { makeFakeDriver } from "../game/fake-driver";
+import { BEAT_INTERVAL_MS, SET_PIECE_DWELL_MS } from "../game/presentation";
 import { hex } from "../../../src/geometry/cube";
-import { defaultConfig, initGame, legalFirstBaseHexes } from "../engine-client/barrel";
+import { applyEntry, defaultConfig, initGame, legalActions, legalFirstBaseHexes } from "../engine-client/barrel";
+import { controlOf } from "../engine-client/selectors";
+import { hexKey, keyToHex } from "../board/projection";
 import { highlightSets } from "../board/highlight";
 import { overlapFixtureState, SHARED_HEX } from "../board/test-fixtures";
 import * as BoardModule from "../board/Board";
+import * as motionModule from "../design/motion";
 import type { GameState, LogEntry } from "../engine-client/barrel";
-import type { DriverPending, GameDriver, SeatRosterEntry } from "../game/driver";
+import type { DriverEvent, DriverPending, GameDriver, SeatRosterEntry } from "../game/driver";
 import type { SessionHeader } from "../engine-client/barrel";
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────────────────────────
@@ -262,6 +267,80 @@ describe("GameScreen — choreography", () => {
   });
 });
 
+// ── Victory's spatial story — the board and the labels tell the ending, not just a text block ────
+describe("GameScreen — victory's spatial story", () => {
+  test("at game over, the winner's controlled iron takes the brass selected treatment", async () => {
+    const state = playState();
+    const driver = renderGame(state, [0, 1]);
+    await screen.findByTestId("play-composers");
+
+    act(() => {
+      driver.pushEvent({ type: "gameOver", winners: [0], cause: "victory" });
+    });
+    await screen.findByTestId("victory");
+
+    // Self-validating fixture: the winner really controls iron on this board.
+    const winnerIron = controlOf(state, 0).iron;
+    expect(winnerIron.length).toBeGreaterThan(0);
+    for (const iron of winnerIron) {
+      const cell = document.querySelector(`polygon[data-hex="${hexKey(iron)}"]`) as SVGPolygonElement;
+      expect(cell.getAttribute("data-selected")).toBe("true");
+    }
+  });
+
+  test("at game over, stale legal-move highlights leave the victory stage", async () => {
+    const state = playState();
+    const driver = renderGame(state, [0, 1]);
+    await screen.findByTestId("play-composers");
+    // The live play phase highlights legal builds…
+    expect(document.querySelectorAll("polygon[data-highlight]").length).toBeGreaterThan(0);
+
+    act(() => {
+      driver.pushEvent({ type: "gameOver", winners: [0], cause: "victory" });
+    });
+    await screen.findByTestId("victory");
+
+    // …but a finished game affords nothing, so no cell may keep a highlight treatment.
+    expect(document.querySelectorAll("polygon[data-highlight]")).toHaveLength(0);
+  });
+
+  test("at game over, the turn banner tells the outcome instead of a phantom turn", async () => {
+    const driver = renderGame(playState(), [0, 1]);
+    await screen.findByTestId("play-composers");
+
+    act(() => {
+      driver.pushEvent({ type: "gameOver", winners: [1], cause: "victory" });
+    });
+    await screen.findByTestId("victory");
+
+    const banner = screen.getByTestId("turn-banner");
+    expect(banner.textContent).toMatch(/victory — player 2/i);
+    expect(banner.textContent).not.toMatch(/round|places/i);
+  });
+
+  test("at game over, the top-bar turn chip swaps to the game-over label", async () => {
+    const driver = makeFakeDriver({ snapshot: playState(), roster: fixtureRoster(), controllableSeats: [0, 1] });
+    render(
+      <ShellLabelsProvider>
+        <RailContentProvider>
+          <GameScreen createDriver={() => driver as GameDriver} header={dummyHeader()} />
+          <RailHost breakpoint="wide" />
+        </RailContentProvider>
+        <TopBarHost />
+      </ShellLabelsProvider>,
+    );
+    await screen.findByTestId("play-composers");
+    expect(screen.getByTestId("topbar-turn")).toHaveTextContent(/turn 1/i);
+
+    act(() => {
+      driver.pushEvent({ type: "gameOver", winners: [0], cause: "victory" });
+    });
+    await screen.findByTestId("victory");
+
+    expect(screen.getByTestId("topbar-turn")).toHaveTextContent("Victory — Player 1");
+  });
+});
+
 // ── The turn-order ceremony from a turnRollover ──────────────────────────────────────────────────
 describe("GameScreen — turn-order ceremony", () => {
   test("a turnRollover event surfaces the turn-order ceremony", async () => {
@@ -487,5 +566,399 @@ describe("GameScreen — hover render scoping", () => {
     await screen.findByTestId("hex-readout");
     // The hover published to the store and the readout re-rendered — the board must not have.
     expect(boardRenderSpy.mock.calls.length).toBe(rendersBefore);
+  });
+});
+
+// ── The drama pass: presentation-paced agent turns ────────────────────────────────────────────────
+// The store folds a synchronous agent burst instantly; the BOARD reveals it beat by beat. These
+// tests drive the fake driver through real fold-clean entries under fake timers and read the DOM
+// per frame — a subscribe-order regression (store folding after the presentation subscriber) fails
+// these loudly instead of silently degrading to no pacing.
+type AppliedEvent = Extract<DriverEvent, { type: "applied" }>;
+
+/** `count` consecutive fold-clean setup placements from a fresh `nPlayers` game — the first is
+ *  "the human's echo" (its player becomes the controllable seat), the rest are other seats. */
+function placementBurst(nPlayers: number, count: number): { snapshot: GameState; applied: AppliedEvent[] } {
+  let state = initGame({
+    seed: 1n,
+    boardSource: { kind: "generate", size: 96, ironCount: 14 },
+    nPlayers,
+    config: defaultConfig(),
+  });
+  const snapshot = state;
+  const applied: AppliedEvent[] = [];
+  for (let i = 0; i < count; i++) {
+    const player = state.phase.order[state.phase.indexInOrder]!;
+    const entry: LogEntry = {
+      player,
+      kind: "placeFirstBase",
+      hex: legalFirstBaseHexes(state)[0]!,
+      rngBeforeApply: state.rngState,
+    };
+    const out = applyEntry(state, entry);
+    applied.push({ type: "applied", entry, events: out.events, logIndex: i });
+    state = out.state;
+  }
+  return { snapshot, applied };
+}
+
+/** One fold-clean seat-0 build on the play fixture — "seat 0 is remote/agent" when the test
+ *  mounts with controllableSeats [1], so this beat paces. Builds DO emit `placed` events. */
+function remoteBuildBurst(): { snapshot: GameState; applied: AppliedEvent[] } {
+  const base = playState();
+  // Seat 1 keeps a base ON its own remote iron deposit: without a base seat 1 is eliminated for
+  // noBases, and without controlled iron for noIron (the fixture irons sit inside seat 0's hull,
+  // which radiating control excludes) — either way the build's round close would stage an
+  // Elimination set piece and change the beat's dwell.
+  const remote = base.board.hexes.find(
+    (h) =>
+      !base.bases.some((b) => b.hex.x === h.x && b.hex.y === h.y && b.hex.z === h.z) &&
+      !base.board.iron.some((i) => i.x === h.x && i.y === h.y && i.z === h.z) &&
+      !base.factories.some((f) => f.hex.x === h.x && f.hex.y === h.y && f.hex.z === h.z) &&
+      Math.abs(h.x) + Math.abs(h.y) + Math.abs(h.z) >= 12,
+  )!;
+  const snapshot: GameState = {
+    ...base,
+    board: { ...base.board, iron: [...base.board.iron, remote] },
+    bases: [...base.bases, { owner: 1, hex: remote, state: "fresh", order: 99 }],
+  };
+  const buildHex = keyToHex([...highlightSets(snapshot).baseHexes][0]!);
+  const entry: LogEntry = {
+    player: 0,
+    kind: "build",
+    pieces: [{ type: "base", hex: buildHex }],
+    rngBeforeApply: snapshot.rngState,
+  };
+  const out = applyEntry(snapshot, entry);
+  if (!out.events.every((e) => e.kind === "placed")) throw new Error("remoteBuildBurst: expected a clean build beat");
+  return { snapshot, applied: [{ type: "applied", entry, events: out.events, logIndex: 0 }] };
+}
+
+function rosterOf(n: number): SeatRosterEntry[] {
+  return Array.from({ length: n }, (_, seat) => ({ seat, claimed: true, kind: "human" as const }));
+}
+
+async function mountPaced(snapshot: GameState, roster: SeatRosterEntry[], controllableSeats: number[]) {
+  const driver = makeFakeDriver({ snapshot, roster, controllableSeats });
+  render(
+    <RailContentProvider>
+      <GameScreen createDriver={() => driver as GameDriver} header={dummyHeader()} />
+      <RailHost breakpoint="wide" />
+    </RailContentProvider>,
+  );
+  await act(async () => {}); // resolve the injected driver factory + deliver the initial sync
+  return driver;
+}
+
+function baseAt(key: string): Element | null {
+  return document.querySelector(`[data-base="${key}"]`);
+}
+
+describe("GameScreen — presentation-paced agent turns", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test("a synchronous agent burst presents one beat per interval: own move first, then each agent move with its pulse", async () => {
+    const { snapshot, applied } = placementBurst(3, 3);
+    const [p0, p1, p2] = applied.map((a) => a.entry.player);
+    expect(new Set([p0, p1, p2]).size).toBe(3); // three distinct seats place — p1/p2 are "agents"
+    const keys = applied.map((a) => hexKey((a.entry as Extract<LogEntry, { kind: "placeFirstBase" }>).hex));
+
+    const driver = await mountPaced(snapshot, rosterOf(3), [p0!]);
+    act(() => {
+      for (const e of applied) driver.pushEvent(e);
+    });
+
+    // The batch's single render: the human's own placement painted, the agents' NOT yet.
+    expect(baseAt(keys[0]!)).not.toBeNull();
+    expect(baseAt(keys[1]!)).toBeNull();
+    expect(baseAt(keys[2]!)).toBeNull();
+    // The interactive surface is suppressed behind the draining notice.
+    expect(screen.getByTestId("presentation-drain")).toBeInTheDocument();
+    expect(
+      [...document.querySelectorAll("polygon[data-hex]")].filter(
+        (p) => (p as SVGPolygonElement).style.cursor === "pointer",
+      ),
+    ).toHaveLength(0);
+
+    act(() => vi.advanceTimersByTime(BEAT_INTERVAL_MS));
+    expect(baseAt(keys[1]!)).not.toBeNull();
+    expect(baseAt(keys[2]!)).toBeNull();
+    // The presented beat pulses its changed cell (placements mark via the entry, not events).
+    expect(document.querySelector(`[data-emphasis="${keys[1]}"]`)).not.toBeNull();
+
+    act(() => vi.advanceTimersByTime(BEAT_INTERVAL_MS));
+    expect(baseAt(keys[2]!)).not.toBeNull();
+    expect(screen.getByTestId("presentation-drain")).toBeInTheDocument();
+
+    act(() => vi.advanceTimersByTime(BEAT_INTERVAL_MS));
+    // Drain complete: the tip takes over and the interactive surface returns.
+    expect(screen.queryByTestId("presentation-drain")).toBeNull();
+  });
+
+  test("beats arriving in SEPARATE batches (the online socket path) never rewind the presenting frame's timer", async () => {
+    // Locally a burst folds in ONE React batch; online each applied is its own WebSocket message
+    // task. If the tick timer re-armed on every enqueue, a live burst would hold the first frame
+    // until arrivals settled and the advertised cadence would not hold at the drain's leading edge.
+    const { snapshot, applied } = placementBurst(3, 3);
+    const [p0] = applied.map((a) => a.entry.player);
+    const keys = applied.map((a) => hexKey((a.entry as Extract<LogEntry, { kind: "placeFirstBase" }>).hex));
+    const driver = await mountPaced(snapshot, rosterOf(3), [p0!]);
+
+    act(() => {
+      driver.pushEvent(applied[0]!);
+      driver.pushEvent(applied[1]!); // hold frame opens; its 420ms timer starts NOW
+    });
+    act(() => vi.advanceTimersByTime(300));
+    act(() => {
+      driver.pushEvent(applied[2]!); // a late arrival enqueues — it must NOT reset the clock
+    });
+    act(() => vi.advanceTimersByTime(BEAT_INTERVAL_MS - 300));
+
+    // 420ms have elapsed since the hold frame opened: the first paced beat has presented.
+    expect(baseAt(keys[1]!)).not.toBeNull();
+    expect(baseAt(keys[2]!)).toBeNull();
+  });
+
+  test("prefers-reduced-motion snaps: the whole burst lands instantly, no drain, no suppression", async () => {
+    const reduced = vi.spyOn(motionModule, "prefersReducedMotion").mockReturnValue(true);
+    try {
+      const { snapshot, applied } = placementBurst(3, 3);
+      const keys = applied.map((a) => hexKey((a.entry as Extract<LogEntry, { kind: "placeFirstBase" }>).hex));
+      const driver = await mountPaced(snapshot, rosterOf(3), [applied[0]!.entry.player]);
+      act(() => {
+        for (const e of applied) driver.pushEvent(e);
+      });
+      expect(baseAt(keys[2]!)).not.toBeNull();
+      expect(screen.queryByTestId("presentation-drain")).toBeNull();
+    } finally {
+      reduced.mockRestore();
+    }
+  });
+
+  test("a prompt mid-burst snaps to the tip — the defender decides on the true board, never a stale one", async () => {
+    const { snapshot, applied } = placementBurst(3, 3);
+    const p0 = applied[0]!.entry.player;
+    const keys = applied.map((a) => hexKey((a.entry as Extract<LogEntry, { kind: "placeFirstBase" }>).hex));
+    const driver = await mountPaced(snapshot, rosterOf(3), [p0!]);
+
+    act(() => {
+      for (const e of applied) driver.pushEvent(e);
+      driver.pushEvent({ type: "prompt", pending: fixturePending(p0!) });
+    });
+
+    expect(screen.queryByTestId("presentation-drain")).toBeNull();
+    expect(baseAt(keys[2]!)).not.toBeNull(); // the tip, not a paced frame
+    expect(screen.getByRole("region", { name: /defender decision/i })).toBeInTheDocument();
+  });
+
+  test("a sync mid-drain resets presentation to the fresh baseline", async () => {
+    const { snapshot, applied } = placementBurst(3, 3);
+    const driver = await mountPaced(snapshot, rosterOf(3), [applied[0]!.entry.player]);
+    act(() => {
+      for (const e of applied) driver.pushEvent(e);
+    });
+    expect(screen.getByTestId("presentation-drain")).toBeInTheDocument();
+
+    act(() => {
+      driver.pushEvent({ type: "sync", snapshot, logLength: 0, pending: null, seats: rosterOf(3) });
+    });
+    expect(screen.queryByTestId("presentation-drain")).toBeNull();
+  });
+
+  test("Skip jumps the drain to the tip", async () => {
+    const { snapshot, applied } = placementBurst(3, 3);
+    const keys = applied.map((a) => hexKey((a.entry as Extract<LogEntry, { kind: "placeFirstBase" }>).hex));
+    const driver = await mountPaced(snapshot, rosterOf(3), [applied[0]!.entry.player]);
+    act(() => {
+      for (const e of applied) driver.pushEvent(e);
+    });
+    expect(baseAt(keys[2]!)).toBeNull();
+
+    act(() => {
+      screen.getByTestId("presentation-skip").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(baseAt(keys[2]!)).not.toBeNull();
+    expect(screen.queryByTestId("presentation-drain")).toBeNull();
+  });
+
+  test("the event log narrates in lockstep with the board — a beat's line appears when its beat presents", async () => {
+    const { snapshot, applied } = remoteBuildBurst();
+    const driver = await mountPaced(snapshot, rosterOf(2), [1]); // seat 0 is remote — its build paces
+    act(() => {
+      driver.pushEvent(applied[0]!);
+    });
+
+    // The hold frame presents the pre-move scene: no narration yet, no spoiler.
+    expect(screen.getByRole("log", { name: /event log/i }).textContent).not.toMatch(/places a base/i);
+
+    act(() => vi.advanceTimersByTime(BEAT_INTERVAL_MS));
+    expect(screen.getByRole("log", { name: /event log/i }).textContent).toMatch(/places a base/i);
+  });
+
+  test("a combat beat dwells with its reveal (no Continue while draining), then the drain resumes", async () => {
+    // Seat 0 is remote: its attack vs seat 1's base resolves as a paced set-piece beat. Geometry
+    // reused verbatim from AttackComposer.test.tsx's attack-legal fixture (verified on-board for
+    // seed-1n/size-96): 6 p0 attackers + p1's target and defender, all within attackRange.
+    const target = hex(2, -2, 0);
+    const attackers = [hex(0, 0, 0), hex(-1, 1, 0), hex(0, 1, -1), hex(1, 0, -1), hex(0, 2, -2), hex(-2, 2, 0)];
+    const snapshot: GameState = {
+      ...setupState(),
+      phase: { turn: 1, order: [0, 1], indexInOrder: 0 },
+      bases: [
+        ...attackers.map((h, i) => ({ owner: 0 as const, hex: h, state: "fresh" as const, order: i })),
+        { owner: 1 as const, hex: target, state: "fresh" as const, order: 0 },
+        { owner: 1 as const, hex: hex(0, -1, 1), state: "fresh" as const, order: 1 },
+      ],
+      players: [
+        { id: 0, basesInHand: 6, alliance: [0], eliminated: false },
+        { id: 1, basesInHand: 10, alliance: [1], eliminated: false },
+      ],
+    };
+    // A REAL legal attack (target + attackers + representative defender) from the engine itself.
+    const attackAction = legalActions(snapshot).find((a) => a.kind === "attack");
+    expect(attackAction).toBeDefined(); // the fixture really offers an attack
+    const decl = (attackAction as Extract<ReturnType<typeof legalActions>[number], { kind: "attack" }>).attacks[0]!;
+    const entry: LogEntry = { player: 0, kind: "attack", decl, rngBeforeApply: snapshot.rngState };
+    const out = applyEntry(snapshot, entry);
+    expect(out.events.some((e) => e.kind === "combat")).toBe(true);
+    // The batch's LATEST stageable wins — a combat that also eliminates shows the elimination.
+    const reveal = out.events.some((e) => e.kind === "eliminated") ? "elimination" : "combat-reveal";
+
+    const driver = await mountPaced(snapshot, rosterOf(2), [1]);
+    act(() => {
+      driver.pushEvent({ type: "applied", entry, events: out.events, logIndex: 0 });
+    });
+
+    // Hold frame first; the set piece presents on the first tick and stages its reveal sans Continue.
+    act(() => vi.advanceTimersByTime(BEAT_INTERVAL_MS));
+    expect(screen.getByTestId(reveal)).toBeInTheDocument();
+    expect(screen.queryByTestId("choreography-continue")).toBeNull();
+    expect(screen.getByTestId("presentation-skip")).toBeInTheDocument();
+
+    // The set-piece frame dwells past the base interval…
+    act(() => vi.advanceTimersByTime(BEAT_INTERVAL_MS));
+    expect(screen.getByTestId("presentation-drain")).toBeInTheDocument();
+    // …and the drain completes after the dwell; the reveal lingers at the tip WITH Continue.
+    act(() => vi.advanceTimersByTime(SET_PIECE_DWELL_MS));
+    expect(screen.queryByTestId("presentation-drain")).toBeNull();
+    expect(screen.getByTestId(reveal)).toBeInTheDocument();
+    expect(screen.getByTestId("choreography-continue")).toBeInTheDocument();
+  });
+
+  test("a mid-drain reveal belongs to ITS beat — later beats return the waiting line; the reveal lingers at the tip", async () => {
+    // A combat early in a burst must not sit frozen over unrelated placement beats presenting
+    // around it; but the drain-end hand-off keeps today's tip contract (Continue dismisses).
+    const { snapshot, applied } = placementBurst(3, 3);
+    const combat = { kind: "combat", target: hex(0, 0, 0), committed: 4, attackerWon: true } as const;
+    // The choreography staging keys off the batch's EVENTS, not the folded entry (the store folds
+    // the entry; presentation stages from events) — same seam the existing combat test uses.
+    const withCombat = { ...applied[1]!, events: [combat] };
+    const driver = await mountPaced(snapshot, rosterOf(3), [applied[0]!.entry.player]);
+
+    act(() => {
+      driver.pushEvent(applied[0]!);
+      driver.pushEvent(withCombat);
+      driver.pushEvent(applied[2]!);
+    });
+
+    // Hold frame → first agent beat (the combat) presents and stages its reveal.
+    act(() => vi.advanceTimersByTime(BEAT_INTERVAL_MS));
+    expect(screen.getByTestId("combat-reveal")).toBeInTheDocument();
+
+    // The combat frame dwells; the NEXT beat is a plain placement — the reveal steps aside.
+    act(() => vi.advanceTimersByTime(SET_PIECE_DWELL_MS));
+    expect(screen.queryByTestId("combat-reveal")).toBeNull();
+    expect(screen.getByTestId("waiting-notice")).toBeInTheDocument();
+
+    // Drain completes: the lingering reveal takes the tip WITH Continue (today's contract).
+    act(() => vi.advanceTimersByTime(BEAT_INTERVAL_MS));
+    expect(screen.getByTestId("combat-reveal")).toBeInTheDocument();
+    expect(screen.getByTestId("choreography-continue")).toBeInTheDocument();
+  });
+
+  test("victory waits for the drain: the killing blow presents, labels swap on the final frame, then the set piece", async () => {
+    const { snapshot, applied } = remoteBuildBurst();
+    const buildKey = hexKey((applied[0]!.entry as Extract<LogEntry, { kind: "build" }>).pieces[0]!.hex);
+    const driver = await mountPaced(snapshot, rosterOf(2), [1]);
+    act(() => {
+      driver.pushEvent(applied[0]!);
+      driver.pushEvent({ type: "gameOver", winners: [0], cause: "iron" });
+    });
+
+    // Still draining — the ending is NOT announced by the set piece yet.
+    expect(screen.queryByTestId("victory")).toBeNull();
+    expect(screen.getByTestId("presentation-drain")).toBeInTheDocument();
+
+    act(() => vi.advanceTimersByTime(BEAT_INTERVAL_MS));
+    // The killing-blow frame: the board shows it, and the labels already tell the outcome.
+    expect(baseAt(buildKey)).not.toBeNull();
+    expect(screen.getByTestId("turn-banner").textContent).toMatch(/victory — player 1/i);
+    expect(screen.queryByTestId("victory")).toBeNull();
+
+    act(() => vi.advanceTimersByTime(BEAT_INTERVAL_MS));
+    expect(screen.getByTestId("victory")).toBeInTheDocument();
+  });
+
+  test("the turn-order ceremony never fires mid-drain — it surfaces when the drain completes", async () => {
+    const { snapshot, applied } = remoteBuildBurst();
+    const driver = await mountPaced(snapshot, rosterOf(2), [1]);
+    act(() => {
+      driver.pushEvent(applied[0]!);
+      driver.pushEvent({ type: "turnRollover", order: [1, 0], ironWeights: [3, 5] });
+    });
+
+    expect(screen.queryByRole("region", { name: /turn order draw/i })).toBeNull();
+
+    act(() => vi.advanceTimersByTime(BEAT_INTERVAL_MS));
+    act(() => vi.advanceTimersByTime(BEAT_INTERVAL_MS));
+    expect(screen.queryByTestId("presentation-drain")).toBeNull();
+    expect(screen.getByRole("region", { name: /turn order draw/i })).toBeInTheDocument();
+  });
+
+  test("a rejection notice never overlays the draining scene — it surfaces at the tip", async () => {
+    const { snapshot, applied } = remoteBuildBurst();
+    const driver = await mountPaced(snapshot, rosterOf(2), [1]);
+    act(() => {
+      driver.pushEvent(applied[0]!);
+      driver.pushEvent({ type: "rejected", code: "BUILD_OVER_BUDGET", message: "over", currentLogIndex: null });
+    });
+
+    expect(screen.queryByTestId("rejection-notice")).toBeNull();
+
+    act(() => vi.advanceTimersByTime(BEAT_INTERVAL_MS));
+    act(() => vi.advanceTimersByTime(BEAT_INTERVAL_MS));
+    expect(screen.getByTestId("rejection-notice")).toBeInTheDocument();
+  });
+});
+
+describe("GameScreen — victory iron fallback", () => {
+  test("an iron-less winner gets their surviving bases brass-marked so the ending is never blank", async () => {
+    // Winner seat 1 holds one base far from every iron deposit: controlOf(1).iron is empty, so the
+    // spatial story falls back to the winner's own structure.
+    const base = playState();
+    const farHex = base.board.hexes.find(
+      (h) => base.board.iron.every((iron) => Math.max(Math.abs(h.x - iron.x), Math.abs(h.y - iron.y), Math.abs(h.z - iron.z)) > 5)
+        && !base.bases.some((b) => b.hex.x === h.x && b.hex.y === h.y && b.hex.z === h.z),
+    )!;
+    const state: GameState = {
+      ...base,
+      bases: [...base.bases, { owner: 1, hex: farHex, state: "fresh", order: 99 }],
+    };
+    expect(controlOf(state, 1).iron).toHaveLength(0);
+
+    const driver = renderGame(state, [0, 1]);
+    await screen.findByTestId("composer-lane");
+    act(() => {
+      driver.pushEvent({ type: "gameOver", winners: [1], cause: "elimination" });
+    });
+    await screen.findByTestId("victory");
+
+    const cell = document.querySelector(`polygon[data-hex="${hexKey(farHex)}"]`) as SVGPolygonElement;
+    expect(cell.getAttribute("data-selected")).toBe("true");
   });
 });

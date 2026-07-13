@@ -27,7 +27,7 @@ This document serves three audiences. Start here, then go directly to the sectio
 | 1 | [Geometry & Engine](#section-1-geometry--engine) | Hex math, coordinate projection, PRNG threading, derived state | GEO-1 – GEO-8 | §1.C |
 | 2 | [Durable Object Host](#section-2-durable-object-host) | The `GameRoom` DO — storage, ordering, identity, auth, alarms, hibernation, tests | DO-PURITY-1 – DO-TEST-1 | §2.C |
 | 3 | [Wire Protocol](#section-3-wire-protocol) | The `ClientCommand`/`ServerMessage` boundary and the session-layer error mappers | WIRE-MAP-1 – WIRE-SHAPE-1 | §3.C |
-| 4 | [Web Client (CSS/design-system)](#section-4-web-client-cssdesign-system) | The `web/src/design/` token stylesheet and any component composing its utility classes, a composer re-deriving engine eligibility client-side, a component mixing border shorthand/longhand in inline styles, the bundle guard, reload/loop guards, shell layout, or the interactive SVG board | WEB-1 – WEB-7 | §4.C |
+| 4 | [Web Client (CSS/design-system)](#section-4-web-client-cssdesign-system) | The `web/src/design/` token stylesheet and any component composing its utility classes, a composer re-deriving engine eligibility client-side, a component mixing border shorthand/longhand in inline styles, the bundle guard, reload/loop guards, shell layout, or the interactive SVG board | WEB-1 – WEB-8 | §4.C |
 | — | [Orchestration](#orchestration) | Parallel subagent dispatch and output persistence | ORCH-1 | §Orchestration.C |
 | A | [Historical Changelog](#appendix-a-historical-changelog) | Provenance, validation dates, review process meta-observations | — | — |
 | B | [Unified Summary Table](#appendix-b-unified-summary-table) | All pitfalls at a glance, with severity and status | — | — |
@@ -411,6 +411,18 @@ The broken-perimeter death clock (`applyEliminations`, cause `brokenPerimeterAt1
 
 ---
 
+### WEB-8: An `applied`'s `events` Are `applyEntry`'s Events — EMPTY for Setup Placements, So Event-Keyed Client Features Silently Miss Them
+
+**The Flaw:** The wire `applied` message carries `events: out.events` straight from `applyEntry` (`src/session/agent-drive.ts` `commitEntries`), and `applyEntry` returns `events: []` for `placeFirstBase` (`src/session/round.ts` — only build/attack/pass run the event-emitting composition). A client feature keyed on `applied.events` — narration, board emphasis, beat visibility, set-piece staging — therefore treats every setup placement as an invisible no-op, even though a base visibly appeared on the board.
+
+**Why It Matters:** The drama pass's presentation queue (PR #79) initially classified beat visibility by `events.length > 0`; agent setup placements — the exact "three enemy placements teleport in" case that motivated the feature — would have been dropped as invisible, and no test would have caught it (the pre-existing GameScreen event-log test hand-attaches a synthetic `placed` event to a placement entry, which reads as documentation that the driver emits one; it does not). The same mechanism means the live HUD event log has NEVER narrated setup placements — a pre-existing gap nobody noticed because the board shows the piece anyway. The trap generalizes: `LogEntry` and `GameEvent[]` are two views of one change, and only the entry is guaranteed to describe it.
+
+**The Fix:** Derive board-visible change from the ENTRY as well as the events — `marksOf(entry, events)` (`web/src/game/presentation.ts`) unions the events' hexes with a `placeFirstBase` entry's own hex, and beat visibility is `events.length > 0 || marks.size > 0`. Counters that must stay in parity with the narration log keep counting only real events. Tests pin the `events: []` placement case explicitly.
+
+**The Lesson:** Before keying a feature on a stream's payload, read the PRODUCER (here `commitEntries` → `applyEntry`), not a test that scripts the payload by hand — a boundary fake's scripted events describe what the test author assumed, not what the wire sends. When a message carries both the command (`entry`) and its effects (`events`), the effects list being empty does not mean nothing visible happened.
+
+---
+
 ### Review Checklist
 
 - [ ] **Every utility-class pair expected to compose has an explicit compound-selector override in `tokens.css`** — never rely on stylesheet source order to resolve an equal-specificity collision (WEB-1)
@@ -423,6 +435,7 @@ The broken-perimeter death clock (`applyEliminations`, cause `brokenPerimeterAt1
 - [ ] **A version-mismatch / reload loop-guard marker is cleared (if at all) on the server's compatibility verdict — the first `sync`/`resync` — NEVER on transport `connection:"open"`** — `open` fires on the WebSocket upgrade, before the server decides reload-vs-resync, so clearing on `open` wipes the marker a tick before `reload-required` arrives and reloads forever; the current guard never clears within a page-load cycle (fails safe to the manual-refresh notice), and any test must model the real `open` → `reload-required` order or it rubber-stamps the loop (WEB-5)
 - [ ] **Any flex sibling of the board's hero lane declares an explicit width policy** — a widthless `<aside>` sizes to its content's max-content and one long log line steals the hero's space; invisible to jsdom (WEB-6)
 - [ ] **Every decorative SVG board layer is `pointer-events: none` (inside a `data-board-layer` group), and any click-affordance set derives from the SAME resolution that mounts its handler** — paint order is hit-test order, so an overlay glyph silently swallows its cell's clicks; an affordance derived from a parallel computation (e.g. raw `highlightSets` without the `selectComposer` gate) drifts into pointer cursors over dead cells; when a live click seems ignored, check `document.elementFromPoint` at the target center first (WEB-7)
+- [ ] **Any client feature keyed on `applied.events` also accounts for the ENTRY — `placeFirstBase` folds with `events: []`** — derive board-visible change via `marksOf(entry, events)` (or equivalent), and verify payload assumptions against the producer (`commitEntries` → `applyEntry`), never against a test that scripts the payload by hand (WEB-8)
 
 ---
 
@@ -454,6 +467,10 @@ Pitfalls that arise when a session dispatches parallel subagents and consolidate
 <!-- ## YYYY-MM-DD — <event> -->
 <!-- - Added PREFIX-N (<title>) — <what and why> -->
 <!-- - Updated PREFIX-M — <what changed> -->
+
+## 2026-07-12 — Drama-pass placement-events finding
+
+- Added WEB-8 (An `applied`'s `events` Are `applyEntry`'s Events — Empty for Setup Placements) to Section 4 — the wire `applied` carries `applyEntry`'s events verbatim (`commitEntries`, agent-drive.ts), and `applyEntry(placeFirstBase)` returns `events: []` (round.ts), so any client feature keyed on `applied.events` treats setup placements as invisible. Nearly shipped in the drama pass (PR #79): the presentation queue's beat-visibility check would have dropped agent setup placements — the exact teleporting-placements case the feature exists to fix — and a pre-existing GameScreen test that hand-attaches a synthetic `placed` event to a placement entry reads as (false) documentation that the driver emits one. Fixed by deriving board-visible change from the ENTRY as well (`marksOf(entry, events)` in `web/src/game/presentation.ts`), with the `events: []` placement case test-pinned. The same mechanism means the live HUD event log has never narrated setup placements (pre-existing, unfixed — tracked separately).
 
 ## 2026-07-04 — P4 reload-guard clear-on-open finding
 
@@ -516,6 +533,7 @@ Pitfalls that arise when a session dispatches parallel subagents and consolidate
 | WEB-5 | A Version-Mismatch Loop-Guard Marker Must Clear on the Server's Compatibility Verdict (First `sync`/`resync`), Never on Transport `connection:"open"` | HIGH | VALIDATED | Web Client (CSS/design-system) |
 | WEB-6 | A Flex `<aside>` With No Width Sizes to Its Content's Max-Content — One Long Line Steals the Hero's Space | HIGH | VALIDATED | Web Client (CSS/design-system) |
 | WEB-7 | SVG Overlay Layers Swallow the Cell's Pointer Hits; a Click Affordance Must Derive From the Same Resolution That Mounts Its Handler | HIGH | VALIDATED | Web Client (CSS/design-system) |
+| WEB-8 | An `applied`'s `events` Are `applyEntry`'s Events — Empty for Setup Placements, So Event-Keyed Client Features Silently Miss Them | MEDIUM | VALIDATED | Web Client (CSS/design-system) |
 | ORCH-1 | Analysis Dispatches Must Persist Findings | HIGH | VALIDATED | Orchestration |
 
 Severity levels: `CRITICAL` (production data loss / security), `HIGH` (correctness bug under predictable conditions), `MEDIUM` (correctness bug under edge cases), `LOW` (cleanliness / clarity).

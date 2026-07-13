@@ -265,6 +265,51 @@ describe("createGameStore", () => {
     expect(store.getState().authoritative.pending).toBeNull();
   });
 
+  test("a fold-success applied clears pending — the write-lock means the folded entry IS the resolution", () => {
+    // resolveDefender clears the SESSION's pending but emits only `applied` broadcasts — no
+    // DriverEvent says "pending cleared". If the fold preserved pending, selectComposer would
+    // re-mount a stale DefenderPrompt after the human defends (submitting again → ALREADY_RESOLVED).
+    const snapshot = fixtureState();
+    const driver = makeFakeDriver({ snapshot, roster: fixtureRoster(), controllableSeats: [0, 1], logLength: 0 });
+    const store = createGameStore();
+    store.getState().connectDriver(driver);
+
+    driver.pushEvent({ type: "prompt", pending: fixturePending(1) });
+    expect(store.getState().authoritative.pending).not.toBeNull();
+
+    const entry: LogEntry = {
+      player: 0,
+      kind: "placeFirstBase",
+      hex: legalFirstBaseHexes(snapshot)[0]!,
+      rngBeforeApply: snapshot.rngState,
+    };
+    driver.pushEvent({ type: "applied", entry, events: [], logIndex: 0 });
+
+    expect(store.getState().authoritative.pending).toBeNull();
+  });
+
+  test("an applied that does NOT fold (log-index drift) does not clear pending — the resync's authoritative pending survives", () => {
+    // The drift path must not treat a rejected fold as a resolution. The fake's requestSync
+    // replies synchronously with its scripted sync (carrying the still-open pending), mirroring
+    // the real drivers, so the observable contract is: after drift, pending is the SYNC's pending.
+    const snapshot = fixtureState();
+    const pending = fixturePending(1);
+    const driver = makeFakeDriver({ snapshot, roster: fixtureRoster(), controllableSeats: [0, 1], logLength: 0, pending });
+    const store = createGameStore();
+    store.getState().connectDriver(driver);
+    expect(store.getState().authoritative.pending).toBe(pending);
+
+    const entry: LogEntry = {
+      player: 0,
+      kind: "placeFirstBase",
+      hex: legalFirstBaseHexes(snapshot)[0]!,
+      rngBeforeApply: snapshot.rngState,
+    };
+    driver.pushEvent({ type: "applied", entry, events: [], logIndex: 7 }); // ahead — no fold, resync instead
+
+    expect(store.getState().authoritative.pending).toBe(pending);
+  });
+
   test("a non-controllable prompt still clears the preview — it is an authoritative event even though pending doesn't change", () => {
     const snapshot = fixtureState();
     const driver = makeFakeDriver({ snapshot, roster: fixtureRoster(), controllableSeats: [0] });
