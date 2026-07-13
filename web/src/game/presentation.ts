@@ -65,6 +65,19 @@ export function marksOf(entry: LogEntry, events: readonly GameEvent[]): Set<stri
   return keys;
 }
 
+/** The events to NARRATE in the event log for a folded beat. Usually the beat's own events — but a
+ *  `placeFirstBase` fold emits NO events (round.ts returns events:[]), so a `placed` event
+ *  synthesized from the entry is the ONLY way the log can narrate the setup placement the board just
+ *  showed (WEB-8). Mirrors marksOf: the ENTRY, not just the events, describes the change. The SAME
+ *  returned array MUST feed the event log AND the presentation beat's `events`, so the appended /
+ *  presented cursors stay in parity with the log's length (the mid-drain tail windowing depends on it). */
+export function narrationOf(entry: LogEntry, events: readonly GameEvent[]): readonly GameEvent[] {
+  if (entry.kind === "placeFirstBase") {
+    return [...events, { kind: "placed", piece: "base", hex: entry.hex, owner: entry.player }];
+  }
+  return events;
+}
+
 /** One folded beat: the post-fold authoritative state, the batch's events (narration + set-piece
  *  staging), and the marks (cell pulses + visibility — a superset of the events' hexes). */
 export type PresentationBeat = { state: GameState; events: readonly GameEvent[]; marks: Set<string> };

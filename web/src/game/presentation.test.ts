@@ -7,6 +7,7 @@ import {
   stageableFrom,
   emphasisKeysOf,
   marksOf,
+  narrationOf,
   beatDelayMs,
   BEAT_INTERVAL_MS,
   BEAT_INTERVAL_FAST_MS,
@@ -79,18 +80,36 @@ describe("marksOf", () => {
   });
 });
 
-describe("presentationReducer — placement beats (events empty, marks carry the change)", () => {
-  test("a paced placement beat is VISIBLE — it opens a drain and pulses its mark on present", () => {
+describe("narrationOf", () => {
+  test("synthesizes a placed event for a placeFirstBase entry, which applyEntry leaves eventless", () => {
+    // THE motivating case: a real placement folds with events:[] (round.ts), so the log would
+    // narrate nothing without deriving a `placed` event from the entry — WEB-8's live-HUD gap.
+    const entry: LogEntry = { player: 1, kind: "placeFirstBase", hex: HEX_A, rngBeforeApply: 0n as never };
+    expect(narrationOf(entry, [])).toEqual([{ kind: "placed", piece: "base", hex: HEX_A, owner: 1 }]);
+  });
+
+  test("returns a beat's real events unchanged for non-placement entries (builds already emit placed)", () => {
+    const entry: LogEntry = { player: 1, kind: "build", pieces: [], rngBeforeApply: 0n as never };
+    const events = [placedA, placedB];
+    expect(narrationOf(entry, events)).toBe(events);
+  });
+});
+
+describe("presentationReducer — placement beats (a synthesized placed event carries the narration)", () => {
+  test("a paced placement beat is VISIBLE — it opens a drain, pulses its mark, and advances the cursor", () => {
+    // A placeFirstBase folds with events:[] (round.ts; WEB-8); GameScreen synthesizes a `placed`
+    // event from the entry (narrationOf) and feeds the SAME array to the log and the beat, so the
+    // appended/presented cursor advances in lockstep with the event log's length.
     const s = reduce(
       synced,
-      { type: "beat", paced: true, state: S1, events: [], marks: new Set(["1,-1,0"]) },
+      { type: "beat", paced: true, state: S1, events: [placedA], marks: new Set(["1,-1,0"]) },
       { type: "tick" },
     );
     expect(s.frame!.state).toBe(S1);
     expect(s.emphasis!.keys).toEqual(new Set(["1,-1,0"]));
-    // No events were appended to the log for a placement, so the cursor stays put.
-    expect(s.appended).toBe(0);
-    expect(s.presented).toBe(0);
+    // The synthesized placed event advances the cursor: appended on arrival, presented on the tick.
+    expect(s.appended).toBe(1);
+    expect(s.presented).toBe(1);
   });
 });
 

@@ -23,6 +23,7 @@ import {
   INITIAL_PRESENTATION,
   presentationReducer,
   marksOf,
+  narrationOf,
   beatDelayMs,
   stageableFrom,
 } from "../game/presentation";
@@ -355,7 +356,11 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
           return;
         }
         if (event.type === "applied") {
-          dispatchEventLog({ type: "append", events: event.events });
+          // A `placeFirstBase` folds with events:[] (round.ts; WEB-8), so narration is synthesized
+          // from the entry. The SAME array feeds the log AND the beat below, keeping the
+          // presentation's appended/presented cursors in parity with the log's length.
+          const narrated = narrationOf(event.entry, event.events);
+          dispatchEventLog({ type: "append", events: narrated });
           // The store subscribed first (connectDriver above; drivers fan out in insertion order),
           // so by here it has already folded this entry — the post-fold state IS this beat's
           // frame. If that ordering ever broke, foldOk fails and the beat degrades to an unpaced
@@ -372,8 +377,8 @@ function PlayView({ header, createDriver, injectedStore, reloadFn, reloadStorage
           const marks = marksOf(event.entry, event.events);
           dispatchPresentation(
             paced && folded.state !== null
-              ? { type: "beat", paced: true, state: folded.state, events: event.events, marks }
-              : { type: "beat", paced: false, state: foldOk ? folded.state : null, events: event.events, marks },
+              ? { type: "beat", paced: true, state: folded.state, events: narrated, marks }
+              : { type: "beat", paced: false, state: foldOk ? folded.state : null, events: narrated, marks },
           );
           // A landed attack that belongs to a still-acting controllable player opens the chain-continue
           // beat; any other applied (a build, a setup placement, an agent move) clears it.
